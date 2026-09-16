@@ -57,14 +57,22 @@ async function createAgentRequest(token: string): Promise<APIRequestContext> {
   });
 }
 
-/** Invoke a heartbeat run for an agent, returning the run ID. */
+/**
+ * Invoke a heartbeat run for an agent, returning the run ID.
+ *
+ * Posts the wakeup exactly once. A second on-demand wake for the same
+ * (agent, issue) pair while the first has not yet produced visible progress
+ * reads as a redundant re-poll to the server's rewake throttle, so this
+ * never re-posts — it only reads state after the single post.
+ */
 async function invokeHeartbeat(
   board: APIRequestContext,
   agentId: string,
   issueId: string,
 ): Promise<string> {
-  const res = await board.post(`${BASE_URL}/api/agents/${agentId}/heartbeat/invoke`, {
+  const res = await board.post(`${BASE_URL}/api/agents/${agentId}/wakeup`, {
     data: {
+      source: "on_demand",
       reason: "issue_assigned",
       payload: { issueId, taskId: issueId, taskKey: issueId },
     },
@@ -73,49 +81,62 @@ async function invokeHeartbeat(
   const run = await res.json();
   if (typeof run.id === "string" && run.id.length > 0) return run.id;
 
-  // A stage transition can already be replacing the previous executor's run
-  // with the participant's queued run. If the legacy invoke is skipped and
-  // that run has already released the issue lock, recover it from the agent's
-  // recent run receipts.
-  const deadline = Date.now() + 3_000;
-  do {
+  // A stage transition can invoke the next participant before the prior
+  // stage's run has released the issue's execution lock. When that is why
+  // this wake was skipped, the server names the exact run holding the lock
+  // instead of silently dropping the wake.
+  if (typeof run.executionRunId === "string" && run.reason === "issue_execution_deferred") {
+    if (run.executionAgentId === agentId) {
+      // The lock is already held by a run for this same agent on this same
+      // issue (for example one started when the issue was assigned) — that
+      // run is this agent's current turn, so use it directly.
+      return run.executionRunId;
+    }
+    // A different agent holds the lock (the prior stage's participant).
+    // Wait for that run to finish — it promotes this wake into a real run
+    // as part of releasing the lock — instead of guessing how long the
+    // release takes.
+    for (;;) {
+      const runRes = await board.get(`${BASE_URL}/api/heartbeat-runs/${run.executionRunId}`);
+      if (runRes.ok()) {
+        const blockingRun = await runRes.json();
+        if (blockingRun.status !== "queued" && blockingRun.status !== "running") break;
+      }
+      await new Promise((resolve) => setTimeout(resolve, 100));
+    }
+  }
+
+  // Read the issue's own run-lock fields, and this agent's recent runs,
+  // until this agent's run for this issue appears. Negative-authorization
+  // tests invoke a non-participant on purpose, so an assignee mismatch is a
+  // genuine rejection to return untouched, not a signal to keep waiting for
+  // a run that must never exist for that agent.
+  for (;;) {
     const issueRunLock = await getIssueRunLockState(board, issueId);
     if (issueRunLock.assigneeAgentId !== agentId) {
-      // Negative authorization cases intentionally invoke a non-participant.
-      // Preserve the server rejection instead of waiting for a run that must
-      // never be assigned to that agent.
       return issueRunLock.executionRunId ?? issueRunLock.checkoutRunId ?? "";
     }
-    const candidates = new Set<string>([
-      run.executionRunId,
-      issueRunLock.executionRunId,
-      issueRunLock.checkoutRunId,
-    ].filter((candidate): candidate is string => Boolean(candidate)));
+    const settledRunId = issueRunLock.checkoutRunId ?? issueRunLock.executionRunId;
+    if (settledRunId) return settledRunId;
+
     const recentRunsRes = await board.get(
       `${BASE_URL}/api/companies/${issueRunLock.companyId}/heartbeat-runs?agentId=${agentId}&limit=20`,
     );
     if (recentRunsRes.ok()) {
       const recentRuns = await recentRunsRes.json();
       for (const recentRun of Array.isArray(recentRuns) ? recentRuns : []) {
-        if (typeof recentRun.id === "string") candidates.add(recentRun.id);
-      }
-    }
-    for (const candidate of candidates) {
-      const runRes = await board.get(`${BASE_URL}/api/heartbeat-runs/${candidate}`);
-      if (!runRes.ok()) continue;
-      const candidateRun = await runRes.json();
-      const context = candidateRun.contextSnapshot ?? {};
-      if (
-        candidateRun.agentId === agentId &&
-        (context.issueId === issueId || context.taskId === issueId)
-      ) {
-        return candidate;
+        const context = recentRun.contextSnapshot ?? {};
+        if (
+          typeof recentRun.id === "string" &&
+          recentRun.agentId === agentId &&
+          (context.issueId === issueId || context.taskId === issueId)
+        ) {
+          return recentRun.id;
+        }
       }
     }
     await new Promise((resolve) => setTimeout(resolve, 50));
-  } while (Date.now() < deadline);
-
-  throw new Error(`No issue-bound heartbeat run became available for agent ${agentId}`);
+  }
 }
 
 async function getIssueRunLockState(board: APIRequestContext, issueId: string): Promise<IssueRunLockState> {
