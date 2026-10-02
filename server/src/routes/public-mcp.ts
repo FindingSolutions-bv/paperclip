@@ -3,8 +3,9 @@ import { Server } from "@modelcontextprotocol/sdk/server/index.js";
 import { StreamableHTTPServerTransport } from "@modelcontextprotocol/sdk/server/streamableHttp.js";
 import { CallToolRequestSchema, ListToolsRequestSchema } from "@modelcontextprotocol/sdk/types.js";
 import { z } from "zod";
-import { publicMcpEventDefinitions, type PublicMcpEvents } from "../services/public-mcp/events.js";
+import { type PublicMcpEvents } from "../services/public-mcp/events.js";
 import { McpEventError } from "../services/public-mcp/event-webhooks.js";
+import type { PublicMcpToolExtension } from "../services/public-mcp/dot-runner.js";
 import { PUBLIC_MCP_PATH, PUBLIC_MCP_SCOPES, mcpConsentSchema } from "@paperclipai/shared";
 import { McpOAuthError, type PublicMcpOAuth } from "../services/public-mcp/oauth.js";
 import { McpApiError, McpCapabilityError, publicMcpCapabilities, type createPublicMcpExecutor } from "../services/public-mcp/capabilities.js";
@@ -35,7 +36,7 @@ function authRateLimit(): RequestHandler {
   };
 }
 
-export function publicMcpIngressRoutes(oauth: PublicMcpOAuth, execute: ReturnType<typeof createPublicMcpExecutor>, events?: PublicMcpEvents) {
+export function publicMcpIngressRoutes(oauth: PublicMcpOAuth, execute: ReturnType<typeof createPublicMcpExecutor>, events?: PublicMcpEvents, extension?: PublicMcpToolExtension) {
   const router = Router();
   const { origin, resource } = oauth.config;
   const prefix = origin + "/mcp/oauth";
@@ -79,14 +80,17 @@ export function publicMcpIngressRoutes(oauth: PublicMcpOAuth, execute: ReturnTyp
     }
     if (req.method !== "POST") { res.setHeader("Allow", "POST"); res.status(405).end(); return; }
     const listTools = async () => ({
-      tools: publicMcpCapabilities.map((c) => ({
+      tools: [...publicMcpCapabilities.map((c) => ({
         name: c.name, description: c.description, inputSchema: z.toJSONSchema(c.schema) as { type: "object"; properties: Record<string, unknown> },
         annotations: { readOnlyHint: !c.write, destructiveHint: false, idempotentHint: true, openWorldHint: !!c.write },
-      })),
+      })), ...await extension?.listTools(principal!) ?? []],
     });
     const callTool = async (request: z.infer<typeof CallToolRequestSchema>) => {
       try {
-        const result = await execute(token!, request.params.name, request.params.arguments ?? {});
+        const extensionTools = await extension?.listTools(principal!) ?? [];
+        const result = extensionTools.some(t => t.name === request.params.name)
+          ? await extension!.callTool(principal!, request.params.name, request.params.arguments ?? {})
+          : await execute(token!, request.params.name, request.params.arguments ?? {});
         return { isError: result.outcome === "unknown" || result.outcome === "rejected", content: [{ type: "text", text: JSON.stringify(result) }], structuredContent: result };
       } catch (error) {
         const message = error instanceof z.ZodError ? "Invalid tool arguments."
@@ -123,7 +127,7 @@ export function publicMcpIngressRoutes(oauth: PublicMcpOAuth, execute: ReturnTyp
           case "events/list":
             if (!events) { fail(-32601, "Events are unavailable."); return; }
             if (params.cursor != null) { fail(-32602, "Invalid event catalog cursor."); return; }
-            result = { events: publicMcpEventDefinitions }; break;
+            result = { events: events.definitions }; break;
           case "events/subscribe": {
             if (!events) { fail(-32601, "Events are unavailable."); return; }
             // The broker supplies its original access proof only for hosted subscriptions.

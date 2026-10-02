@@ -10,7 +10,7 @@ import { type ApiDispatch } from "./capabilities.js";
 import { PublicMcpDisabledError, type McpPrincipal, type PublicMcpOAuth } from "./oauth.js";
 import { boundedJson, callbackUrl, eventFetch, McpEventError, postEvent, signingKey, verifyCallback, type EventFetch } from "./event-webhooks.js";
 
-const names = ["paperclip.task.status_changed", "paperclip.task.comment_created", "paperclip.task.document_updated"] as const;
+const names = ["paperclip.task.status_changed", "paperclip.task.comment_created", "paperclip.task.document_updated", "paperclip.dot.work_available"] as const;
 const filters = z.object({ companyId: z.uuid(), taskId: z.uuid(), statuses: z.array(z.enum(ISSUE_STATUSES)).min(1).max(ISSUE_STATUSES.length).optional() }).strict();
 const common = { name: z.enum(names), arguments: filters, delivery: z.object({ mode: z.literal("webhook"), url: z.string().max(2048), secret: z.string().max(100).optional() }).strict(), _meta: z.record(z.string(), z.unknown()).optional() };
 const subscribeSchema = z.object({ ...common, ttlMs: z.number().int().positive().nullable().optional(), cursor: z.null().optional() }).strict();
@@ -23,7 +23,7 @@ type Subscription = typeof subscriptions.$inferSelect;
 export type CloudEventAuthority = { token: string; expiresAt: number };
 type Destination = { url: string; secret: string; previousSecret?: string; previousUntil?: number; cloud?: CloudEventAuthority };
 
-export const publicMcpEventDefinitions = names.map((name, index) => ({
+export const publicMcpEventDefinitions = names.slice(0, 3).map((name, index) => ({
   name,
   description: [
     "A Paperclip task changes status, including completion or a blocker. Subscribe only when the user asks to monitor this task; optional statuses restrict delivery. Read the task and deliverables after an event to confirm current state.",
@@ -38,7 +38,14 @@ export const publicMcpEventDefinitions = names.map((name, index) => ({
   }).strict()),
 }));
 
-export function createPublicMcpEvents(db: Db, oauth: PublicMcpOAuth, api: ApiDispatch, options: { fetch?: EventFetch; now?: () => number; cloudOrigin?: string } = {}) {
+const dotEventDefinition = {
+  name: names[3],
+  description: "A runner assignment is available for an explicitly bound Dot. Subscribe to the designated inbox task only when asked to work as this agent. Read paperclip_dot_inbox for current authorized work; duplicate events never imply a second assignment.",
+  delivery: ["webhook"], inputSchema: z.toJSONSchema(filters.omit({ statuses: true })),
+  payloadSchema: z.toJSONSchema(z.object({ companyId: z.uuid(), taskId: z.uuid(), url: z.url(), runId: z.uuid(), agentId: z.uuid(), turnId: z.uuid(), messageId: z.uuid() }).strict()),
+};
+
+export function createPublicMcpEvents(db: Db, oauth: PublicMcpOAuth, api: ApiDispatch, options: { fetch?: EventFetch; now?: () => number; cloudOrigin?: string; enableDotPrototype?: boolean } = {}) {
   const fetcher = options.fetch ?? eventFetch;
   const now = options.now ?? Date.now;
   const cloudOrigin = options.cloudOrigin ?? process.env.PAPERCLIP_CLOUD_API_ORIGIN;
@@ -70,6 +77,7 @@ export function createPublicMcpEvents(db: Db, oauth: PublicMcpOAuth, api: ApiDis
     return "sub_" + createHash("sha256").update(canonical([principal.grant.id, callbackUrl(input.delivery.url), input.name, input.arguments])).digest("hex");
   }
   function validate(input: z.infer<typeof unsubscribeSchema>) {
+    if (input.name === names[3] && !options.enableDotPrototype) throw new McpEventError(-32602, "Dot prototype events are disabled.");
     if (input.name !== names[0] && input.arguments.statuses) throw new McpEventError(-32602, "Only status events accept statuses.");
     if (input.arguments.statuses) input.arguments.statuses = [...new Set(input.arguments.statuses)].sort();
   }
@@ -151,9 +159,12 @@ export function createPublicMcpEvents(db: Db, oauth: PublicMcpOAuth, api: ApiDis
       const changedStatus = changes ? Object.hasOwn(changes, "status") : previous?.status !== details.status;
       const wanted = s.name === names[0] ? ["issue.updated", "issue.checked_out", "issue.released"].includes(activity.action) && changedStatus && ISSUE_STATUSES.includes(details.status as typeof ISSUE_STATUSES[number]) && (!Array.isArray(s.arguments.statuses) || s.arguments.statuses.includes(details.status))
         : s.name === names[1] ? activity.action === "issue.comment_added" && z.uuid().safeParse(details.commentId).success
-        : ["issue.document_created", "issue.document_updated"].includes(activity.action) && typeof details.key === "string" && typeof details.revisionNumber === "number";
+        : s.name === names[2] ? ["issue.document_created", "issue.document_updated"].includes(activity.action) && typeof details.key === "string" && typeof details.revisionNumber === "number"
+        : options.enableDotPrototype && activity.action === "dot.work_available" && [details.runId, details.agentId, details.turnId, details.messageId].every(v => z.uuid().safeParse(v).success);
       const data = { companyId: s.companyId, taskId: s.taskId, url: oauth.config.origin + "/" + encodeURIComponent(company.prefix) + "/issues/" + s.taskId,
-        ...(s.name === names[0] ? { status: details.status } : s.name === names[1] ? { commentId: details.commentId } : { documentKey: details.key, revisionNumber: details.revisionNumber }) };
+        ...(s.name === names[0] ? { status: details.status } : s.name === names[1] ? { commentId: details.commentId }
+          : s.name === names[2] ? { documentKey: details.key, revisionNumber: details.revisionNumber }
+          : { runId: details.runId, agentId: details.agentId, turnId: details.turnId, messageId: details.messageId }) };
       // Nonmatching activity also gets a receipt, so it cannot starve later matches.
       await db.insert(deliveries).values({ subscriptionId: s.id, activityId: activity.id,
         event: wanted ? { eventId: "evt_" + activity.id, name: s.name, timestamp: activity.createdAt.toISOString(), data, cursor: null } : {},
@@ -178,6 +189,7 @@ export function createPublicMcpEvents(db: Db, oauth: PublicMcpOAuth, api: ApiDis
     const finish = (outcome: string) => db.update(deliveries).set({ finishedAt: new Date(now()), outcome }).where(eq(deliveries.id, claim.id));
     const [s] = await db.select().from(subscriptions).where(eq(subscriptions.id, claim.subscriptionId));
     if (!s || s.stoppedAt || s.expiresAt.getTime() <= now()) { await finish("inactive"); return true; }
+    if (s.name === names[3] && !options.enableDotPrototype) { await finish("dot_prototype_disabled"); return true; }
     let destination: Destination;
     try {
       const principal = await oauth.authorizeGrant(s.grantId);
@@ -221,6 +233,7 @@ export function createPublicMcpEvents(db: Db, oauth: PublicMcpOAuth, api: ApiDis
   })().finally(() => { running = null; }));
   let timer: NodeJS.Timeout | undefined;
   return { subscribe, unsubscribe, tick,
+    definitions: [...publicMcpEventDefinitions, ...(options.enableDotPrototype ? [dotEventDefinition] : [])],
     start() { if (!timer) { timer = setInterval(() => { void tick().catch(() => logger.warn("Public MCP event delivery tick failed")); }, 2000); timer.unref(); } },
     async stop() { if (timer) clearInterval(timer); timer = undefined; await running?.catch(() => {}); },
   };
