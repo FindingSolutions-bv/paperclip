@@ -1,6 +1,10 @@
 import { browserUseRoutes } from "./routes/browser-use.js";
 import { browserUseService } from "./services/browser-use.js";
 import { slackToolRoutes } from "./routes/slack-tools.js";
+import { createPublicMcpOAuth, publicMcpConfig } from "./services/public-mcp/oauth.js";
+import { createMcpApiDispatch, createPublicMcpExecutor } from "./services/public-mcp/capabilities.js";
+import { createPublicMcpEvents, type PublicMcpEvents } from "./services/public-mcp/events.js";
+import { publicMcpIngressRoutes, publicMcpManagementRoutes } from "./routes/public-mcp.js";
 import { agentAvatarRoutes } from "./routes/agent-avatars.js";
 import { aiConnectionRoutes } from "./routes/ai-connections.js";
 import { projectToolRoutes } from "./routes/project-tools.js";
@@ -557,6 +561,13 @@ export async function createApp(
       bindHost: opts.bindHost,
     }),
   );
+  let mcpConfig: ReturnType<typeof publicMcpConfig> = null;
+  try { mcpConfig = publicMcpConfig(process.env, opts.authPublicBaseUrl); }
+  catch { logger.warn("Assistant connections require an HTTPS public URL (HTTP loopback is allowed for development)."); }
+  const publicMcpOAuth = mcpConfig ? createPublicMcpOAuth(db, mcpConfig) : null;
+  const publicMcpIngress = Router();
+  app.use(publicMcpIngress);
+
   app.use(cloudRuntimeIdentityMiddleware(db));
   // Connection-intent tools carry their own short-lived, run-bound bearer and
   // must be reachable by remote adapters that intentionally do not receive an
@@ -959,6 +970,15 @@ export async function createApp(
       authPublicBaseUrl: opts.authPublicBaseUrl,
     }),
   );
+  let publicMcpEvents: PublicMcpEvents | null = null;
+  if (publicMcpOAuth) {
+    const dispatch = createMcpApiDispatch(api);
+    publicMcpEvents = createPublicMcpEvents(db, publicMcpOAuth, dispatch);
+    publicMcpEvents.start();
+    publicMcpIngress.use(publicMcpIngressRoutes(publicMcpOAuth, createPublicMcpExecutor(db, publicMcpOAuth, dispatch), publicMcpEvents));
+    api.use(publicMcpManagementRoutes(publicMcpOAuth));
+  }
+
   app.use("/api", api);
   app.use("/api", (_req, res) => {
     res.status(404).json({ error: "API route not found" });
@@ -1319,6 +1339,7 @@ export async function createApp(
       // The scheduler tick queries the database. Stop it here, inside the
       // awaited teardown, so no tick runs after the caller ends the pool.
       scheduler.stop();
+      await publicMcpEvents?.stop();
       jobCoordinator.stop();
       disableFeedbackExportFlushes();
       unsubscribeChatPublicationSignals();
