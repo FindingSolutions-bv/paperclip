@@ -34,6 +34,10 @@ export type {
   NativeExecutionInput,
   NativeExecutionInputV4,
   NativeExecutionInputV5,
+  NativeExecutionInputV6,
+  DotBindingSnapshot,
+  ExternalProviderPort,
+  ExternalProviderOperation,
   NativeCompletionSource,
   NativeCompletionSources,
   NativeInteractionResponseEnvelope,
@@ -132,3 +136,5 @@ export const NativeProviderTerminalFailure = runner.NativeProviderTerminalFailur
 
 export const completeTerminatedRemoteNativeSessionCleanup = runner.completeTerminatedRemoteNativeSessionCleanup;
 export const completeTerminatedLocalNativeSessionCleanup = runner.completeTerminatedLocalNativeSessionCleanup;
+
+export const externalOperationDigest = runner.externalOperationDigest;

@@ -29,7 +29,7 @@ function McpConnectRequest({ id }: { id: string }) {
       {data && <>
         <p className="text-sm"><strong>{data.clientName}</strong> is requesting access. The connection returns to <span className="font-mono">{data.redirectOrigin}</span>.</p>
         {data.requiresSignIn ? <Button asChild><Link to={`/auth?next=${encodeURIComponent(`/mcp-connect/${id}`)}`}>Sign in / Create account</Link></Button> : <>
-          <p className="text-sm text-muted-foreground">Choose the team this assistant may use as you. Your permissions and attribution apply to every action.</p>
+          <p className="text-sm text-muted-foreground">{data.agentConnection ? "Choose the team whose approved agent this Dot will represent. A separate one-use pairing code binds the connection to that agent; it does not act as you." : "Choose the team this assistant may use as you. Your permissions and attribution apply to every action."}</p>
           <fieldset className="space-y-2">
             <legend className="mb-2 text-sm font-medium">Team</legend>
             {data.companies.map((item) => <label key={item.id} className="flex items-center gap-2 text-sm">
@@ -37,7 +37,7 @@ function McpConnectRequest({ id }: { id: string }) {
             </label>)}
             {!data.companies.length && <p className="text-sm text-muted-foreground">{data.setupUrl ? "No team is available for this account yet. Create a hosted team, configure its agents and spending, then return here. If this request expires, reconnect from your assistant." : "This account has no available teams. Ask a team owner to add you, then reconnect from your assistant."}</p>}
           </fieldset>
-          <p className="text-sm">Read agents, projects, tasks, comments, documents, deliverables and pending approvals.</p>
+          <p className="text-sm">{data.agentConnection ? "Accept assigned work and invoke its governed task tools as the paired agent. Paperclip enforces the current task checkout, permissions and approvals on each call." : "Read agents, projects, tasks, comments, documents, deliverables and pending approvals."}</p>
           {data.requestedWrite && <label className="flex items-start gap-2 text-sm">
             <input type="checkbox" checked={allowWrites} disabled={!company?.canWrite} onChange={(event) => setAllowWrites(event.target.checked)} />
             <span>Also allow creating tasks and adding comments as me. These actions can start or wake agents and use my team's configured execution budget.</span>
@@ -49,7 +49,7 @@ function McpConnectRequest({ id }: { id: string }) {
           {consent.error && <p className="text-sm text-destructive">{consent.error.message}</p>}
           <div className="flex items-center justify-between gap-3">
             <Button variant="outline" disabled={consent.isPending} onClick={() => consent.mutate("deny")}>Cancel</Button>
-            <Button disabled={!company || consent.isPending} onClick={() => consent.mutate("approve")}>{consent.isPending ? "Connecting…" : "Connect team"}</Button>
+            <Button disabled={!company || (data.agentConnection && !company.canWrite) || consent.isPending} onClick={() => consent.mutate("approve")}>{consent.isPending ? "Connecting…" : "Connect team"}</Button>
           </div>
         </>}
         <Link className="text-sm underline" to="/assistant-connections">Manage assistant connections</Link>
@@ -70,7 +70,7 @@ export function AssistantConnectionsPage() {
     {connections.data?.map((connection) => <Card key={connection.id} className="block space-y-2 p-4">
       <h2 className="font-medium">{connection.clientName}</h2>
       <p className="text-sm text-muted-foreground">Team: {connection.companyName}</p>
-      <p className="text-sm">{connection.scopes.includes("paperclip:write") ? "Read, create tasks and comment" : "Read only"}</p>
+      <p className="text-sm">{connection.scopes.includes("paperclip:agent") ? "Dedicated Dot agent access" : connection.scopes.includes("paperclip:write") ? "Read, create tasks and comment" : "Read only"}</p>
       {connection.revokedAt ? <p className="text-sm text-muted-foreground">Revoked</p> : <Button variant="outline" disabled={revoke.isPending} onClick={() => revoke.mutate(connection.id)}>Revoke connection</Button>}
     </Card>)}
     <Link className="text-sm underline" to="/">Back to Paperclip</Link>

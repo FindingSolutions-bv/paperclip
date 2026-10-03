@@ -4259,6 +4259,9 @@ export function normalizePaperclipRunnerAdapterConfig(
 ): Record<string, unknown> {
   if (adapterType !== "paperclip_runner") return config;
   config = normalizeLegacyRunnerProvider(config);
+  if (config.provider === "openai_dot") {
+    return normalizePaperclipOperationalSkillPreference(adapterType, { lifecycleMode: "per_turn", ...config });
+  }
   const next: Record<string, unknown> = {
     provider: "codex",
     codexPermissionMode:

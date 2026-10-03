@@ -95,6 +95,10 @@ export function buildPaperclipRunnerConfig(v: CreateConfigValues): Record<string
   const provider = isPaperclipRunnerProvider(providerCandidate)
     ? providerCandidate
     : "codex";
+  if (provider === "openai_dot") {
+    return { provider, lifecycleMode: "per_turn", allowUnmeteredProvider: schemaValues.allowUnmeteredProvider === true,
+      ...(typeof schemaValues.dotBindingId === "string" ? { dotBindingId: schemaValues.dotBindingId } : {}) };
+  }
   const acpxAgent = schemaValues.acpxAgent === "grok" ? "grok" : "claude";
 
   const schemaModel = typeof schemaValues.model === "string"

@@ -6,7 +6,7 @@ import { z } from "zod";
 import { type PublicMcpEvents } from "../services/public-mcp/events.js";
 import { McpEventError } from "../services/public-mcp/event-webhooks.js";
 import type { PublicMcpToolExtension } from "../services/public-mcp/dot-runner.js";
-import { PUBLIC_MCP_PATH, PUBLIC_MCP_SCOPES, mcpConsentSchema } from "@paperclipai/shared";
+import { DOT_RUNNER_MCP_PATH, DOT_RUNNER_MCP_SCOPES, PUBLIC_MCP_PATH, PUBLIC_MCP_SCOPES, mcpConsentSchema } from "@paperclipai/shared";
 import { McpOAuthError, type PublicMcpOAuth } from "../services/public-mcp/oauth.js";
 import { McpApiError, McpCapabilityError, publicMcpCapabilities, type createPublicMcpExecutor } from "../services/public-mcp/capabilities.js";
 
@@ -39,37 +39,42 @@ function authRateLimit(): RequestHandler {
 export function publicMcpIngressRoutes(oauth: PublicMcpOAuth, execute: ReturnType<typeof createPublicMcpExecutor>, events?: PublicMcpEvents, extension?: PublicMcpToolExtension) {
   const router = Router();
   const { origin, resource } = oauth.config;
-  const prefix = origin + "/mcp/oauth";
-  const resourceMetadata = origin + "/.well-known/oauth-protected-resource" + PUBLIC_MCP_PATH;
-  router.use(["/mcp/oauth", PUBLIC_MCP_PATH], (_req, res, next) => {
+  const endpoint = new URL(resource).pathname;
+  const agentConnection = endpoint === DOT_RUNNER_MCP_PATH;
+  const oauthPath = agentConnection ? endpoint + "/oauth" : "/mcp/oauth";
+  const issuer = agentConnection ? origin + oauthPath : origin;
+  const scopes = agentConnection ? DOT_RUNNER_MCP_SCOPES : PUBLIC_MCP_SCOPES;
+  const prefix = origin + oauthPath;
+  const resourceMetadata = origin + "/.well-known/oauth-protected-resource" + endpoint;
+  router.use([oauthPath, endpoint], (_req, res, next) => {
     res.setHeader("Cache-Control", "no-store");
     res.setHeader("Referrer-Policy", "no-referrer");
     next();
   });
-  router.use(["/.well-known/oauth-protected-resource", "/.well-known/oauth-authorization-server", PUBLIC_MCP_PATH, "/mcp/oauth/register", "/mcp/oauth/authorize", "/mcp/oauth/token"], async (_req, _res, next) => {
+  router.use(["/.well-known/oauth-protected-resource", (agentConnection ? "/.well-known/oauth-authorization-server" + oauthPath : "/.well-known/oauth-authorization-server"), endpoint, oauthPath + "/register", oauthPath + "/authorize", oauthPath + "/token"], async (_req, _res, next) => {
     await oauth.assertEnabled();
     next();
   });
-  router.get(["/.well-known/oauth-protected-resource", "/.well-known/oauth-protected-resource" + PUBLIC_MCP_PATH], (_req, res) => res.json({
-    resource, authorization_servers: [origin], scopes_supported: PUBLIC_MCP_SCOPES, bearer_methods_supported: ["header"],
+  router.get(agentConnection ? ["/.well-known/oauth-protected-resource" + endpoint] : ["/.well-known/oauth-protected-resource", "/.well-known/oauth-protected-resource" + endpoint], (_req, res) => res.json({
+    resource, authorization_servers: [issuer], scopes_supported: scopes, bearer_methods_supported: ["header"],
     resource_name: "Paperclip team",
   }));
-  router.get("/.well-known/oauth-authorization-server", (_req, res) => res.json({
-    issuer: origin, authorization_endpoint: prefix + "/authorize", token_endpoint: prefix + "/token",
+  router.get((agentConnection ? "/.well-known/oauth-authorization-server" + oauthPath : "/.well-known/oauth-authorization-server"), (_req, res) => res.json({
+    issuer, authorization_endpoint: prefix + "/authorize", token_endpoint: prefix + "/token",
     registration_endpoint: prefix + "/register", revocation_endpoint: prefix + "/revoke",
     response_types_supported: ["code"], grant_types_supported: ["authorization_code", "refresh_token"],
     token_endpoint_auth_methods_supported: ["none"], revocation_endpoint_auth_methods_supported: ["none"],
-    code_challenge_methods_supported: ["S256"], scopes_supported: PUBLIC_MCP_SCOPES,
+    code_challenge_methods_supported: ["S256"], scopes_supported: scopes,
   }));
-  router.use("/mcp/oauth", authRateLimit(), express.urlencoded({ extended: false, limit: "16kb" }));
-  router.post("/mcp/oauth/register", async (req, res) => res.status(201).json(await oauth.register(req.body, req.ip ?? req.socket.remoteAddress ?? "unknown")));
-  router.get("/mcp/oauth/authorize", async (req, res) => res.redirect(303, await oauth.authorize(req.query)));
-  router.post("/mcp/oauth/token", async (req, res) => res.json(await oauth.token(req.body ?? {})));
-  router.post("/mcp/oauth/revoke", async (req, res) => {
+  router.use(oauthPath, authRateLimit(), express.urlencoded({ extended: false, limit: "16kb" }));
+  router.post(oauthPath + "/register", async (req, res) => res.status(201).json(await oauth.register(req.body, req.ip ?? req.socket.remoteAddress ?? "unknown")));
+  router.get(oauthPath + "/authorize", async (req, res) => res.redirect(303, await oauth.authorize(req.query)));
+  router.post(oauthPath + "/token", async (req, res) => res.json(await oauth.token(req.body ?? {})));
+  router.post(oauthPath + "/revoke", async (req, res) => {
     if (typeof req.body?.token !== "string" || typeof req.body?.client_id !== "string") throw new McpOAuthError("invalid_request", "A token and client_id are required.");
     await oauth.revokeToken(req.body.token, req.body.client_id); res.status(200).end();
   });
-  router.all(PUBLIC_MCP_PATH, async (req, res) => {
+  router.all(endpoint, async (req, res) => {
     if (req.headers.origin && req.headers.origin !== origin) { res.status(403).json({ error: "Invalid origin" }); return; }
     const token = /^Bearer (\S+)$/i.exec(req.headers.authorization ?? "")?.[1];
     let principal;
@@ -80,7 +85,7 @@ export function publicMcpIngressRoutes(oauth: PublicMcpOAuth, execute: ReturnTyp
     }
     if (req.method !== "POST") { res.setHeader("Allow", "POST"); res.status(405).end(); return; }
     const listTools = async () => ({
-      tools: [...publicMcpCapabilities.map((c) => ({
+      tools: [...(agentConnection ? [] : publicMcpCapabilities).map((c) => ({
         name: c.name, description: c.description, inputSchema: z.toJSONSchema(c.schema) as { type: "object"; properties: Record<string, unknown> },
         annotations: { readOnlyHint: !c.write, destructiveHint: false, idempotentHint: true, openWorldHint: !!c.write },
       })), ...await extension?.listTools(principal!) ?? []],
@@ -90,7 +95,7 @@ export function publicMcpIngressRoutes(oauth: PublicMcpOAuth, execute: ReturnTyp
         const extensionTools = await extension?.listTools(principal!) ?? [];
         const result = extensionTools.some(t => t.name === request.params.name)
           ? await extension!.callTool(principal!, request.params.name, request.params.arguments ?? {})
-          : await execute(token!, request.params.name, request.params.arguments ?? {});
+          : agentConnection ? (() => { throw new McpOAuthError("access_denied", "This tool is unavailable on the agent connection."); })() : await execute(token!, request.params.name, request.params.arguments ?? {});
         return { isError: result.outcome === "unknown" || result.outcome === "rejected", content: [{ type: "text", text: JSON.stringify(result) }], structuredContent: result };
       } catch (error) {
         const message = error instanceof z.ZodError ? "Invalid tool arguments."
@@ -160,8 +165,9 @@ export function publicMcpIngressRoutes(oauth: PublicMcpOAuth, execute: ReturnTyp
   return router;
 }
 
-export function publicMcpManagementRoutes(oauth: PublicMcpOAuth) {
+export function publicMcpManagementRoutes(oauth: PublicMcpOAuth, agentOAuth?: PublicMcpOAuth) {
   const router = Router();
+  const requestOAuth = async (id: string) => agentOAuth && await agentOAuth.ownsRequest(id) ? agentOAuth : oauth;
   const realUser: RequestHandler = (req, _res, next) => {
     if (req.actor.type !== "board" || !req.actor.userId || !["session", "cloud_tenant"].includes(req.actor.source ?? "")) {
       throw new McpOAuthError("access_denied", "Sign in to manage assistant connections.", 401);
@@ -180,12 +186,12 @@ export function publicMcpManagementRoutes(oauth: PublicMcpOAuth) {
       const base = new URL(process.env.PAPERCLIP_CLOUD_API_ORIGIN);
       if (base.protocol === "https:") setupUrl = new URL("/orgs/new", base).toString();
     }
-    res.json(await oauth.describeRequest(String(req.params.id), req.actor, setupUrl));
+    res.json(await (await requestOAuth(String(req.params.id))).describeRequest(String(req.params.id), req.actor, setupUrl));
   });
   router.post("/mcp/requests/:id/consent", realUser, sameOrigin, async (req, res) => {
     const parsed = mcpConsentSchema.safeParse(req.body);
     if (!parsed.success) throw new McpOAuthError("invalid_request", "Choose a company and the requested access.");
-    res.json(await oauth.consent(String(req.params.id), req.actor, parsed.data));
+    res.json(await (await requestOAuth(String(req.params.id))).consent(String(req.params.id), req.actor, parsed.data));
   });
   router.get("/mcp/connections", realUser, async (req, res) => res.json(await oauth.listConnections(req.actor.userId!)));
   router.delete("/mcp/connections/:id", realUser, sameOrigin, async (req, res) => {

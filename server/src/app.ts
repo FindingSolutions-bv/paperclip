@@ -1,3 +1,5 @@
+import { createDotRunnerMcpTools } from "./services/dot-runner-broker.js";
+import { dotRunnerRoutes } from "./routes/dot-runner.js";
 import { browserUseRoutes } from "./routes/browser-use.js";
 import { browserUseService } from "./services/browser-use.js";
 import { slackToolRoutes } from "./routes/slack-tools.js";
@@ -971,12 +973,18 @@ export async function createApp(
     }),
   );
   let publicMcpEvents: PublicMcpEvents | null = null;
+  let dotMcpEvents: PublicMcpEvents | null = null;
   if (publicMcpOAuth) {
     const dispatch = createMcpApiDispatch(api);
     publicMcpEvents = createPublicMcpEvents(db, publicMcpOAuth, dispatch);
     publicMcpEvents.start();
     publicMcpIngress.use(publicMcpIngressRoutes(publicMcpOAuth, createPublicMcpExecutor(db, publicMcpOAuth, dispatch), publicMcpEvents));
-    api.use(publicMcpManagementRoutes(publicMcpOAuth));
+    const dotOAuth = createPublicMcpOAuth(db, { ...publicMcpOAuth.config, resource: publicMcpOAuth.config.origin + "/mcp/runner" });
+    dotMcpEvents = createPublicMcpEvents(db, dotOAuth, dispatch, { enableDotRunner: true });
+    dotMcpEvents.start();
+    publicMcpIngress.use(publicMcpIngressRoutes(dotOAuth, createPublicMcpExecutor(db, dotOAuth, dispatch), dotMcpEvents, createDotRunnerMcpTools(db)));
+    api.use(publicMcpManagementRoutes(publicMcpOAuth, dotOAuth));
+    api.use(dotRunnerRoutes(db, publicMcpOAuth.config.origin + "/mcp/runner"));
   }
 
   app.use("/api", api);
@@ -1340,6 +1348,7 @@ export async function createApp(
       // awaited teardown, so no tick runs after the caller ends the pool.
       scheduler.stop();
       await publicMcpEvents?.stop();
+      await dotMcpEvents?.stop();
       jobCoordinator.stop();
       disableFeedbackExportFlushes();
       unsubscribeChatPublicationSignals();

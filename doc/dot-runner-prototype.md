@@ -1,11 +1,18 @@
 # OpenAI Dot runner prototype
 
+The reference prototype is now accompanied by an experimental Rust Runner
+provider, dedicated `/mcp/runner` agent connection and durable broker. See
+[OpenAI Dot with Paperclip Runner](openai-dot-runner.md) for setup and the
+current qualification limits. The transport proof below remains specific to
+this reference harness.
+
 Built 2026-10-02 on the public MCP foundation from `codex/paperclip-mcp-experimental-setting`
 (commit `a88448f77`), merged into the fresh `codex/dot-events-prototype` worktree.
 
-This is a working **local protocol prototype**, not a production-selectable Dot
-agent. The demo's Dot peer and task authority are synthetic. It does not contact
-OpenAI, spend model credits, or modify an existing company. The new provider
+This is a working **protocol prototype**, not a production-selectable Dot
+agent. The default demo's Dot peer and task authority are synthetic. That demo
+does not contact OpenAI, spend model credits, or modify an existing company.
+The optional live lab below is intended to connect an actual Dot. The new provider
 implements the runner's `HarnessDriver` contract and executes through
 `HarnessDriverBackend`; it does not use the legacy HTTP adapter.
 
@@ -35,6 +42,58 @@ pnpm --filter '@paperclipai/server^...' --filter '!@paperclipai/paperclip-runner
 The local callback uses an injected transport restricted to one fixed synthetic
 HTTPS URL and rewrites it to loopback. The production event transport retains
 its HTTPS, public-IP DNS pinning and no-redirect checks.
+
+## Connect a real Dot to the disposable lab
+
+The separate live lab uses the real remote webhook transport, with no synthetic
+Dot peer or callback override. It still uses synthetic task admission and one
+projected `save_report` tool, so it is a transport acceptance test, not production
+agent scheduling. It requires an existing Dot account with custom plugins.
+
+Expose **only port 43127** through an HTTPS tunnel, then run:
+
+```sh
+cloudflared tunnel --protocol http2 --url http://127.0.0.1:43127 --no-autoupdate
+DOT_LAB_ORIGIN=https://YOUR-TUNNEL-HOST pnpm prototype:dot:live
+```
+
+Add `https://YOUR-TUNNEL-HOST/mcp/paperclip` as an OAuth MCP plugin in the
+account that owns the Dot. The consent page waits for local operator approval.
+The lab prints a local `control.json` path; it contains a temporary credential,
+must stay local, and is removed when the lab stops. The separate control port
+(43128 by default) must never be tunneled. Inspect the pending client and return
+origin before approving its exact request ID:
+
+```sh
+node server/scripts/dot-runner-live-control.mjs /path/to/control.json status
+node server/scripts/dot-runner-live-control.mjs /path/to/control.json approve REQUEST_ID
+```
+
+The consent page then returns to ChatGPT. Give Dot the standing instruction
+printed by the lab, including the exact company and inbox task IDs. Wait for a
+verified `paperclip.dot.work_available` subscription in `status`, then publish
+the assignment from Paperclip's side:
+
+```sh
+node server/scripts/dot-runner-live-control.mjs /path/to/control.json queue
+node server/scripts/dot-runner-live-control.mjs /path/to/control.json status
+```
+
+The expected result is a signed event delivery, Dot reading and accepting the
+assignment, a report saying `17 + 25 = 42`, and a structured runner completion.
+A delivered webhook alone is not a passing test. `status` exposes the report,
+runner transcript and delivery outcome only over authenticated loopback.
+Keep the lab and tunnel running while ChatGPT loads the newly installed tools;
+the plugin directory can list them before Dot can invoke them. A stopped quick
+tunnel cannot be reused just by restarting the lab. A new tunnel address needs
+a plugin configured for that address and fresh OAuth consent. Restarting the
+lab also discards its OAuth client registrations and grants.
+Stop the lab with the local control command (`... control.json stop`), then stop
+the tunnel after the test. Use this command for reliable cleanup; development
+process wrappers may terminate on a signal before asynchronous cleanup finishes.
+The lab expires after two hours,
+revokes its connection on graceful shutdown, and deletes its temporary database
+and encryption key. It never opens the user's existing Paperclip database.
 
 ## Two directions, two explicit identities
 
@@ -91,6 +150,9 @@ The registry has no MCP registration tool and no generic API executor.
   Result acceptance proposes a disposition; it does not directly set issue status.
 
 ## Host wiring and the production gap
+
+The detailed implementation proposal is in
+[OpenAI Dot as a production Runner provider](plans/2026-10-02-openai-dot-runner-adapter.md).
 
 The default app does **not** construct the bridge or advertise the Dot event.
 The host must explicitly pass `enableDotPrototype: true` to
@@ -157,6 +219,93 @@ Recorded validation: eight runner tests passed; all 37 MCP tests passed; the
 changed Dot scenario passed again after the final uncertainty-handling fix;
 runner and server TypeScript checks passed; the loopback CLI demo passed.
 Shared/server dependency builds and the runner TypeScript build also passed.
-The repository-wide test/build, Rust provider qualification, hosted Cloud and
-actual OpenAI Dot acceptance were not run. This is not a PR-ready production
-provider handoff.
+The repository-wide test/build, Rust provider qualification and hosted Cloud
+acceptance were not run. Actual Dot acceptance is recorded below. This is not
+a PR-ready production provider handoff.
+
+Live-lab setup on 2026-10-02: the isolated server started, its public OAuth
+discovery endpoint returned 200, and unauthenticated MCP requests returned 401.
+The live script passed an explicit TypeScript check, and the 37 MCP regression
+tests passed again after changing the bridge to a structural driver interface.
+During that initial setup, no actual Dot connected or subscribed: native desktop automation was unavailable,
+and the inspected browser account showed Dot creation rather than an existing
+Dot. The temporary tunnel subsequently expired; it and the lab were stopped.
+The later attempts below used the correct existing Dot account.
+
+### Actual Dot attempt, 2026-10-02
+
+With the existing Dot open in the correct Chrome profile, the user approved
+installing the private `Paperclip Dot Lab` plugin and its lab-only OAuth grant.
+The first real callback exposed a lab bug: OAuth consent request IDs are opaque
+`pcmcp_request_` tokens, not UUIDs. The live script now validates that format.
+Restarting the disposable database also erased ChatGPT's cached public client
+registration. The exact public client ID and redirect URI were restored only in
+the verified one-company lab database; no grant or token was inserted directly.
+The normal consent and PKCE exchange then completed successfully.
+
+Chrome briefly showed `ERR_BLOCKED_BY_CLIENT`; after the user handled/retried the
+page, it showed the ordinary stale-client server error instead. The browser
+block's originating component was not identified. No browser protection was
+disabled. It should not be confused with the separately diagnosed OAuth error.
+
+Observed live results:
+
+- ChatGPT called authenticated `server/discover`, `tools/list`, and `events/list`
+  using MCP 2026-07-28; all returned HTTP 200.
+- The plugin UI showed its connected account, 10 read tools, 6 write tools, and
+  all four event definitions, including the six Dot runner actions.
+- Dot found `paperclip.dot.work_available` and recognized its argument schema.
+  Initially it reported no Paperclip action tools in its runtime, including the
+  read-only `paperclip_connection`. An explicit @ mention did not make them
+  available immediately.
+- Dot also reported that its event-subscription route requires a successful
+  read-only connection check, so the reduced event-only test could not proceed.
+- The lab observed **zero `tools/call` or `events/subscribe` requests**, zero
+  subscriptions, and zero deliveries. No assignment was queued and no report
+  was saved. This is live discovery/connection evidence, **not** an end-to-end
+  task or event-wakeup pass.
+
+The first lab and tunnel were stopped too early, revoking the temporary grant
+and deleting its database. Dot subsequently reported that the action tools had
+become available, but its connection check failed against that offline endpoint.
+This does not establish a Dot runtime incompatibility. A fresh lab and tunnel
+were connected as `Paperclip Dot Lab Retry`; the new server observed Dot calling
+`paperclip_connection` successfully. The first plugin definition remains
+installed with its expired endpoint. Production still needs the admission,
+durable mailbox, recovery and tool-authority work above.
+
+### Successful real Dot retry, 2026-10-02
+
+The replacement private plugin completed fresh dynamic client registration,
+normal OAuth consent and PKCE without manual database repairs. It used the real
+Dot in the user's Chrome account and the public HTTPS tunnel. The lab retained
+the ordinary callback verification, DNS/IP pinning and webhook signing checks.
+
+Observed server evidence (UTC):
+
+| Time | Observation |
+| --- | --- |
+| 22:16:30 | Dot called `paperclip_connection` successfully. |
+| 22:17:00 | `events/subscribe` succeeded; the verified `paperclip.dot.work_available` subscription was present. |
+| 22:17:24 | The operator queued the single assignment. Its webhook was observed as `delivered` after one attempt. |
+| 22:17:48 | Dot called `paperclip_dot_inbox` after the event, without another chat prompt. |
+| 22:17:56 | Dot read the assignment using `paperclip_dot_read`. |
+| 22:18:10 | Dot accepted it; the native Runner emitted `turn.started`. |
+| 22:18:23 | Dot called `save_report` through `paperclip_dot_tool`; the lab saved exactly one report: `Dot received the Paperclip event. 17 + 25 = 42.` |
+| 22:18:38 | Dot submitted a valid `paperclip.run_result.v1`; the Runner emitted `run.result.proposed`, `turn.completed` and `run.terminal` with state `succeeded`. |
+| 22:18:50 | `events/unsubscribe` succeeded; no subscription remained. |
+
+Dot's final chat message confirmed event receipt and completion. It could not
+confirm complete unsubscription from its client response, but the server
+independently recorded the successful unsubscribe. Removing the subscription
+also removed its delivery rows, so delivery was verified before that cleanup.
+Dot separately disclosed an accidental cloud desktop app inventory call during
+setup; it reported opening no app content and stopping immediately. This test
+proves the transport and Runner handshake, not isolation of Dot's other tools.
+
+This is a **real event-triggered, two-way transport acceptance pass** using the
+new Runner backend. It still uses synthetic admission, one disposable task and
+one projected tool. It does not establish production scheduling, recovery,
+budget enforcement, arbitrary personal API operations, or reliable remote stop.
+The replacement lab was left running for inspection under its two-hour expiry;
+the test subscription was removed and no further assignment was queued.

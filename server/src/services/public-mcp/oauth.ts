@@ -4,9 +4,9 @@ import { and, eq, gt, inArray, isNull, lt, notExists, sql } from "drizzle-orm";
 import { z } from "zod";
 import type { Request } from "express";
 import {
-  type Db, activityLog, companies, mcpOauthClients, mcpOauthGrants, mcpOauthRequests, mcpOauthTokens,
+  type Db, activityLog, companies, agents, mcpOauthClients, mcpOauthGrants, mcpOauthRequests, mcpOauthTokens,
 } from "@paperclipai/db";
-import { PUBLIC_MCP_PATH, PUBLIC_MCP_SCOPES, type McpConnectionRequest } from "@paperclipai/shared";
+import { DOT_RUNNER_MCP_PATH, DOT_RUNNER_MCP_SCOPES, PUBLIC_MCP_PATH, PUBLIC_MCP_SCOPES, type McpConnectionRequest } from "@paperclipai/shared";
 import { boardAuthService } from "../board-auth.js";
 import { logActivity } from "../activity-log.js";
 
@@ -71,6 +71,9 @@ const authorizeSchema = z.object({
 }).strip();
 
 export function createPublicMcpOAuth(db: Db, config: PublicMcpConfig) {
+  const agentConnection = new URL(config.resource).pathname === DOT_RUNNER_MCP_PATH;
+  const scopesSupported = agentConnection ? DOT_RUNNER_MCP_SCOPES : PUBLIC_MCP_SCOPES;
+  const requiredScope = agentConnection ? "paperclip:agent" : "paperclip:read";
   const settings = instanceSettingsService(db);
   const isEnabled = async () => (await settings.getExperimental()).enablePublicMcp === true;
   async function assertEnabled() {
@@ -84,6 +87,14 @@ export function createPublicMcpOAuth(db: Db, config: PublicMcpConfig) {
     const membership = access.memberships.find((m) => m.companyId === grant.companyId && m.status === "active");
     const [company] = await db.select({ status: companies.status }).from(companies).where(eq(companies.id, grant.companyId));
     if (!access.user || !membership || !company || company.status === "archived") throw invalidGrant();
+    if (agentConnection) {
+      if (grant.purpose !== "agent" || !grant.scopes.includes("paperclip:agent")) throw invalidGrant();
+      if (!grant.agentId) return { type: "none", source: "mcp_oauth", companyId: grant.companyId };
+      const [agent] = await db.select().from(agents).where(and(eq(agents.id, grant.agentId), eq(agents.companyId, grant.companyId)));
+      if (!agent || ["paused", "terminated", "pending_approval"].includes(agent.status)) throw invalidGrant();
+      return { type: "agent", source: "mcp_oauth", agentId: agent.id, companyId: grant.companyId };
+    }
+    if (grant.purpose !== "personal") throw invalidGrant();
     return {
       type: "board", source: "mcp_oauth", userId: grant.userId,
       userName: access.user.name, userEmail: access.user.email,
@@ -107,6 +118,7 @@ export function createPublicMcpOAuth(db: Db, config: PublicMcpConfig) {
 
   return {
     config, isEnabled, assertEnabled,
+    async ownsRequest(id: string) { const [row] = await db.select({ resource: mcpOauthRequests.resource }).from(mcpOauthRequests).where(eq(mcpOauthRequests.id, id)); return row?.resource === config.resource; },
     async register(input: unknown, source = "unknown") {
       await assertEnabled();
       const parsed = registrationSchema.safeParse(input);
@@ -136,7 +148,8 @@ export function createPublicMcpOAuth(db: Db, config: PublicMcpConfig) {
     },
     async authorize(input: unknown) {
       await assertEnabled();
-      const parsed = authorizeSchema.safeParse(input);
+      const parsed = authorizeSchema.safeParse(agentConnection && input && typeof input === "object"
+        ? { scope: requiredScope, ...input } : input);
       if (!parsed.success) throw new McpOAuthError("invalid_request", "A registered client, exact redirect URI, resource, and S256 PKCE challenge are required.");
       const p = parsed.data;
       const [client] = await db.select().from(mcpOauthClients).where(eq(mcpOauthClients.id, p.client_id));
@@ -145,7 +158,7 @@ export function createPublicMcpOAuth(db: Db, config: PublicMcpConfig) {
       }
       if (p.resource !== config.resource) throw new McpOAuthError("invalid_target", "Resource does not match this Paperclip MCP endpoint.");
       const scopes = [...new Set(p.scope.split(/\s+/).filter(Boolean))];
-      if (!scopes.includes("paperclip:read") || scopes.some((s) => !(PUBLIC_MCP_SCOPES as readonly string[]).includes(s))) {
+      if (!scopes.includes(requiredScope) || scopes.some((s) => !(scopesSupported as readonly string[]).includes(s))) {
         throw new McpOAuthError("invalid_scope", "Unsupported Paperclip scope.");
       }
       const id = secret("pcmcp_request_");
@@ -171,14 +184,14 @@ export function createPublicMcpOAuth(db: Db, config: PublicMcpConfig) {
       const [row] = await db.select({ request: mcpOauthRequests, client: mcpOauthClients })
         .from(mcpOauthRequests).innerJoin(mcpOauthClients, eq(mcpOauthClients.id, mcpOauthRequests.clientId))
         .where(and(eq(mcpOauthRequests.id, id), isNull(mcpOauthRequests.decidedAt), gt(mcpOauthRequests.expiresAt, new Date())));
-      if (!row) throw new McpOAuthError("invalid_request", "Connection request is expired or already decided.", 404);
+      if (!row || row.request.resource !== config.resource) throw new McpOAuthError("invalid_request", "Connection request is expired or already decided.", 404);
       const signedIn = actor.type === "board" && !!actor.userId && ["session", "cloud_tenant"].includes(actor.source ?? "");
       const access = signedIn ? await boardAuth.resolveBoardAccess(actor.userId!) : null;
       const available = access?.user && access.companyIds.length ? await db.select({ id: companies.id, name: companies.name, status: companies.status })
         .from(companies).where(inArray(companies.id, access.companyIds)) : [];
       return {
         id, clientName: row.client.name, redirectOrigin: new URL(row.request.redirectUri).origin,
-        requestedWrite: row.request.scopes.includes("paperclip:write"), offlineAccess: row.request.scopes.includes("offline_access"), requiresSignIn: !access?.user,
+        agentConnection, requestedWrite: row.request.scopes.includes("paperclip:write"), offlineAccess: row.request.scopes.includes("offline_access"), requiresSignIn: !access?.user,
         companies: available.flatMap((company) => {
           const membership = access?.memberships.find((m) => m.companyId === company.id);
           return membership?.status === "active" && company.status !== "archived"
@@ -198,7 +211,7 @@ export function createPublicMcpOAuth(db: Db, config: PublicMcpConfig) {
       }
       const result = await db.transaction(async (tx) => {
         const [row] = await tx.select().from(mcpOauthRequests).where(eq(mcpOauthRequests.id, id)).for("update");
-        if (!row || row.decidedAt || row.expiresAt <= new Date()) throw invalidGrant();
+        if (!row || row.resource !== config.resource || row.decidedAt || row.expiresAt <= new Date()) throw invalidGrant();
         const redirect = new URL(row.redirectUri);
         if (row.state !== null) redirect.searchParams.set("state", row.state);
         if (input.decision === "deny") {
@@ -209,9 +222,12 @@ export function createPublicMcpOAuth(db: Db, config: PublicMcpConfig) {
         const [company] = await tx.select({ status: companies.status }).from(companies).where(eq(companies.id, input.companyId!));
         if (!company || company.status === "archived") throw new McpOAuthError("access_denied", "This company is no longer available.", 403);
         if (input.allowWrites && membership?.membershipRole === "viewer") throw new McpOAuthError("access_denied", "Viewer access is read-only.", 403);
+        if (agentConnection && (process.env.PAPERCLIP_ENABLE_OPENAI_DOT !== "1" || membership?.membershipRole === "viewer")) {
+          throw new McpOAuthError("access_denied", "Dot agent connections require an enabled provider and an operator role.", 403);
+        }
         const scopes = row.scopes.filter((s) => s !== "paperclip:write" || input.allowWrites);
         const [grant] = await tx.insert(mcpOauthGrants).values({
-          companyId: input.companyId!, userId: actor.userId!, clientId: row.clientId, resource: row.resource, scopes,
+          companyId: input.companyId!, userId: actor.userId!, clientId: row.clientId, resource: row.resource, scopes, purpose: agentConnection ? "agent" : "personal",
         }).returning();
         const code = secret("pcmcp_code_");
         await tx.update(mcpOauthRequests).set({
@@ -284,7 +300,7 @@ export function createPublicMcpOAuth(db: Db, config: PublicMcpConfig) {
       const [row] = await db.select({ grant: mcpOauthGrants, company: { id: companies.id, name: companies.name, issuePrefix: companies.issuePrefix, status: companies.status } })
         .from(mcpOauthGrants).innerJoin(companies, eq(mcpOauthGrants.companyId, companies.id))
         .where(eq(mcpOauthGrants.id, grantId));
-      if (!row || !row.grant.scopes.includes("paperclip:read")) throw invalidGrant();
+      if (!row || !row.grant.scopes.includes(requiredScope)) throw invalidGrant();
       return { ...row, actor: await actorForGrant(row.grant) };
     },
     async authenticate(token: string): Promise<McpPrincipal> {
@@ -326,6 +342,10 @@ export function createPublicMcpOAuth(db: Db, config: PublicMcpConfig) {
     async revokeConnection(id: string, userId: string) {
       const [grant] = await db.update(mcpOauthGrants).set({ revokedAt: new Date() })
         .where(and(eq(mcpOauthGrants.id, id), eq(mcpOauthGrants.userId, userId), isNull(mcpOauthGrants.revokedAt))).returning();
+      if (grant?.purpose === "agent" && grant.agentId) {
+        const { dotRunnerBroker } = await import("../dot-runner-broker.js");
+        await dotRunnerBroker(db).revoke(grant.companyId, grant.agentId, userId);
+      }
       if (grant) await logActivity(db, {
         companyId: grant.companyId, actorType: "user", actorId: userId, action: "mcp.connection_revoked",
         entityType: "mcp_connection", entityId: grant.id, details: { clientId: grant.clientId },

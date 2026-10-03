@@ -2,6 +2,10 @@ import { z } from "zod";
 import type { DotHarnessDriver } from "../../vendor/paperclip-runner/index.js";
 import type { McpPrincipal } from "./oauth.js";
 
+// Structural boundary works for a source-loaded lab and the built runner alike;
+// the server does not depend on the driver's private implementation fields.
+type DotBridgeDriver = Pick<DotHarnessDriver, "identity" | "inbox" | "command" | "revoke">;
+
 export interface PublicMcpToolExtension {
   listTools(principal: McpPrincipal): Promise<Array<{
     name: string; description: string; inputSchema: Record<string, unknown>;
@@ -30,9 +34,9 @@ const tools = [
  * never an MCP tool. Public OAuth consent alone cannot bind a person to an agent.
  * A host must supply a normally admitted run and a live authority check. */
 export function createDotRunnerMcpBridge(): PublicMcpToolExtension & {
-  register(driver: DotHarnessDriver, grantId: string): () => void;
+  register(driver: DotBridgeDriver, grantId: string): () => void;
 } {
-  const runs = new Map<string, { driver: DotHarnessDriver; grantId: string }>();
+  const runs = new Map<string, { driver: DotBridgeDriver; grantId: string }>();
   const principalBinding = (p: McpPrincipal) => ({ companyId: p.grant.companyId, grantId: p.grant.id });
   const owned = (p: McpPrincipal) => [...runs.values()].filter(r => r.grantId === p.grant.id && r.driver.identity.companyId === p.grant.companyId);
   return {

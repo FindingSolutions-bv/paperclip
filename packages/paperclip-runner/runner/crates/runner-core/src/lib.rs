@@ -11,6 +11,7 @@ pub mod aws_agentcore_provider;
 pub mod claude_managed_provider;
 pub mod codex_provider;
 mod codex_startup_trust;
+pub mod dot_provider_backend;
 pub mod durable;
 pub mod fake_harness;
 pub mod generated_acpx_sidecar_contract;

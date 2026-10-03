@@ -1,3 +1,4 @@
+import { DotRunnerConnection } from "../../components/DotRunnerConnection";
 import { Select, SelectContent, SelectItem, SelectTrigger, SelectValue } from "../../components/ui/select";
 import { configFieldsForSection } from "../config-sections";
 import type { AdapterConfigFieldsProps } from "../types";
@@ -39,6 +40,8 @@ const defaultAwsAgentCoreModel = "global.anthropic.claude-sonnet-4-6";
 
 export function CodexLocalConfigFields({
   section,
+  companyId,
+  agentId,
   mode,
   isCreate,
   adapterType,
@@ -203,7 +206,9 @@ export function CodexLocalConfigFields({
                 ? event.target.value
                 : "codex";
               const model =
-                provider === "opencode"
+                provider === "openai_dot"
+                  ? ""
+                  : provider === "opencode"
                   ? defaultOpenCodeRunnerModel
                   : provider === "claude_managed"
                     ? defaultClaudeManagedModel
@@ -224,6 +229,10 @@ export function CodexLocalConfigFields({
               } else {
                 mark("adapterConfig", "provider", provider);
                 mark("adapterConfig", "model", model);
+                if (provider === "openai_dot") {
+                  mark("adapterConfig", "lifecycleMode", "per_turn");
+                  for (const key of ["cwd", "env", "instructionsFilePath", "command", "extraArgs", "engine", "modelReasoningEffort", "workspaceStrategy", "workspaceRuntime", "idleTimeoutMs", "acpxAgent", "managedProfileId", "agentCoreProfileId"]) mark("adapterConfig", key, undefined);
+                }
                 if (provider === "acpx") {
                   mark("adapterConfig", "acpxAgent", grok ? "grok" : "claude");
                 }
@@ -236,9 +245,17 @@ export function CodexLocalConfigFields({
             <option value="aws_agentcore">AWS AgentCore</option>
             <option value="acpx">ACP agents</option>
             <option value="grok">Grok Build</option>
+            <option value="openai_dot">OpenAI Dot (experimental)</option>
           </select>
         </Field>
       )}
+      {runnerManaged && runnerProvider === "openai_dot" && <>
+        <Field configSection="adapter" label="Dot connection" hint="A verified event round trip is required before assigning work.">
+          <DotRunnerConnection companyId={companyId} agentId={agentId} onBinding={id => updateRunnerSchemaValue("dotBindingId", id)} />
+        </Field>
+        <ToggleField label="Allow externally billed provider" hint="Dot does not report token usage or cost. Paperclip cannot enforce a provider spend ceiling; known company and agent budget limits still apply."
+          checked={runnerSchemaValue("allowUnmeteredProvider", false) === true} onChange={value => updateRunnerSchemaValue("allowUnmeteredProvider", value)} />
+      </>}
       {runnerManaged && runnerProvider === "acpx" && runnerSchemaValue("acpxAgent", "claude") !== "grok" && (
         <Field configSection="adapter" label="ACP agent" hint="Cursor, GitHub Copilot, and Pi are awaiting local and Daytona qualification.">
           <select className={inputClass}
@@ -450,7 +467,7 @@ export function CodexLocalConfigFields({
           )}
         </Field>
       )}
-      {runnerManaged && (
+      {runnerManaged && runnerProvider !== "openai_dot" && (
         <Field configSection="runPolicy"
           label="Runner lifecycle"
           hint="Turn by turn suspends after each run. Warm keeps the same provider process available between governed runs."
@@ -470,7 +487,7 @@ export function CodexLocalConfigFields({
           </select>
         </Field>
       )}
-      {runnerManaged && runnerLifecycleMode === "warm" && (
+      {runnerManaged && runnerProvider !== "openai_dot" && runnerLifecycleMode === "warm" && (
         <Field configSection="runPolicy"
           label="Warm idle timeout (ms)"
           hint="After this much inactivity, runnerd checkpoints and suspends the provider session. The maximum is 24 hours."
@@ -734,7 +751,7 @@ export function CodexLocalConfigFields({
           )}
         </>
       )}
-      <LocalWorkspaceRuntimeFields
+      {runnerProvider !== "openai_dot" && <LocalWorkspaceRuntimeFields
         isCreate={isCreate}
         values={values}
         set={set}
@@ -744,7 +761,7 @@ export function CodexLocalConfigFields({
         mode={mode}
         adapterType={adapterType}
         models={models}
-      />
+      />}
     </>
   ));
 }
