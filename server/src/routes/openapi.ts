@@ -28,6 +28,7 @@ import {
   CHARACTER_STATES,
   agentAppearanceSchema,
   createAgentSchema,
+  pluginAgentReadinessSchema,
   createAgentHireSchema,
   updateAgentSchema,
   updateAgentPermissionsSchema,
@@ -3454,6 +3455,21 @@ registry.registerPath({
   summary: "Get an agent",
   request: { params: z.object({ id: z.string() }) },
   responses: { 200: r.ok(), 401: r.unauthorized, 404: r.notFound },
+});
+
+registry.registerPath({
+  method: "get",
+  path: "/api/agents/{id}/readiness",
+  tags: ["agents"],
+  summary: "Get live agent readiness from configured plugins",
+  description: "Requires company access and permission to read the target agent. Unavailable plugins return an unavailable readiness result. The host does not persist these results.",
+  request: { params: z.object({ id: z.string() }) },
+  responses: {
+    200: r.ok(z.array(pluginAgentReadinessSchema)),
+    401: r.unauthorized,
+    403: r.forbidden,
+    404: r.notFound,
+  },
 });
 
 registry.registerPath({
