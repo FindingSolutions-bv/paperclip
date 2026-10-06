@@ -46,8 +46,13 @@ export async function runPiNativeFlow(input: {
   async function retainIncompleteTerminal(fixture: RemoteNativeFixture, ordinal: number, error: unknown) {
     const snapshot = remoteNativeIncompleteTerminalEvidence(error);
     if (!snapshot || retainedIncompleteTerminals.has(ordinal)) return;
-    await input.evidence(`pi-remote-${ordinal}-incomplete-terminal.json`, { binding: fixture.binding, snapshot, passed: false });
-    retainedIncompleteTerminals.add(ordinal);
+    try {
+      await input.evidence(`pi-remote-${ordinal}-incomplete-terminal.json`, { binding: fixture.binding, snapshot, passed: false });
+      retainedIncompleteTerminals.add(ordinal);
+    } catch {
+      // The caller must rethrow the original qualification error. Leave this
+      // ordinal unretained so cleanup can still try to save its diagnostic.
+    }
   }
   async function finishRemote(label: string) {
     if (!currentRemote) throw new Error("Missing exact owned remote fixture");
