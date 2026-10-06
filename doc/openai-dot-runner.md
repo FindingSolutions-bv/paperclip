@@ -33,6 +33,18 @@ Only the operator's one-use pairing code is displayed. OAuth tokens and callback
 signing secrets stay on the server and never enter the Runner descriptor,
 task prompt or saved adapter config. Pairing codes expire after 15 minutes.
 
+The dedicated connection uses the merged MCP gateway's PKCE browser and device
+flows, including verified client metadata documents and organization hints.
+Its issuer is `<origin>/mcp/runner/oauth`; the personal issuer remains `<origin>`.
+The shared consent page identifies Dot agent access and requires an operator
+role. Device codes and browser requests stay bound to their original resource
+and organization. The gateway's Connections invitations remain personal
+assistant invitations; use the agent's Dot connection panel for Runner pairing.
+
+Database migration `0311_known_inertia.sql` adds only Dot tables and extensions
+after the merged gateway migrations. It is safe to reapply. The earlier
+prototype migration number is retired; published master migrations are intact.
+
 ## Assignment protocol
 
 Events contain mailbox references. Dot drains the inbox after its saved cursor,

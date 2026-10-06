@@ -1,4 +1,5 @@
 import { cancellableSandboxStartup } from "./startup-cancellation.js";
+import { withAdapterExecutionPhase, type AdapterExecutionPhase } from "../execution-phase.js";
 import fs from "node:fs/promises";
 import fsSync from "node:fs";
 import os from "node:os";
@@ -6,6 +7,7 @@ import path from "node:path";
 import { execFile } from "node:child_process";
 import { promisify } from "node:util";
 import { createHash, randomUUID } from "node:crypto";
+import { parseFrontmatterMarkdown } from "@paperclipai/shared";
 import { fileURLToPath } from "node:url";
 import type {
   AdapterBillingType,
@@ -48,6 +50,7 @@ import {
 } from "./terminal-session-failure.js";
 export type { AcpxTerminalSessionFailure } from "./terminal-session-failure.js";
 import type { WorkspaceRestoreFailureCode, WorkspaceRestoreOutcome } from "../workspace-restore-merge.js";
+import type { WorkspaceRestoreDiagnostic } from "../workspace-restore-diagnostics.js";
 import {
   classifyWorkspaceRestoreFailure,
   describeWorkspaceRestoreFailure,
@@ -74,6 +77,8 @@ import {
   readPaperclipIssueWorkModeFromContext,
   renderTemplate,
   resolvePaperclipInstanceRootForAdapter,
+  hydrateFreshSessionHandoff,
+  selectInitialCommunicationGuidance,
   selectPaperclipPromptSections,
   resolveLegacyPaperclipDesiredSkillNames,
   removeMaintainerOnlySkillSymlinks,
@@ -82,6 +87,7 @@ import {
   type PaperclipSkillEntry,
 } from "@paperclipai/adapter-utils/server-utils";
 import { shellQuote } from "@paperclipai/adapter-utils/ssh";
+import { createEphemeralSessionEnvironmentStore } from "./ephemeral-session-environment.js";
 import {
   createAcpRuntime,
   createAgentRegistry,
@@ -97,7 +103,6 @@ import {
   type AcpRuntimeTurnResult,
   type AcpRuntimeUsageBreakdown,
   type AcpRuntimeUsageCost,
-  type AcpSessionStore,
 } from "acpx/runtime";
 import {
   ACPX_DUPLEX_LOSS_CANCEL_DEADLINE_MS,
@@ -1180,11 +1185,24 @@ async function prepareClaudeSkillRuntime(input: {
   }
 
   const selectedNames = materializedNames.sort();
+  const skillDescriptions = await Promise.all(selectedNames.map(async (name) => {
+    const file = path.join(skillsHome, name, "SKILL.md");
+    let description = "";
+    try {
+      const parsed = parseFrontmatterMarkdown(await fs.readFile(file, "utf8"));
+      description = asString(parsed.frontmatter.description, "").replace(/\s+/g, " ").trim().slice(0, 512);
+    } catch {
+      // A readable skill without valid routing metadata remains available.
+      // Do not substitute its body for a missing description.
+    }
+    return `- ${name}${description ? `: ${description}` : ""} (file: ${file})`;
+  }));
   const promptInstructions = selectedNames.length > 0
     ? [
         "Paperclip has materialized selected runtime skills for this ACPX Claude session.",
         `Skill root: ${skillsHome}`,
         `Selected skills: ${selectedNames.join(", ")}`,
+        ...skillDescriptions,
         "When a task calls for one of these skills, read its SKILL.md from that root and follow it.",
       ].join("\n")
     : "";
@@ -1473,9 +1491,10 @@ function buildCodexStartupConfig(input: {
   requestedModel: string;
   requestedThinkingEffort: string;
   fastMode: boolean;
+  identityEnvironmentKeys?: string[];
 }): { value: string | null; invalidExistingConfig: boolean } {
   const hasRuntimeConfig = Boolean(
-    input.requestedModel || input.requestedThinkingEffort || input.fastMode,
+    input.requestedModel || input.requestedThinkingEffort || input.fastMode || input.identityEnvironmentKeys,
   );
   if (!hasRuntimeConfig) return { value: null, invalidExistingConfig: false };
 
@@ -1506,6 +1525,11 @@ function buildCodexStartupConfig(input: {
             },
           }
         : {}),
+      ...(input.identityEnvironmentKeys ? {
+        features: { ...parseObject(existing.features), ...(input.fastMode ? { fast_mode: true } : {}), shell_snapshot: false },
+        shell_environment_policy: { ...parseObject(existing.shell_environment_policy),
+          inherit: "all", ignore_default_excludes: true, include_only: input.identityEnvironmentKeys },
+      } : {}),
     }),
     invalidExistingConfig,
   };
@@ -1541,6 +1565,7 @@ function buildSessionParams(input: {
     mode: prepared.mode,
     stateDir: prepared.stateDir,
     configFingerprint: prepared.fingerprint,
+    mcpFingerprint: shortHash(prepared.mcpIdentity),
     ...(prepared.requestedModel ? { model: prepared.requestedModel } : {}),
     ...(prepared.requestedThinkingEffort ? { thinkingEffort: prepared.requestedThinkingEffort } : {}),
     ...(prepared.fastMode ? { fastMode: true } : {}),
@@ -1940,7 +1965,7 @@ async function buildRuntime(input: {
   await fs.mkdir(stateDir, { recursive: true });
 
   const envConfig = parseObject(config.env);
-  const env: Record<string, string> = { ...buildPaperclipEnv(agent), PAPERCLIP_RUN_ID: runId };
+  const env: Record<string, string> = { ...buildPaperclipEnv(agent, input.ctx.agentIdentity), PAPERCLIP_RUN_ID: runId };
   const wakeTaskId =
     (typeof context.taskId === "string" && context.taskId.trim()) ||
     (typeof context.issueId === "string" && context.issueId.trim()) ||
@@ -2020,9 +2045,22 @@ async function buildRuntime(input: {
   if (requestedModel && acpxAgent === "claude" && !env.ANTHROPIC_MODEL) {
     env.ANTHROPIC_MODEL = requestedModel;
   }
+  // Gemini CLI reads GEMINI_MODEL when creating each ACP session. Its ACP
+  // implementation supports set_model, but not set_config_option; configure
+  // the selected model before startup without changing the transport.
+  if (requestedModel && acpxAgent === "gemini") {
+    env.GEMINI_MODEL = requestedModel;
+  }
   if (acpxAgent === "codex") {
     const codexStartupConfig = buildCodexStartupConfig({
       existingConfig: env.CODEX_CONFIG,
+      ...(input.ctx.agentIdentity ? { identityEnvironmentKeys: [...new Set([
+        "PATH", "HOME", "LANG", "TMPDIR", "CODEX_HOME",
+        "PAPERCLIP_AGENT_KEY_ID", "PAPERCLIP_AGENT_PUBLIC_KEY", "PAPERCLIP_AGENT_PRIVATE_KEY",
+        // Preserve Codex's default secret-name exclusions. The short-lived
+        // Paperclip API token is required by the agent skill's Bash/curl calls.
+        ...Object.keys(env).filter(key => key === "PAPERCLIP_API_KEY" || !/key|secret|token/i.test(key)),
+      ])] } : {}),
       requestedModel,
       requestedThinkingEffort,
       fastMode,
@@ -2165,8 +2203,9 @@ async function buildRuntime(input: {
   // (fingerprint, compat, persist, ensureSession, error) bind to THIS single
   // value so a warm/resumable session created with the in-sandbox cwd is reused
   // — not invalidated — on the next run. Remote runner-backed → the in-sandbox
-  // workspace dir; local and the runner-less fallback → the HOST cwd,
-  // byte-identical to today.
+  // workspace dir; local and the runner-less fallback → the HOST cwd.
+  // Local Gemini resolves tool paths through realpath. Give its ACP filesystem
+  // client the same canonical root so workspace aliases stay within that root.
   //
   // PR 3: the staging transport derives the in-sandbox workspace dir
   // deterministically from the target's `remoteCwd` (it is exactly `remoteCwd`
@@ -2179,11 +2218,14 @@ async function buildRuntime(input: {
   const sessionCwd =
     useRemoteProcessSession && executionTarget?.kind === "remote"
       ? executionTarget.remoteCwd
-      : cwd;
+      : acpxAgent === "gemini" && !executionTargetIsRemote
+        ? await fs.realpath(cwd)
+        : cwd;
   // The 17 fields the session fingerprint hashes. Company, agent, and task
   // identifiers are NOT here; they scope the outer session key only (see
   // `keyIdentity`). The fingerprint builder accepts only this identity.
   const fingerprintIdentity: SessionFingerprintIdentity = {
+    ...(input.ctx.agentIdentity ? { agentIdentityKeyId: input.ctx.agentIdentity.keyId } : {}),
     acpxAgent,
     agentCommand: agentCommand ?? acpxAgent,
     cwd: path.resolve(sessionCwd),
@@ -2208,7 +2250,9 @@ async function buildRuntime(input: {
           defaultMode: paperclipClaudeSettings.defaultMode,
         }
       : null,
-    mcpServers: mcpIdentity,
+    // Qualified built-in ACP harnesses reconnect to the supplied MCP servers
+    // on session/load. Keep their conversation identity independent of tools.
+    mcpServers: ["claude", "codex", "grok", "gemini", "kimi"].includes(acpxAgent) ? [] : mcpIdentity,
     secretManifestHash: shortHash(secretManifest),
     // Fold the resolved adapter env (all applied user-configured values —
     // plain, secret_ref, and stable PAPERCLIP_* config such as an explicit
@@ -2521,6 +2565,28 @@ async function buildRuntime(input: {
     await emitRunPhaseTiming(input.ctx, "start_transport", nowMs() - startTransportStart, "failed");
     throw err;
   }
+  const currentSkillRoot = acpxAgent === "codex" && runtimeEnv.CODEX_HOME
+    ? path.join(runtimeEnv.CODEX_HOME, "skills")
+    : acpxAgent === "gemini" && !executionTargetIsRemote && typeof skillsIdentity.skillsHome === "string"
+      ? skillsIdentity.skillsHome
+      : null;
+  if (currentSkillRoot && Array.isArray(skillsIdentity.selectedSkills) && skillsIdentity.selectedSkills.length > 0) {
+    // Managed connection homes are disposable. A resumed conversation may
+    // remember a previous home's skill paths; supply the current root on every
+    // turn, after the remote launch environment has rebased CODEX_HOME.
+    skillPromptInstructions = [
+      `Paperclip has materialized selected runtime skills for this ACPX ${acpxAgent === "codex" ? "Codex" : "Gemini"} run.`,
+      `Skill root for this run: ${currentSkillRoot}`,
+      `Selected skills: ${skillsIdentity.selectedSkills.join(", ")}`,
+      "When a task calls for one of these skills, read its SKILL.md from this root and follow it. Resolve referenced scripts and files relative to that skill. Use this run's root even when an earlier turn used a different path.",
+      ...(acpxAgent === "gemini" && skillsIdentity.selectedSkills.includes("paperclip")
+        ? [
+          "Before calling Paperclip APIs or delivering task artifacts, read the selected paperclip skill's SKILL.md and its referenced artifact workflow. A completion comment does not upload an artifact or change task status.",
+          "Gemini's shell tool rejects command substitution. Write JSON request bodies to a workspace file and use curl --data-binary @file, or use the selected skill's helpers, instead of constructing a body with command substitution.",
+        ]
+        : []),
+    ].join("\n");
+  }
   // The relay runs on the host with the sanitized remote launch environment.
   // Its /usr/bin/env node shebang cannot rely on that environment's PATH.
   const overrideCommand = processSessionBridge?.agentCommand
@@ -2588,13 +2654,14 @@ async function buildRuntime(input: {
 
 function sessionConfigOptions(prepared: AcpxPreparedRuntime): Array<{ key: string; value: string }> {
   const options: Array<{ key: string; value: string }> = [];
-  // Claude and Codex runtime config is pre-set via startup env vars; skip
+  // Claude, Codex and Gemini runtime config is pre-set via startup env vars; skip
   // set_config_option to avoid ACP-server picker validation rejecting valid
   // backend model IDs that are not advertised by the local ACP server.
   if (
     prepared.requestedModel &&
     prepared.acpxAgent !== "claude" &&
-    prepared.acpxAgent !== "codex"
+    prepared.acpxAgent !== "codex" &&
+    prepared.acpxAgent !== "gemini"
   ) {
     options.push({ key: "model", value: prepared.requestedModel });
   }
@@ -3021,7 +3088,8 @@ async function buildPrompt(ctx: AdapterExecutionContext, resumedSession: boolean
     !resumedSession && bootstrapPromptTemplate.trim().length > 0
       ? renderTemplate(bootstrapPromptTemplate, templateData).trim()
       : "";
-  const { taskContextNote, wakePrompt } = selectPaperclipPromptSections(context, { resumedSession });
+  await hydrateFreshSessionHandoff(ctx, { resumedSession });
+  const { taskContextNote, wakePrompt } = selectPaperclipPromptSections(context, { resumedSession, includeCommunicationGuidance: false });
   const externalChatTurn = isPaperclipExternalChatTurn(context.paperclipWake);
   const shouldUseResumeDeltaPrompt = resumedSession && wakePrompt.length > 0;
   const promptInstructionsPrefix = shouldUseResumeDeltaPrompt ? "" : instructionsPrefix;
@@ -3035,6 +3103,7 @@ async function buildPrompt(ctx: AdapterExecutionContext, resumedSession: boolean
   const prompt = joinPromptSections([
     promptInstructionsPrefix,
     renderedBootstrapPrompt,
+    selectInitialCommunicationGuidance(context, { resumedSession }),
     wakePrompt,
     sessionHandoffNote,
     taskContextNote,
@@ -4055,7 +4124,7 @@ export function createAcpxEngineExecutor(deps: AcpxEngineExecutorOptions = {}) {
       // status stay exactly what the turn produced — this is a signal, not an
       // outcome change.
       let workspaceRestoreFailureField:
-        | { workspaceRestoreFailure: WorkspaceRestoreFailureCode }
+        | { workspaceRestoreFailure: WorkspaceRestoreFailureCode; workspaceRestoreDiagnostic?: WorkspaceRestoreDiagnostic }
         | Record<string, never> = {};
       // The one settlement step name whose error can be the same workspace-
       // restore failure the adapter teardown closure already classifies (a
@@ -4072,9 +4141,9 @@ export function createAcpxEngineExecutor(deps: AcpxEngineExecutorOptions = {}) {
             : teardownErr instanceof Error
               ? teardownErr.message
               : String(teardownErr);
-        await ctx
+        await withAdapterExecutionPhase(ctx, "phase_reporting", () => ctx
           .onLog("stderr", `[paperclip] ACPX teardown step "${step}" failed: ${reason}\n`)
-          .catch(() => {});
+          .catch(() => {}));
       };
       // Emit one per-phase timing run-log event. It is not an OpenTelemetry
       // export and it is not a Telemetry event: it carries the phase name
@@ -4085,15 +4154,15 @@ export function createAcpxEngineExecutor(deps: AcpxEngineExecutorOptions = {}) {
         emitRunPhaseTiming(ctx, phase, now() - startMs, outcome);
       // Time a settlement step and emit its phase timing on every path. A step
       // error still emits `failed` before it re-throws to the Phase 3 error policy.
-      const timedPhase = async (phase: string, run: () => Promise<void> | void): Promise<void> => {
+      const timedPhase = async (phase: AdapterExecutionPhase, run: () => Promise<void> | void): Promise<void> => {
         const start = now();
         try {
-          await run();
+          await withAdapterExecutionPhase(ctx, phase, run);
         } catch (error) {
-          await emitPhase(phase, start, "failed");
+          await withAdapterExecutionPhase(ctx, "phase_reporting", () => emitPhase(phase, start, "failed"));
           throw error;
         }
-        await emitPhase(phase, start, "ok");
+        await withAdapterExecutionPhase(ctx, "phase_reporting", () => emitPhase(phase, start, "ok"));
       };
       // The turn the run started. It is hoisted to the run scope so the settlement
       // `endSession` step can cancel a running turn before it closes the runtime
@@ -4221,7 +4290,14 @@ export function createAcpxEngineExecutor(deps: AcpxEngineExecutorOptions = {}) {
         // same session still sees it. The borrow clears the entry's idle timer, so
         // the reused runtime cannot expire under its own timer while this run uses
         // it (today's `clearWarmHandleTimer(cached)` after the reuse decision).
-        const cached = canResume ? hostStore.borrow(prepared.sessionKey) : undefined;
+        let cached = canResume ? hostStore.borrow(prepared.sessionKey) : undefined;
+        if (cached && (ctx.context.refreshTools === true
+          || asString(previousParams.mcpFingerprint, "") !== shortHash(prepared.mcpIdentity)
+          // MCP bearer credentials are run-scoped, even for an unchanged catalog.
+          || prepared.mcpServers.length > 0)) {
+          await hostStore.discard(prepared.sessionKey);
+          cached = undefined;
+        }
         childStderrState = cached?.childStderrState ?? { logPath: null, pendingLiveLine: "" };
         processIdentitySink = cached?.processIdentitySink ?? {
           current: ctx.onSpawn,
@@ -4234,26 +4310,9 @@ export function createAcpxEngineExecutor(deps: AcpxEngineExecutorOptions = {}) {
         flushChildStderr(childStderrState);
         childStderrState.logPath = prepared.childStderrLogPath;
         const persistedRuntimeStore = createRuntimeStore({ stateDir: prepared.stateDir });
-        const runtimeStore: AcpSessionStore = {
-          async load(id) {
-            const record = await persistedRuntimeStore.load(id);
-            if (!record) return undefined;
-            // ACPX resumes from the stored session options rather than the
-            // options passed to ensureSession. Keep conversation state, but
-            // launch the provider with this run's credentials and scratch paths.
-            return {
-              ...record,
-              acpx: {
-                ...record.acpx,
-                session_options: {
-                  ...record.acpx?.session_options,
-                  env: { ...prepared.env },
-                },
-              },
-            };
-          },
-          save: (record) => persistedRuntimeStore.save(record),
-        };
+        // Resume with this run's launch environment; keep it out of the saved
+        // conversation record without mutating the live runtime's options.
+        const runtimeStore = createEphemeralSessionEnvironmentStore(persistedRuntimeStore, prepared.env);
         const runtimeOptions: PaperclipAcpRuntimeOptions = {
           cwd: prepared.cwd,
           // Host-only spawn cwd for the relay proxy on the remote process-session
@@ -4748,6 +4807,8 @@ export function createAcpxEngineExecutor(deps: AcpxEngineExecutorOptions = {}) {
                       ? `Requested ACPX model: ${prepared.requestedModel} (set via ANTHROPIC_MODEL env at startup).`
                       : prepared.acpxAgent === "codex"
                         ? `Requested ACPX model: ${prepared.requestedModel} (set via CODEX_CONFIG at startup).`
+                      : prepared.acpxAgent === "gemini"
+                        ? `Requested ACPX model: ${prepared.requestedModel} (set via GEMINI_MODEL at startup).`
                       : `Requested ACPX model: ${prepared.requestedModel}.`,
                   ]
                 : []),
@@ -4846,7 +4907,7 @@ export function createAcpxEngineExecutor(deps: AcpxEngineExecutorOptions = {}) {
         if (ctx.signal?.aborted) armStopDeadline();
         return {
           cancel: async (reason: string) => {
-            await turn.cancel({ reason });
+            await withAdapterExecutionPhase(ctx, "cancel_turn", () => turn.cancel({ reason }));
           },
         };
       };
@@ -5300,7 +5361,7 @@ export function createAcpxEngineExecutor(deps: AcpxEngineExecutorOptions = {}) {
             : baseSettlement;
           // Cancel a running turn before the close (the turn-error path).
           if (settlement.cancelTurnReason && activeTurn) {
-            await activeTurn.cancel({ reason: settlement.cancelTurnReason }).catch(() => {});
+            await withAdapterExecutionPhase(ctx, "cancel_turn", () => activeTurn!.cancel({ reason: settlement.cancelTurnReason! }).catch(() => {}));
           }
           const existing = warmHandles.get(prepared.sessionKey);
           // Re-read the duplex control-channel disposition here, at the
@@ -5339,26 +5400,26 @@ export function createAcpxEngineExecutor(deps: AcpxEngineExecutorOptions = {}) {
           ) {
             // A matching warm entry closes through the warm store, which also
             // clears its idle timer and flushes its child stderr.
-            runtimeStopConfirmed = await closeWarmHandle({
+            runtimeStopConfirmed = await withAdapterExecutionPhase(ctx, "close_session", () => closeWarmHandle({
               handles: warmHandles,
               key: prepared.sessionKey,
               entry: existing,
               reason: settlement.reason,
               discardPersistentState: settlement.discardPersistentState,
-            });
+            }));
             return;
           }
           const onCloseError = settlement.recordCloseError || ctx.signal?.aborted
             ? (closeErr: unknown) => recordTeardownError("runtime-close", closeErr)
             : () => {};
-          await runtime
+          await withAdapterExecutionPhase(ctx, "close_session", () => runtime
             .close({
               handle: settlement.handle,
               reason: settlement.reason,
               discardPersistentState: settlement.discardPersistentState,
             })
             .then(() => { runtimeStopConfirmed = true; })
-            .catch(onCloseError);
+            .catch(onCloseError));
           if (settlement.dropWarmEntry && warmHandleMatches(existing, runtime, settlement.handle) && existing) {
             clearWarmHandleTimer(existing);
             warmHandles.delete(prepared.sessionKey);
@@ -5389,18 +5450,21 @@ export function createAcpxEngineExecutor(deps: AcpxEngineExecutorOptions = {}) {
           // mutable provider files. Require the owned close or local OS handle.
           const stopped = runtimeStopConfirmed || (!prepared.processSessionBridge && capturedProcessExited(processIdentitySink?.localProcess));
           try {
-            if (stopped) await ctx.onProviderStopped?.();
+            if (stopped) await withAdapterExecutionPhase(ctx, "instruction_collection", () => ctx.onProviderStopped?.());
           } catch {
             // Match ACP's fail-soft teardown policy without describing this as
             // a workspace restore failure or exposing paths from a raw error.
             await recordTeardownError("instruction-collection", new Error("Instruction collection failed after provider stop. No instruction save is claimed."));
           } finally {
-            await runRuntimeSpan("sandbox.syncBack", async () => {
+            await withAdapterExecutionPhase(ctx, "workspace_restore", () => runRuntimeSpan("sandbox.syncBack", async () => {
               const restoreOutcome = await syncBackManagedHome(prepared);
               if (!restoreOutcome.ok) {
-                workspaceRestoreFailureField = { workspaceRestoreFailure: restoreOutcome.code };
+                workspaceRestoreFailureField = {
+                  workspaceRestoreFailure: restoreOutcome.code,
+                  ...(restoreOutcome.diagnostic ? { workspaceRestoreDiagnostic: restoreOutcome.diagnostic } : {}),
+                };
               }
-            });
+            }));
           }
         }),
         // The staging lease releases as the run's final act, AFTER the coordinator
@@ -5469,6 +5533,15 @@ export function createAcpxEngineExecutor(deps: AcpxEngineExecutorOptions = {}) {
               } },
             };
           }
+          // Preserve the policy resolved for this execution target. The server
+          // cannot reconstruct sandbox defaults from the stored agent config.
+          capturedResult = {
+            ...capturedResult,
+            resultJson: {
+              ...capturedResult.resultJson,
+              adapterExecutionTimeout: { ...prepared.timeoutResolution },
+            },
+          };
           // The sync-back settlement step runs before this reproduces the result
           // (settlement precedes reproduction), so a failed workspace restore is
           // already recorded by the time we get here. Merge it into `resultJson`

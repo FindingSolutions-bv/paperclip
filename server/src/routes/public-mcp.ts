@@ -4,10 +4,11 @@ import { StreamableHTTPServerTransport } from "@modelcontextprotocol/sdk/server/
 import { CallToolRequestSchema, ListToolsRequestSchema } from "@modelcontextprotocol/sdk/types.js";
 import { z } from "zod";
 import { type PublicMcpEvents } from "../services/public-mcp/events.js";
-import { McpEventError } from "../services/public-mcp/event-webhooks.js";
 import type { PublicMcpToolExtension } from "../services/public-mcp/dot-runner.js";
-import { DOT_RUNNER_MCP_PATH, DOT_RUNNER_MCP_SCOPES, PUBLIC_MCP_PATH, PUBLIC_MCP_SCOPES, mcpConsentSchema } from "@paperclipai/shared";
-import { McpOAuthError, type PublicMcpOAuth } from "../services/public-mcp/oauth.js";
+import { McpEventError } from "../services/public-mcp/event-webhooks.js";
+import { DOT_RUNNER_MCP_PATH, DOT_RUNNER_MCP_SCOPES, PUBLIC_MCP_SCOPES, mcpConsentSchema, mcpInvitation, mcpSetupUrl } from "@paperclipai/shared";
+import { renderMcpSetup, mcpSetupMarkdown } from "../services/public-mcp/setup.js";
+import { DEVICE_GRANT, McpOAuthError, type PublicMcpOAuth } from "../services/public-mcp/oauth.js";
 import { McpApiError, McpCapabilityError, publicMcpCapabilities, type createPublicMcpExecutor } from "../services/public-mcp/capabilities.js";
 
 const oauthErrors: ErrorRequestHandler = (error, _req, res, next) => {
@@ -44,31 +45,49 @@ export function publicMcpIngressRoutes(oauth: PublicMcpOAuth, execute: ReturnTyp
   const oauthPath = agentConnection ? endpoint + "/oauth" : "/mcp/oauth";
   const issuer = agentConnection ? origin + oauthPath : origin;
   const scopes = agentConnection ? DOT_RUNNER_MCP_SCOPES : PUBLIC_MCP_SCOPES;
+  const metadataPath = "/.well-known/oauth-authorization-server" + (agentConnection ? oauthPath : "");
   const prefix = origin + oauthPath;
   const resourceMetadata = origin + "/.well-known/oauth-protected-resource" + endpoint;
+  if (!agentConnection) router.get(["/mcp/setup", "/mcp/setup.md"], async (req, res) => {
+    await oauth.assertEnabled();
+    const company = z.uuid().optional().safeParse(req.query.company);
+    if (!company.success) throw new McpOAuthError("invalid_request", "Invalid organization hint.");
+    res.setHeader("Cache-Control", "no-store");
+    res.setHeader("Referrer-Policy", "no-referrer");
+    res.setHeader("X-Content-Type-Options", "nosniff");
+    res.setHeader("Content-Security-Policy", "default-src 'none'; base-uri 'none'; frame-ancestors 'none'; form-action 'none'");
+    res.vary("Accept");
+    if (req.path.endsWith(".md") || req.accepts(["html", "text/markdown"]) === "text/markdown") {
+      res.type("text/markdown").send(mcpSetupMarkdown(resource, company.data));
+    } else res.type("html").send(renderMcpSetup(resource, company.data));
+  });
   router.use([oauthPath, endpoint], (_req, res, next) => {
     res.setHeader("Cache-Control", "no-store");
     res.setHeader("Referrer-Policy", "no-referrer");
     next();
   });
-  router.use(["/.well-known/oauth-protected-resource", (agentConnection ? "/.well-known/oauth-authorization-server" + oauthPath : "/.well-known/oauth-authorization-server"), endpoint, oauthPath + "/register", oauthPath + "/authorize", oauthPath + "/token"], async (_req, _res, next) => {
+  router.use(["/.well-known/oauth-protected-resource", metadataPath, endpoint, oauthPath + "/register", oauthPath + "/authorize", oauthPath + "/token"], async (_req, _res, next) => {
     await oauth.assertEnabled();
     next();
   });
   router.get(agentConnection ? ["/.well-known/oauth-protected-resource" + endpoint] : ["/.well-known/oauth-protected-resource", "/.well-known/oauth-protected-resource" + endpoint], (_req, res) => res.json({
-    resource, authorization_servers: [issuer], scopes_supported: scopes, bearer_methods_supported: ["header"],
-    resource_name: "Paperclip team",
+    resource, authorization_servers: [issuer], scopes_supported: agentConnection ? DOT_RUNNER_MCP_SCOPES : ["paperclip:read", "paperclip:write"], bearer_methods_supported: ["header"],
+    resource_name: agentConnection ? "Paperclip Dot agent" : "Paperclip",
   }));
-  router.get((agentConnection ? "/.well-known/oauth-authorization-server" + oauthPath : "/.well-known/oauth-authorization-server"), (_req, res) => res.json({
+  router.get(metadataPath, (_req, res) => res.json({
     issuer, authorization_endpoint: prefix + "/authorize", token_endpoint: prefix + "/token",
     registration_endpoint: prefix + "/register", revocation_endpoint: prefix + "/revoke",
-    response_types_supported: ["code"], grant_types_supported: ["authorization_code", "refresh_token"],
+    response_types_supported: ["code"], grant_types_supported: ["authorization_code", "refresh_token", DEVICE_GRANT],
+    device_authorization_endpoint: prefix + "/device_authorization",
     token_endpoint_auth_methods_supported: ["none"], revocation_endpoint_auth_methods_supported: ["none"],
     code_challenge_methods_supported: ["S256"], scopes_supported: scopes,
+    authorization_response_iss_parameter_supported: true,
+    client_id_metadata_document_supported: true,
   }));
   router.use(oauthPath, authRateLimit(), express.urlencoded({ extended: false, limit: "16kb" }));
   router.post(oauthPath + "/register", async (req, res) => res.status(201).json(await oauth.register(req.body, req.ip ?? req.socket.remoteAddress ?? "unknown")));
-  router.get(oauthPath + "/authorize", async (req, res) => res.redirect(303, await oauth.authorize(req.query)));
+  router.post(oauthPath + "/device_authorization", async (req, res) => res.json(await oauth.deviceAuthorize(req.body, req.ip ?? req.socket.remoteAddress ?? "unknown")));
+  router.get(oauthPath + "/authorize", async (req, res) => res.redirect(303, await oauth.authorize(req.query, req.ip ?? req.socket.remoteAddress ?? "unknown")));
   router.post(oauthPath + "/token", async (req, res) => res.json(await oauth.token(req.body ?? {})));
   router.post(oauthPath + "/revoke", async (req, res) => {
     if (typeof req.body?.token !== "string" || typeof req.body?.client_id !== "string") throw new McpOAuthError("invalid_request", "A token and client_id are required.");
@@ -80,7 +99,7 @@ export function publicMcpIngressRoutes(oauth: PublicMcpOAuth, execute: ReturnTyp
     let principal;
     try { if (!token) throw new Error(); principal = await oauth.authenticate(token); }
     catch {
-      res.setHeader("WWW-Authenticate", `Bearer resource_metadata="${resourceMetadata}", error="invalid_token"`);
+      res.setHeader("WWW-Authenticate", `Bearer resource_metadata="${resourceMetadata}", scope="${agentConnection ? "paperclip:agent" : "paperclip:read paperclip:write"}", error="invalid_token"`);
       res.status(401).json({ error: "invalid_token" }); return;
     }
     if (req.method !== "POST") { res.setHeader("Allow", "POST"); res.status(405).end(); return; }
@@ -168,6 +187,7 @@ export function publicMcpIngressRoutes(oauth: PublicMcpOAuth, execute: ReturnTyp
 export function publicMcpManagementRoutes(oauth: PublicMcpOAuth, agentOAuth?: PublicMcpOAuth) {
   const router = Router();
   const requestOAuth = async (id: string) => agentOAuth && await agentOAuth.ownsRequest(id) ? agentOAuth : oauth;
+  const deviceOAuth = async (code: string) => agentOAuth && await agentOAuth.ownsDevice(code) ? agentOAuth : oauth;
   const realUser: RequestHandler = (req, _res, next) => {
     if (req.actor.type !== "board" || !req.actor.userId || !["session", "cloud_tenant"].includes(req.actor.source ?? "")) {
       throw new McpOAuthError("access_denied", "Sign in to manage assistant connections.", 401);
@@ -180,6 +200,16 @@ export function publicMcpManagementRoutes(oauth: PublicMcpOAuth, agentOAuth?: Pu
     next();
   };
   router.use("/mcp", (_req, res, next) => { res.setHeader("Cache-Control", "no-store"); next(); });
+  router.get("/mcp/device", authRateLimit(), async (req, res) => {
+    const code = z.string().regex(/^[A-Za-z0-9 -]{8,12}$/).safeParse(req.query.user_code);
+    if (!code.success) throw new McpOAuthError("invalid_request", "Enter the code shown by your assistant.");
+    res.json(await (await deviceOAuth(code.data)).describeDevice(code.data, req.actor));
+  });
+  router.post("/mcp/device/consent", realUser, sameOrigin, authRateLimit(), async (req, res) => {
+    const parsed = mcpConsentSchema.extend({ userCode: z.string().regex(/^[A-Za-z0-9 -]{8,12}$/) }).safeParse(req.body);
+    if (!parsed.success) throw new McpOAuthError("invalid_request", "Enter your code and choose the requested access.");
+    res.json(await (await deviceOAuth(parsed.data.userCode)).consentDevice(parsed.data.userCode, req.actor, parsed.data));
+  });
   router.get("/mcp/requests/:id", async (req, res) => {
     let setupUrl: string | null = null;
     if (process.env.PAPERCLIP_CLOUD_API_ORIGIN) {
@@ -193,6 +223,10 @@ export function publicMcpManagementRoutes(oauth: PublicMcpOAuth, agentOAuth?: Pu
     if (!parsed.success) throw new McpOAuthError("invalid_request", "Choose a company and the requested access.");
     res.json(await (await requestOAuth(String(req.params.id))).consent(String(req.params.id), req.actor, parsed.data));
   });
+  router.get("/mcp/setup", realUser, async (_req, res) => res.json({
+    enabled: await oauth.isEnabled(), serverUrl: oauth.config.resource,
+    invitationUrl: mcpSetupUrl(oauth.config.resource), invitation: mcpInvitation(oauth.config.resource),
+  }));
   router.get("/mcp/connections", realUser, async (req, res) => res.json(await oauth.listConnections(req.actor.userId!)));
   router.delete("/mcp/connections/:id", realUser, sameOrigin, async (req, res) => {
     if (!z.uuid().safeParse(req.params.id).success) throw new McpOAuthError("invalid_request", "Invalid connection ID.");

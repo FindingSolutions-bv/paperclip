@@ -55,9 +55,37 @@ adapter. Keep `paperclip_runner` in the server/UI/CLI registries. The older
 cross-surface consistency; its process-spawning package recipe does not define
 this provider's execution architecture.
 
-Assume the public MCP foundation from the referenced gateway work is merged.
-The prototype worktree includes that foundation at `a88448f77`. This assumption
-does not imply that the companion Cloud broker is deployed or qualified.
+The branch now integrates the merged public MCP foundation (`e34abee67`,
+#14846) and scoped browser/device assistant invitations (`22a3ea341`, #14933)
+from master. The preliminary foundation at `a88448f77` is superseded.
+This does not imply that the companion Cloud broker is deployed or qualified.
+
+### Gateway reconciliation — 2026-10-06
+
+The canonical worktree remains `dot-events-prototype/paperclip` on
+`codex/dot-events-prototype`. Master was merged through `c365a16e3`.
+The shared consent implementation now creates distinct agent-purpose grants
+for both browser and device flows, validates request resource and organization
+ownership, and rejects viewer approval. Dot has a separate issuer and scope.
+Verified client metadata, durable verification quotas, event secret rotation,
+subscription refresh races and warm-standby gates use the merged implementation.
+Personal and Dot event workers consume their own subscription resources.
+
+The generated Dot-only migration is now `0311_known_inertia.sql`, after the
+published master migrations. Its table, column, index and constraint additions
+are safe to reapply. Both consent UIs retain the merged organization branding
+and request layout while explaining agent access. Runner provider selection
+uses the current shared harness selector.
+
+Targeted gateway, Dot, onboarding and UI verification passed 125 tests before
+the added migration replay check. Full workspace typecheck/build and token
+gates passed. The full repository suite and Runner recovery checks are running;
+their final results are recorded in the adapter runbook.
+
+The other gateway chat's subsequent assistant-tool expansion is still separate
+work and is not part of this integration. Real-account qualification of the
+dedicated Runner endpoint remains outstanding. Assigned skill files and
+third-party MCP bindings remain unsupported.
 
 ### Evidence and limits
 

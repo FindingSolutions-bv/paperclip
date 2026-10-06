@@ -2,15 +2,19 @@ import { createHash, createHmac, randomBytes, randomUUID } from "node:crypto";
 import { createServer } from "node:http";
 import { execFileSync } from "node:child_process";
 import { fileURLToPath } from "node:url";
-import { mkdtemp, rm, writeFile } from "node:fs/promises";
+import { mkdtemp, readFile, rm, writeFile } from "node:fs/promises";
 import { tmpdir } from "node:os";
 import { join } from "node:path";
-import { eq } from "drizzle-orm";
+import { eq, sql } from "drizzle-orm";
+import express, { type Request } from "express";
+import request from "supertest";
 import { afterAll, beforeAll, describe, expect, it, vi } from "vitest";
 import { agents, authUsers, companies, companyMemberships, createDb, dotMailboxItems, dotRunnerAssignments, dotRunnerOperations,
   heartbeatRuns, issues, nativeRunResults, nativeRunFinalizations, completionContracts, mcpEventDeliveries, workspaceOperations } from "@paperclipai/db";
 import { startEmbeddedPostgresTestDatabase } from "./helpers/embedded-postgres.js";
-import { createPublicMcpOAuth } from "../services/public-mcp/oauth.js";
+import { createPublicMcpOAuth, DEVICE_GRANT } from "../services/public-mcp/oauth.js";
+import { createPublicMcpExecutor } from "../services/public-mcp/capabilities.js";
+import { publicMcpIngressRoutes, publicMcpManagementRoutes } from "../routes/public-mcp.js";
 import { createPublicMcpEvents, type EventFetch } from "../services/public-mcp/events.js";
 import { instanceSettingsService } from "../services/instance-settings.js";
 import { canonicalNativeRuntimeContextDigest, type StrictCompletionContractInput } from "../vendor/paperclip-runner/index.js";
@@ -90,6 +94,97 @@ describe("durable Dot Runner integration", () => {
     await db.update(agents).set({ adapterConfig: { provider: "openai_dot", dotBindingId: pairing.bindingId, allowUnmeteredProvider: true, lifecycleMode: "per_turn" } }).where(eq(agents.id, agent!.id));
     return { company: company!, agent: agent!, userId, broker, principal, oauth, events, subscription, received, snapshot };
   }
+
+  function gateway(oauth: ReturnType<typeof createPublicMcpOAuth>, actor: Request["actor"]) {
+    const personal = createPublicMcpOAuth(db, { ...oauth.config, resource: oauth.config.origin + "/mcp/paperclip" });
+    const dispatch = async () => { throw new Error("Personal API dispatch forbidden"); };
+    const app = express();
+    app.use(express.json());
+    app.use(publicMcpIngressRoutes(personal, createPublicMcpExecutor(db, personal, dispatch)));
+    app.use(publicMcpIngressRoutes(oauth, createPublicMcpExecutor(db, oauth, dispatch)));
+    app.use((req, _res, next) => { req.actor = actor; next(); });
+    app.use("/api", publicMcpManagementRoutes(personal, oauth));
+    return { app, personal };
+  }
+
+  it("reapplies the Dot-only migration after the merged gateway schema", async () => {
+    const migration = await readFile(new URL("../../../packages/db/src/migrations/0311_known_inertia.sql", import.meta.url), "utf8");
+    for (const statement of migration.split("--> statement-breakpoint")) {
+      if (statement.trim()) await db.execute(sql.raw(statement));
+    }
+  });
+
+  it("uses merged client metadata and scoped browser consent with a distinct Dot issuer", async () => {
+    const f = await fixture();
+    const clientId = `https://dot-${randomUUID()}.example/oauth.json`;
+    const redirectUri = "https://chatgpt.com/connector_platform/oauth/callback";
+    const oauth = createPublicMcpOAuth(db, f.oauth.config, { metadataFetch: async () => Response.json({
+      client_id: clientId, client_name: "Dot metadata client", redirect_uris: [redirectUri],
+      grant_types: ["authorization_code", "refresh_token", DEVICE_GRANT],
+    }) });
+    const { app, personal } = gateway(oauth, { type: "board", source: "session", userId: f.userId });
+    const metadata = await request(app).get("/.well-known/oauth-protected-resource/mcp/runner");
+    expect(metadata.body.authorization_servers).toEqual([oauth.config.origin + "/mcp/runner/oauth"]);
+    const issuer = await request(app).get("/.well-known/oauth-authorization-server/mcp/runner/oauth");
+    expect(issuer.body).toMatchObject({ issuer: oauth.config.origin + "/mcp/runner/oauth", client_id_metadata_document_supported: true,
+      scopes_supported: ["paperclip:agent", "offline_access"], device_authorization_endpoint: oauth.config.origin + "/mcp/runner/oauth/device_authorization" });
+    expect((await request(app).get("/.well-known/oauth-authorization-server")).body.issuer).toBe(oauth.config.origin);
+    const verifier = randomBytes(32).toString("base64url");
+    const input = { client_id: clientId, redirect_uri: redirectUri, response_type: "code", resource: oauth.config.resource,
+      company_id: f.company.id, code_challenge: createHash("sha256").update(verifier).digest("base64url"), code_challenge_method: "S256" };
+    const id = (await oauth.authorize(input)).split("/").at(-1)!;
+    await expect(personal.describeRequest(id, { type: "board", source: "session", userId: f.userId }, null)).rejects.toThrow();
+    const description = await request(app).get("/api/mcp/requests/" + id);
+    expect(description.body).toMatchObject({ agentConnection: true, requestedCompanyId: f.company.id, clientOrigin: new URL(clientId).origin });
+    expect(description.body.companies.map((c: { id: string }) => c.id)).toEqual([f.company.id]);
+    expect((await request(app).post(`/api/mcp/requests/${id}/consent`).set("Origin", oauth.config.origin)
+      .send({ decision: "approve", companyId: randomUUID(), allowWrites: false })).status).toBe(403);
+    const consent = await request(app).post(`/api/mcp/requests/${id}/consent`).set("Origin", oauth.config.origin)
+      .send({ decision: "approve", companyId: f.company.id, allowWrites: false });
+    expect(consent.status).toBe(200);
+    const redirect = new URL(consent.body.redirectUrl);
+    expect(redirect.searchParams.get("iss")).toBe(issuer.body.issuer);
+    const tokens = await oauth.token({ grant_type: "authorization_code", client_id: clientId, redirect_uri: redirectUri,
+      resource: oauth.config.resource, code: redirect.searchParams.get("code"), code_verifier: verifier });
+    expect((await oauth.authenticate(tokens.access_token)).grant).toMatchObject({ purpose: "agent", agentId: null, scopes: ["paperclip:agent"] });
+    await expect(personal.authenticate(tokens.access_token)).rejects.toThrow();
+    await expect(oauth.authorize({ ...input, scope: "paperclip:read" })).rejects.toMatchObject({ code: "invalid_scope" });
+    await f.events.unsubscribe(f.principal, f.subscription);
+  }, 30000);
+
+  it("routes merged device consent to Dot without granting personal or cross-company access", async () => {
+    const f = await fixture();
+    const { app, personal } = gateway(f.oauth, { type: "board", source: "session", userId: f.userId });
+    const client = await f.oauth.register({ client_name: "Dot device", redirect_uris: [], response_types: [], grant_types: [DEVICE_GRANT, "refresh_token"] }, randomUUID());
+    const started = await request(app).post("/mcp/runner/oauth/device_authorization")
+      .send({ client_id: client.client_id, resource: f.oauth.config.resource, scope: "paperclip:agent offline_access", company_id: f.company.id });
+    expect(started.status).toBe(200);
+    const codes = started.body;
+    expect(await f.oauth.ownsDevice(codes.user_code)).toBe(true);
+    await expect(personal.describeDevice(codes.user_code, { type: "none" })).rejects.toThrow();
+    const description = await request(app).get("/api/mcp/device").query({ user_code: codes.user_code });
+    expect(description.body).toMatchObject({ agentConnection: true, requestedCompanyId: f.company.id });
+    await db.update(companyMemberships).set({ membershipRole: "viewer" }).where(eq(companyMemberships.principalId, f.userId));
+    expect((await request(app).post("/api/mcp/device/consent").set("Origin", f.oauth.config.origin)
+      .send({ userCode: codes.user_code, decision: "approve", companyId: f.company.id, allowWrites: false })).status).toBe(403);
+    await db.update(companyMemberships).set({ membershipRole: "owner" }).where(eq(companyMemberships.principalId, f.userId));
+    const approved = await request(app).post("/api/mcp/device/consent").set("Origin", f.oauth.config.origin)
+      .send({ userCode: codes.user_code, decision: "approve", companyId: f.company.id, allowWrites: false });
+    expect(approved.body).toEqual({ status: "approved" });
+    const exchange = { grant_type: DEVICE_GRANT, client_id: client.client_id, resource: f.oauth.config.resource, device_code: codes.device_code };
+    const tokens = (await request(app).post("/mcp/runner/oauth/token").send(exchange)).body;
+    expect((await f.oauth.authenticate(tokens.access_token)).actor.type).toBe("none");
+    await expect(personal.authenticate(tokens.access_token)).rejects.toThrow();
+    const renewed = await f.oauth.token({ grant_type: "refresh_token", client_id: client.client_id, resource: f.oauth.config.resource, refresh_token: tokens.refresh_token });
+    expect((await f.oauth.authenticate(renewed.access_token)).grant.purpose).toBe("agent");
+    await expect(f.oauth.token(exchange)).rejects.toMatchObject({ code: "invalid_grant" });
+    vi.stubEnv("PAPERCLIP_ENABLE_OPENAI_DOT", "0");
+    try {
+      expect((await request(app).get("/.well-known/oauth-protected-resource/mcp/runner")).status).toBe(503);
+      expect((await request(app).get("/.well-known/oauth-protected-resource/mcp/paperclip")).status).toBe(200);
+    } finally { vi.stubEnv("PAPERCLIP_ENABLE_OPENAI_DOT", "1"); }
+    await f.events.unsubscribe(f.principal, f.subscription);
+  }, 30000);
 
   it("signed readiness, normal native authority, one document write and finalization through real Rust", async () => {
     const f = await fixture();

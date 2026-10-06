@@ -1,13 +1,20 @@
+import { planTaskCases, planTaskProfile, planDefinitionDigest } from "./plan-task-cases.js";
+import { nativeCompletionTasks, nativeCompletionDefinitionDigest } from "./native-completion-cases.js";
+import { NATIVE_INSTRUCTION_SUITE, NATIVE_INSTRUCTION_BASE_SHA, nativeInstructionDefinitionDigest } from "./native-instruction-consolidation.js";
+import { nativeCompletionProfile, NATIVE_COMPLETION_BUDGET_CENTS } from "./native-completion-defaults.js";
 import { chatConfirmationTasks } from "./chat-cases.js";
+import { buildConnectionSuite } from "./connection-cases.js";
+import { hiringTemplateTasks, hiringTemplateProfile, hiringTemplateDefinitionDigest } from "./hiring-template-cases.js";
 import { instructionPersistenceTask } from "./instruction-persistence.js";
 import { apiResponseReadingTask } from "./api-response-reading.js";
 import { taskTitleTasks, taskTitleDefinitionDigest, TASK_TITLE_BUDGET_CENTS } from "./task-titles.js";
 import { blockerTasks, blockerProfile } from "./blocker-cases.js";
 import { accountingTasks } from "./accounting-cases.js";
 import { continuationTasks } from "./continuation-cases.js";
-import { contextIntegrityTasks } from "./context-integrity-cases.js";
+import { contextIntegrityTasks, paperclipDocumentTask } from "./context-integrity-cases.js";
+import { productionDefaultHireProfile, stockHarnessSourceDigest, stockHarnessSkillSources } from "./stock-harness.js";
 import { lifecycleLiveTasks, lifecycleLiveDefinitionDigest } from "./lifecycle-live-cases.js";
-import { publicMcpTasks, publicMcpWorkflowDigest, publicMcpWorkerInstructions, publicMcpWorkerSkillDigest } from "./public-mcp-cases.js";
+import { publicMcpTasks, publicMcpSetupDigest, publicMcpWorkflowDigest, publicMcpWorkerInstructions, publicMcpWorkerSkillDigest } from "./public-mcp-cases.js";
 import { graderVersion as publicMcpGraderVersion } from "./public-mcp-grading.js";
 import { everydayTasks, productionStoryProfile } from "./everyday-cases.js";
 
@@ -53,6 +60,7 @@ const SELECTABLE_GROUPS = [
   "chat",
   "onboarding",
   "context-integrity",
+  "stock-harness",
 ] as const;
 const SAMPLE_UUID = "11111111-1111-4111-8111-111111111111";
 
@@ -1085,7 +1093,7 @@ export const runnerSuites: readonly RunnerSuiteFixture[] = [
   {
     id: "public-mcp", label: "Paperclip through an assistant", manualOnly: true,
     description: "Paid assistant tool use plus actual team execution, browser OAuth consent, durable outcomes and authorization boundaries.",
-    groups: ["local"], environments: [localEnvironment], tasks: publicMcpTasks, expectedMatrixSize: 24,
+    groups: ["local"], environments: [localEnvironment], tasks: publicMcpTasks, expectedMatrixSize: 39,
     profiles: [
       ...["mini"].map(size => legacyProfile({
         id: `assistant-codex-${size}`, label: `Assistant + Codex ${size}`, adapterType: "codex_local", provider: "codex",
@@ -1102,7 +1110,14 @@ export const runnerSuites: readonly RunnerSuiteFixture[] = [
         extraConfig: { engine: "cli", maxTurnsPerRun: 16 },
       })),
     ],
-    definitionMetadata: { version: 6, grader: publicMcpGraderVersion, workflowDigest: publicMcpWorkflowDigest, workerSkillDigest: publicMcpWorkerSkillDigest, workerInstructions: publicMcpWorkerInstructions, assistantMaxRequests: 16, assistantMaxEstimatedUsd: 2, instructions: "shipped-plugin-skills", scheduling: "explicit-only" },
+    definitionMetadata: { version: 9, setupDigest: publicMcpSetupDigest, grader: publicMcpGraderVersion, workflowDigest: publicMcpWorkflowDigest, workerSkillDigest: publicMcpWorkerSkillDigest, workerInstructions: publicMcpWorkerInstructions, assistantMaxRequests: 16, assistantMaxEstimatedUsd: 2, instructions: "shipped-plugin-skills", scheduling: "explicit-only" },
+  },
+  {
+    id: "plan-task-guidance", label: "Planning guidance utility", manualOnly: true,
+    description: "Current, short and disabled planning skills on cohesive, parallel, dependent and independently reviewed work.",
+    groups: ["native"], profiles: runnerProfiles.filter(p => p.id === "runner-codex").map(planTaskProfile),
+    environments: [localEnvironment], tasks: planTaskCases, expectedMatrixSize: 12,
+    definitionMetadata: { version: 1, definitionDigest: planDefinitionDigest, scheduling: "explicit-only", comparison: "public-skill-availability-ablation", scope: "one-profile-single-attempt" },
   },
   {
     id: "blocker-guidance", label: "Direct blocker handling", manualOnly: true,
@@ -1213,12 +1228,42 @@ export const runnerSuites: readonly RunnerSuiteFixture[] = [
   {
     id: "everyday-workflows", label: "Everyday Paperclip Work", manualOnly: true,
     description: "Real user requests, useful downloaded work, and durable continuation using production instructions.",
-    groups: ["native"], profiles: everydayProfiles, environments: [localEnvironment, daytonaWarmEnvironment],
-    tasks: everydayTasks, expectedMatrixSize: 50,
+    groups: ["native"], profiles: [...everydayProfiles,
+      productionStoryProfile(runnerProfiles.find(profile => profile.id === "runner-opencode")!),
+    ], environments: [localEnvironment, daytonaWarmEnvironment],
+    tasks: everydayTasks.map(task => ["hire-reuse", "delegate-feedback"].includes(task.id)
+      ? { ...task, automaticRetryPolicy: "single_attempt" as const } : task), expectedMatrixSize: 52,
     excludedExecutionIds: [...everydayProfiles.flatMap(profile => everydayTasks
       .filter(task => !["build-revise", "delegate-feedback", "recover-controller", "create-skill-studio"].includes(task.id))
-      .map(task => `everyday-workflows.${profile.id}.daytona.${task.id}`))],
-    definitionMetadata: { version: 4, instructions: "production", grading: "outcome-and-invariants", scheduling: "explicit-only" },
+      .map(task => `everyday-workflows.${profile.id}.daytona.${task.id}`)),
+      ...everydayTasks.flatMap(task => [
+        `everyday-workflows.runner-opencode.daytona.${task.id}`,
+        ...(["hire-reuse", "delegate-feedback"].includes(task.id) ? [] : [`everyday-workflows.runner-opencode.local.${task.id}`]),
+      ]),
+    ],
+    definitionMetadata: { version: 6, instructions: "production", grading: "outcome-and-invariants", scheduling: "explicit-only",
+      procedureCases: { ids: ["hire-reuse", "delegate-feedback"], maximumAttemptsPerCell: 1, companyAndLeadBudgetCents: 1_000 } },
+  },
+  {
+    id: NATIVE_INSTRUCTION_SUITE, label: "Native completion instruction consolidation", manualOnly: true,
+    description: "Matched production-default durable-document and concrete-blocker checks for the completion constraint reduction.",
+    groups: ["native", "local"],
+    profiles: runnerProfiles.filter(profile => ["runner-codex", "runner-acpx-claude", "runner-opencode"].includes(profile.id)).map(nativeCompletionProfile),
+    environments: [localEnvironment], tasks: nativeCompletionTasks, expectedMatrixSize: 6,
+    definitionMetadata: { version: 1, fixtureDigest: nativeInstructionDefinitionDigest(), baseSha: NATIVE_INSTRUCTION_BASE_SHA,
+      instructions: "production-default", maximumAttemptsPerCell: 1, automaticRetryPolicy: "single_attempt",
+      budgetMonthlyCents: NATIVE_COMPLETION_BUDGET_CENTS, scheduling: "explicit-only",
+      grading: "original-assigned-skill-and-strict-native-completion", },
+  },
+  {
+    id: "native-completion", label: "Native completion guidance", manualOnly: true,
+    description: "Production-default assigned-skill document completion and concrete whole-task blocking, with independent native result/final ordering.",
+    groups: ["native", "local"],
+    profiles: runnerProfiles.filter(profile => ["runner-codex", "runner-acpx-claude", "runner-opencode"].includes(profile.id)).map(nativeCompletionProfile),
+    environments: [localEnvironment], tasks: nativeCompletionTasks, expectedMatrixSize: 6,
+    definitionMetadata: { version: 1, fixtureDigest: nativeCompletionDefinitionDigest(), instructions: "unchanged-master-production-default",
+      providerTurns: 6, maximumAttemptsPerCell: 1, automaticRetryPolicy: "single_attempt", budgetMonthlyCents: NATIVE_COMPLETION_BUDGET_CENTS,
+      grading: "original-assigned-skill-durable-document-plus-native-disposition-and-observable-final-order", scheduling: "explicit-only" },
   },
   {
     id: "context-integrity",
@@ -1237,6 +1282,30 @@ export const runnerSuites: readonly RunnerSuiteFixture[] = [
       scheduling: "explicit-only",
       paidCalls: "one provider run per skill case; two bounded turns per comment case",
       prerequisiteGate: PENDING_PROFILE_PREREQUISITES,
+    },
+  },
+  {
+    id: "stock-harness",
+    label: "Stock harness with Paperclip",
+    manualOnly: true,
+    description: "Production-default hires, reduced shared prompts, assigned skills, continuation, and persistent chat.",
+    groups: ["stock-harness", "native", "legacy"],
+    profiles: [...contextIntegrityProfiles.filter(profile => !pendingContextIntegrityProfiles.includes(profile)),
+      runnerProfiles.find(profile => profile.id === "legacy-opencode")!].map(productionDefaultHireProfile),
+    environments: [localEnvironment],
+    tasks: [...contextIntegrityTasks, chatTasks.find(task => task.id === "continuity-restart")!, paperclipDocumentTask]
+      .map(task => ({ ...task, automaticRetryPolicy: "single_attempt" as const })),
+    expectedMatrixSize: 26,
+    excludedExecutionIds: ["legacy-codex", "legacy-acp-codex", "legacy-acp-claude", "runner-codex", "runner-acpx-claude", "runner-opencode"]
+      .map(profile => `stock-harness.${profile}.local.${paperclipDocumentTask.id}`),
+    definitionMetadata: {
+      version: 2, instructions: "production-default-hire", scheduling: "explicit-only",
+      automaticRetryPolicy: "single_attempt", maximumAttemptsPerCell: 1,
+      sourceDigest: stockHarnessSourceDigest(),
+      operationalSkillSources: stockHarnessSkillSources(),
+      grading: "public-default-bundle-and-delivered-prompts-plus-independent-lifecycle-oracles",
+      vendorBaseEvidence: "required deterministic Codex driver/runnerd/Rust gate; task success is not vendor-base proof",
+      paidCalls: "one skill turn, two ordered-comment turns, three chat turns per profile",
     },
   },
   {
@@ -1266,6 +1335,16 @@ export const runnerSuites: readonly RunnerSuiteFixture[] = [
     excludedExecutionIds: ["runner-codex", "runner-acpx-claude"].flatMap(profile =>
       ["stop-startup-new-resume", "hire-delegate-reuse", "blocked-status-review"].map(task => `agent-chat-hardening.${profile}.daytona.${task}`)),
     definitionMetadata: { version: 5, permissions: "production-defaults", instructions: "production", grading: "durable-state-and-source-evidence", scheduling: "explicit-only", restartMemory: "required-after-restart", statusEvidence: "structured-current-blocker-and-active-run-count", readOnlyState: "public-mutation-contract-and-relations", hiringReference: "neutral-document-reference-line" },
+  },
+  {
+    id: "hiring-templates", label: "Production Hiring Templates", manualOnly: true,
+    description: "Production CEO and hiring skill/reference discovery, one coder hire, independently checked JSON artifacts and worker reuse.",
+    groups: ["chat", "native"],
+    profiles: runnerProfiles.filter(profile => ["runner-codex", "runner-acpx-claude"].includes(profile.id))
+      .map(profile => hiringTemplateProfile(defaultPermissionProfile(profile))),
+    environments: [localEnvironment], tasks: hiringTemplateTasks, expectedMatrixSize: 2,
+    definitionMetadata: { version: 1, definitionDigest: hiringTemplateDefinitionDigest, instructions: "source-revision-default-ceo", scheduling: "explicit-only",
+      grading: "independent-json-and-read-receipts", baselineComparison: "same-fixture-source-derived-bundles", providerTurns: 5 },
   },
   {
     id: "agent-chat-stories", label: "Agent Chat Setup and Interruptions", manualOnly: true,
@@ -1411,6 +1490,7 @@ export const runnerSuites: readonly RunnerSuiteFixture[] = [
     expectedMatrixSize: 1,
     definitionMetadata: { version: 8, instructions: "fixed-external", nativeIdleTimeoutMs: 1_200_000, autoStopIntervalMinutes: 25, generatedFileCount: 60_000, filenameBytes: 39_828_890, scheduling: "explicit-only", finalization: "committed-without-active-sync-or-retry", copyback: "all-generated-file-contents-change-each-turn" },
   },
+  buildConnectionSuite(runnerProfiles, runnerEnvironments),
 ] as const;
 
 export function suiteDefinitionHash(suite: RunnerSuiteFixture) {
@@ -1470,8 +1550,8 @@ export function buildRunnerMatrix(
                 ]),
               ],
               requiredCredentials: [
-                profile.credential,
-                ...(environment.credential ? [environment.credential] : []),
+                ...(task.flow === "provider_connection" ? [] : [profile.credential]),
+                ...(task.flow !== "provider_connection" && environment.credential ? [environment.credential] : []),
               ],
             }))
             .filter((execution) => !excludedExecutionIds.has(execution.id)),
@@ -1517,8 +1597,10 @@ function assertNoRawSecretValues(value: unknown, label: string) {
 }
 
 export function validateRunnerCatalog(): MatrixExecution[] {
-  const allProfiles = [...extendedHarnessProfiles, ...runnerProfiles, ...legacyAcpxProfiles, ...pendingContextIntegrityProfiles, ...openRouterBreadthProfiles, ...everydayProfiles.filter(p => !runnerProfiles.some(existing => existing.id === p.id))];
+  const connectionSuite = runnerSuites.find(suite => suite.id === "provider-connections")!;
+  const allProfiles = [...connectionSuite.profiles, ...extendedHarnessProfiles, ...runnerProfiles, ...legacyAcpxProfiles, ...pendingContextIntegrityProfiles, ...openRouterBreadthProfiles, ...everydayProfiles.filter(p => !runnerProfiles.some(existing => existing.id === p.id))];
   const allTasks = [
+    ...connectionSuite.tasks,
     extendedHarnessFileTask,
     ...contextIntegrityTasks,
     ...blockerTasks,
