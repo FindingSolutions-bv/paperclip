@@ -18,6 +18,18 @@ unassigned guidance.
 The eval does not exercise automatic accepted-plan selection or installed-skill
 migration, and cannot by itself qualify deleting that wiring.
 
+The business prompts do not prescribe task counts or particular tools. Enabled
+variants append explicit references to the two assigned runtime skill names; the
+unassigned control appends none. This measures explicitly invoked guidance, not
+automatic discovery. A separate exposure gate requires the initial lead run to
+submit exactly those native skill inputs, bound to the immutable SKILL.md file
+digests, and records provider turn acceptance. The controller emits the submission
+receipt before a provider turn ID exists: this is a run-bound submission contract,
+not a claimed provider call-ID join or proof of cognitive consumption. Native
+protocol calibration separately verifies mapping into the isolated provider skill
+directory. Missing or wrong exposure fails qualification even when the output
+checks pass.
+
 The scenario prompts do not prescribe task counts or particular tools. They do
 specify which specialist is accountable and what business output is required.
 The grader checks independent arithmetic, actual latest document revisions and

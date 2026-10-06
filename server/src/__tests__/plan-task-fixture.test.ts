@@ -1,5 +1,5 @@
 import { randomUUID } from "node:crypto";
-import { mkdtemp, rm } from "node:fs/promises";
+import { mkdtemp, readFile, rm, stat } from "node:fs/promises";
 import os from "node:os";
 import path from "node:path";
 import express from "express";
@@ -11,7 +11,11 @@ import { agentRoutes } from "../routes/agents.js";
 import { errorHandler } from "../middleware/error-handler.js";
 import { getEmbeddedPostgresTestSupport, startEmbeddedPostgresTestDatabase } from "./helpers/embedded-postgres.js";
 import { preparePlanSkills, selectPlanSkills, verifyPlanSkills, verifyPlanSelection } from "../../../tests/runner-e2e/plan-task-skills.js";
-import { PLAN_SKILLS, PLAN_VARIANTS } from "../../../tests/runner-e2e/plan-task-cases.js";
+import { planInvocations, planInvocationPrompt } from "../../../tests/runner-e2e/plan-task-exposure.js";
+import { nativeTaskSkillInputs } from "../../../packages/paperclip-runner/src/backends/runtime-context.js";
+import { resolveRunnerdCodexSkillInputs } from "../../../packages/paperclip-runner/src/live/runnerd-codex-transport.js";
+import type { NativeRuntimeContextSnapshot } from "../../../packages/paperclip-runner/src/contracts/runtime-context.js";
+import { PLAN_SKILLS, PLAN_VARIANTS, planHash } from "../../../tests/runner-e2e/plan-task-cases.js";
 import type { RunnerApi } from "../../../tests/runner-e2e/api.js";
 
 const support = await getEmbeddedPostgresTestSupport();
@@ -64,7 +68,28 @@ if (!support.supported) console.warn(`Planning fixture API calibration skipped: 
     const sources = await preparePlanSkills(api, companyId, variant);
     expect(sources).toHaveLength(2);
     expect(sources.every(s => s.key.startsWith(`company/${companyId}/eval-`))).toBe(true);
-    await selectPlanSkills(api, companyId, agentId, sources);
+    const selected = await selectPlanSkills(api, companyId, agentId, sources);
+    const invocations = planInvocations(sources, selected);
+    const contextSkills = [];
+    for (const source of sources.filter(s => s.selected)) {
+      const entry = (selected as any).entries.find((e: any) => e.key === source.key && e.desired);
+      const bytes = await readFile(path.join(entry.sourcePath, "SKILL.md"));
+      expect(planHash(bytes)).toBe(source.sha256);
+      const mode = (await stat(path.join(entry.sourcePath, "SKILL.md"))).mode & 0o555;
+      expect(mode).toBe(0o444);
+      const digest = planHash(JSON.stringify([{ path: "SKILL.md", sha256: planHash(bytes), mode, size: bytes.length }]));
+      expect(invocations.find(i => i.name === entry.runtimeName)?.assetDigest).toBe(digest);
+      contextSkills.push({ key: source.key, runtimeName: entry.runtimeName, versionId: entry.currentVersionId,
+        bundle: { rootPath: path.join(root, "runtime-context-assets/bundles", digest) } });
+    }
+    const context = { skills: contextSkills } as NativeRuntimeContextSnapshot;
+    const inputs = nativeTaskSkillInputs(planInvocationPrompt("Business task", invocations), context);
+    expect(inputs).toHaveLength(variant === "disabled" ? 0 : 2);
+    expect(inputs.map(i => i.name)).toEqual(invocations.map(i => i.name));
+    const providerHome = path.join(root, "isolated-codex-home");
+    expect(resolveRunnerdCodexSkillInputs(inputs, context, providerHome)).toEqual(inputs.map(i => ({
+      ...i, path: path.join(providerHome, "skills", i.name, "SKILL.md"),
+    })));
     await verifyPlanSelection(api, companyId, agentId, sources);
     await verifyPlanSkills(api, companyId, sources);
     const after = await api.get<any[]>(`/api/companies/${companyId}/skills`);

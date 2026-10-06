@@ -9,6 +9,7 @@ import type { MatrixExecution } from "./types.js";
 import { createPlanTaskThroughUi } from "./plan-task-ui.js";
 import { PLAN_BASE_SHA, PLAN_BUDGET_CENTS, PLAN_MAX_RUNS, parsePlanCase, planDefinitionDigest, planScenario } from "./plan-task-cases.js";
 import { gradePlanTask, type PlanCheck, type PlanDocument, type PlanObservation, type PlanRow } from "./plan-task-scoring.js";
+import { planExposure, planInvocationPrompt, planInvocations, type PlanInvocation } from "./plan-task-exposure.js";
 import { preparePlanSkills, selectPlanSkills, verifyPlanSelection, verifyPlanSkills } from "./plan-task-skills.js";
 
 type Input = {
@@ -28,6 +29,13 @@ export async function runPlanTaskFlow(input: Input) {
   let parent: PlanRow | undefined, alexId = "", rileyId = "", failure: string | undefined;
   let observed: PlanObservation = { issues: [], runs: [], documents: [], comments: [], activity: [], interactions: [], wakes: [] };
   let checks: PlanCheck[] = [];
+  let invocations: PlanInvocation[] = [];
+  let runEvidence: PlanRow[] = [];
+  const exposure = () => planExposure({ runs: observed.runs, evidence: runEvidence, leadId: f.agent.id, parentId: parent?.id ?? "", invocations });
+  async function captureRuns() {
+    runEvidence = await Promise.all(observed.runs.map(run => collectChatRunEvidence(api, run as Parameters<typeof collectChatRunEvidence>[1])
+      .catch(error => ({ runId: run.id, evidenceError: String(error) }))));
+  }
   const grade = () => gradePlanTask({ caseId, marker: scenario.marker, parentId: parent?.id ?? "", leadId: f.agent.id,
     alexId, rileyId, observation: observed, maxRuns: PLAN_MAX_RUNS, origin: api.baseURL });
 
@@ -79,11 +87,14 @@ export async function runPlanTaskFlow(input: Input) {
       await api.patch(`/api/agents/${id}/budgets`, { budgetMonthlyCents: PLAN_BUDGET_CENTS });
       const skills = await selectPlanSkills(api, f.company.id, id, source.skills);
       source.agents.push({ id, skills });
+      if (id === f.agent.id) invocations = planInvocations(source.skills, skills);
     }
+    source.invocations = invocations;
+    source.requestPrompt = planInvocationPrompt(scenario.prompt, invocations);
     await input.evidence("plan-task-source.json", source);
     await api.patch("/api/instance/settings/experimental", { enableClassicTaskInterface: false });
     const created = await createPlanTaskThroughUi({ page, companyId: f.company.id, issuePrefix: f.company.issuePrefix!,
-      agentName: f.agent.name, prompt: scenario.prompt });
+      agentName: f.agent.name, prompt: source.requestPrompt });
     parent = await pollUntil({ label: "browser-created planning-guidance task", deadlineAt: input.deadlineAt,
       load: () => api.get<PlanRow>(`/api/issues/${created.id}`), accept: i => i.id === created.id });
     if (!parent) throw new Error("Browser task not found");
@@ -99,7 +110,8 @@ export async function runPlanTaskFlow(input: Input) {
         o.runs.some(r => ["failed", "timed_out", "cancelled"].includes(r.status)) ? "actual run failed; retain original failure" : undefined });
     await verifyPlanSkills(api, f.company.id, source.skills);
     for (const id of [f.agent.id, alexId, rileyId]) await verifyPlanSelection(api, f.company.id, id, source.skills);
-    checks = grade().checks;
+    await captureRuns();
+    checks = [...grade().checks, exposure()];
     input.observe(parent, observed.runs, checks);
     await page.goto(`/${f.company.issuePrefix}/issues/${parent.identifier ?? parent.id}`, { waitUntil: "domcontentloaded" });
     await expect(page.getByRole("heading", { name: parent.title, exact: true })).toBeVisible();
@@ -109,7 +121,7 @@ export async function runPlanTaskFlow(input: Input) {
     return { issue: parent, runs: observed.runs, checks };
   } catch (error) {
     failure = error instanceof Error ? error.message : String(error);
-    checks = [...grade().checks, { id: "workflow-completed", passed: false, detail: failure }];
+    checks = [...grade().checks, exposure(), { id: "workflow-completed", passed: false, detail: failure }];
     if (parent) input.observe(parent, observed.runs, checks);
     throw error;
   } finally {
@@ -117,11 +129,11 @@ export async function runPlanTaskFlow(input: Input) {
     try { await observe(); } catch (error) { captureError = String(error); }
     const finalSkills = await Promise.all([f.agent.id, alexId, rileyId].filter(Boolean).map(async id => ({ id,
       skills: await api.get(`/api/agents/${id}/skills?companyId=${f.company.id}`).catch(error => ({ error: String(error) })) })));
-    await input.evidence("plan-task-runs.json", await Promise.all(observed.runs.map(run => collectChatRunEvidence(api, run as Parameters<typeof collectChatRunEvidence>[1])
-      .catch(error => ({ runId: run.id, evidenceError: String(error) })))));
+    await captureRuns();
+    await input.evidence("plan-task-runs.json", runEvidence);
     await input.evidence("plan-task-guidance.json", { variant, caseId, scenario, source, finalSkills, parentId: parent?.id,
       leadId: f.agent.id, alexId, rileyId, budgetCents: PLAN_BUDGET_CENTS, maxRuns: PLAN_MAX_RUNS,
-      observation: observed, result: grade(), failure, captureError });
+      observation: observed, result: grade(), exposure: exposure(), failure, captureError });
     await input.evidence("api-state.json", { capturePhase: "plan-task-final", issue: parent, runs: observed.runs, checks, failure, captureError });
   }
 }
