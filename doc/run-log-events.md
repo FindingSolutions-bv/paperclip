@@ -52,6 +52,13 @@ and incomplete result-delivery command IDs and statuses. If execution and
 cleanup both fail, execution retains its original error identity and cleanup is
 attached as `cleanupError`.
 
+Semantic settlement also includes up to 20 content-free failure records, with
+the call ID, operation ID, stage (`dispatch` or `persist_result`), and cause.
+Causes distinguish an oversized command, a full command journal, known storage
+errors, dispatcher rejection, and other persistence failures. Exception messages
+and tool results are excluded. These diagnostics do not authorize replay of an
+operation whose outcome is unknown.
+
 Instruction writes also commit an `agent.instruction_write_attempted` activity
 row and a run-scoped `instructionToolAttempts` entry before permitting the
 filesystem effect. They retain the call ID, operation ID, and input digest, not
@@ -239,6 +246,21 @@ section in the Observability contract.
 
 ## Execution recovery
 
+Cancelled runs retain `resultJson.cancellation`: a closed `source` label
+(`operator`, `queued_message`, `shutdown`, `provider`, `transport`,
+`control_plane`, or `unknown`), whether the stop was expected, the initiator,
+reason, and recording time. Recorded stop intent survives adapter completion.
+The local lifecycle event includes this evidence. Started cancellations without
+an expected stop are also reported to Sentry; its cancellation diagnostics contain
+only source, expectedness, and initiator type, never initiator IDs or reason text.
+Historical ambiguous cancellations stay `unknown` and do not authorize replay.
+
+Provider tool-definition validation failures use
+`provider_tool_definition_invalid` / `configuration`. Automatic retry and
+continuation recovery stop until the configuration is repaired. Classification
+uses raw provider diagnostics in memory before redaction; stored diagnostics
+remain redacted and bounded.
+
 Provider identity diagnostics remain in the local run log. They record the notification method, expected and received thread/turn identifiers, and the classification (root, verified descendant, stale, unrelated informational, or invalid authoritative). They omit the original provider payload and credentials. Repeated informational notices are bounded.
 
 Ignored unrelated Codex notifications use `harness.diagnostic` with code
@@ -305,6 +327,17 @@ the enclosing workspace task. The original error and restore safety policy are
 unchanged. These lines stay in the instance run log and its configured durable
 storage, and are not new first-party telemetry events.
 
+The optional `step` identifies the failed restore operation. For
+`phase=workspace` and `step=git_integration`, `gitCommand` identifies one fixed
+command family (`rev_parse`, `symbolic_ref`, `merge_base`, `merge_tree`,
+`commit_tree`, `update_ref`, or `log`). `gitFailureKind` is `merge_conflict`,
+`invalid_object`, `ref_conflict`, `permission_denied`, or `unknown`; it is a
+bounded diagnostic clue, not a new recovery or retry decision. Only supported
+exit/OS codes and recognized Git messages produce a specific classification.
+No command arguments, stderr, filenames, repository URLs, or ref names are saved.
+The same closed fields persist in `workspaceRestoreDiagnostic` and are
+revalidated before projection into an enabled Sentry failure report.
+
 ## Codex resume usage snapshot
 
 The native runner retains a bounded local `harness.diagnostic` event with code
@@ -342,3 +375,10 @@ Successful checkpoints can include `checkpointStats`: `scannedEntries`,
 capture, not cumulative traffic or an atomic snapshot of background writers.
 They contain no file contents. The receipt remains in the instance run log;
 it adds no Paperclip Telemetry or OpenTelemetry export.
+
+If instruction-copy release throws, `instruction_cleanup` records a warning
+with payload `{ "state": "deferred" }`. The existing working-copy recovery sweep
+retries cleanup. This event preserves the run outcome and does not claim a file
+save; `instruction_save` remains authoritative for collection. The event contains
+no raw exception, host path, file contents, or lock-owner metadata. Failure to
+write the warning must not replace the provider outcome or stop lease release.

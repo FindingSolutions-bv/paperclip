@@ -172,9 +172,11 @@ export interface AiManagedConnectionSummary {
   isDefault: boolean;
   status: "connected" | "needs_attention" | "expired" | "revoked";
   unavailableReason?: string;
+  usageProbeSupported?: boolean;
 }
 export interface AiConnectionList {
   currentUserId: string;
+  pools?: import("./ai-connection-router.js").AiConnectionPool[];
   canManageConnections: boolean;
   connections: AiManagedConnectionSummary[];
 }

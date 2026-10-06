@@ -244,7 +244,7 @@ class FakeCapabilityCodexTransport implements CodexAppServerTransport {
             interactionKind: "questions",
             title: "Choose the mock path",
             prompt: "Which path should the mock agent take?",
-            payload: { fields: [{ id: "path", label: "Path" }] },
+            payload: { version: 1, questionSet: { schema: "paperclip.question_set.v1", questions: [{ id: "path", prompt: "Which path?", required: true, answerMode: "single_select", options: [{ id: "safe", label: "Safe path" }, { id: "fast", label: "Fast path" }] }] } },
             continuationPolicy: "wake_assignee",
           },
         },
@@ -897,7 +897,7 @@ describe("Capability live runnerd and Codex session", () => {
     expect(session.snapshot().config).toMatchObject({
       provider: "opencode",
       driver: "opencode_server",
-      providerVersion: "1.18.32",
+      providerVersion: "1.18.34",
       requestedModel: "openrouter/deepseek/deepseek-v4-flash-0731",
     });
     await service.shutdown(session.id);
