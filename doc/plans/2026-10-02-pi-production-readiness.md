@@ -34,6 +34,18 @@ still confirmed live on their original handle; do not stop or duplicate them.
 The missing-LF memory failure and finish-task stream timeout still need a proven
 correction. Production remains held.
 
+The first birth-reader build at `9fdcefcc3` passes full build, recursive
+typecheck and harness typecheck, and all 18 packages are repacked. Its normal ARM
+install and Pi setup pass, but offline admission fails because the server imports
+the private Runner package instead of its bundled vendor boundary. The browser
+CI shards and company-import test show the same missing-module error. Those
+failed receipts and image remain preserved and supply no qualification evidence.
+The follow-up routes the import through the existing vendor shim and mirrors the
+compiled Runner export there. All 39 hot-restart and native-recovery tests pass
+with that correction. Rebuild the artifacts from this follow-up before admission.
+The exact nine Linux birth-reader tests also pass on Linux without skips or
+provider calls. Latest provisional key usage is $0.358793129 with zero BYOK usage.
+
 ## Previous frozen-set measurements — 2026-10-06
 
 The rebuilt `7f66a30ad` package/image set has Product **1/26** and Runner

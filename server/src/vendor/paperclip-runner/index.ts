@@ -26,6 +26,7 @@ export type {
   ControlPlanePort,
   HarnessRuntimeRequestKind,
   HarnessRuntimeRequestResolution,
+  LinuxProcessStartOptions,
   NativeAcpxAgent,
   NativeAcpxPermissionMode,
   NativeCodexApprovalPolicy,
@@ -74,6 +75,7 @@ export const DurablePrpControlPlane = runner.DurablePrpControlPlane;
 export const runnerCodexDynamicToolsFit = runner.runnerCodexDynamicToolsFit;
 export const inspectWarmRunTransition = runner.inspectWarmRunTransition;
 export const readRunnerdArtifactBinding = runner.readRunnerdArtifactBinding;
+export const readLinuxProcessStartedAt = runner.readLinuxProcessStartedAt;
 export const NativeSessionCleanupQuarantinedError =
   runner.NativeSessionCleanupQuarantinedError;
 export const NativeSessionProtocolIntegrityError =
