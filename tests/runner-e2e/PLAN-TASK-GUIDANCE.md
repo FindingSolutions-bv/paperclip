@@ -54,3 +54,22 @@ on source `843238f43cb266f6ca0bc9d255881558ffd2eb71` was cancelled after source
 review identified unsupported bundled edits and automatic core reinstallation.
 The paid-cell step was skipped: zero provider runs and no behavioral grade.
 The corrected fixture uses company copies and selection only.
+
+The next setup campaign, [37401094799](https://github.com/paperclipai/paperclip/actions/runs/37401094799),
+measured source `370e51d110836b942e5f90567d2bbe260bcc0f3a` using trusted workflow
+revision `0e0b63e5a551388ac4601ed982b3e8f1c772f123` (workflow blob
+`0600886144d3e22ea2e4a38329a79177882f3948`). It remains an original FAIL,
+classified by the harness as `candidate_failure`. Inspection shows a browser
+fixture error before task creation: the shared helper waited for the old Task
+title field. `runIds`, the company run ledger, and planning observation are all
+empty; no model executed. Cleanup passed. The billing summary's runCount=1 is
+its minimum-one placeholder (`billing.ts`), not evidence of a provider run;
+runtime/actual charges remain unmetered. No original result is regraded.
+
+The corrected planning-only browser helper uses the current description composer,
+explicitly selects the owner, and captures the public task-create response ID. A
+real browser/server/database calibration creates the exact prompt/assignment with
+paused non-provider agents, confirms zero run rows, and deletes its company. It
+passes. Before any model execution, prompts also explicitly name the already
+required result document key and exact JSON fields, avoiding an unstated oracle
+format assumption. The legacy helper and production UI remain unchanged.

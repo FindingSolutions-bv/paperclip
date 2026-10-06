@@ -15,7 +15,7 @@ export const PLAN_SKILLS = [
 ] as const;
 export const planHash = (value: string | Buffer) => createHash("sha256").update(value).digest("hex");
 export const planDefinitionDigest = planHash([
-  "plan-task-cases.ts", "plan-task-flow.ts", "plan-task-scoring.ts", "plan-task-skills.ts",
+  "plan-task-cases.ts", "plan-task-flow.ts", "plan-task-scoring.ts", "plan-task-skills.ts", "plan-task-ui.ts",
   "fixtures/plan-task-guidance/current-conversion.md", "fixtures/plan-task-guidance/current-planning.md",
 ].map(file => readFileSync(new URL(file, import.meta.url), "utf8")).join("\0"));
 
@@ -33,7 +33,7 @@ export function planScenario(caseId: PlanCase, nonce: string) {
     dependency: `Prepare the release receipt. Alex Metrics owns verifying the order: two units at 7 dollars plus three at 5 dollars. Alex must save a result document with fields marker "${marker}", units (the summed quantity), and total (the calculated dollar amount) on Alex's work item. Riley Copy owns release verification and must inspect that actual saved result after Alex completes it; Riley cannot perform release work before that prerequisite is complete. Riley's result document must contain fields marker "${marker}", releasedTotal (the verified dollar total), and sourceRevisionId (the actual revision ID of Alex's result). Deliver Riley's verified receipt as this task's result document and finish.`,
     review: `Obtain Riley Copy's independent audit of this supplied order proposal: two units at 7 dollars, three units at 5 dollars, proposed total 30 dollars. Riley must author a result document on Riley's review work item with fields marker "${marker}", verdict ("accept" or "reject"), correctTotal (the independently calculated dollar total), and difference (the absolute error in the proposal). The audit, including any adverse finding, is the complete requested deliverable; do not implement a correction. Report Riley's actual verdict in this task's result document with those same fields and finish.`,
   };
-  return { marker, prompt: `Plan the work briefly, then carry it out. Execution is already authorized; no additional approval is requested. Choose how to organize the work. ${prompts[caseId]} Documents may use a JSON code block. Link the final saved result in your response.` };
+  return { marker, prompt: `Plan the work briefly, then carry it out. Execution is already authorized; no additional approval is requested. Choose how to organize the work. ${prompts[caseId]} Save every requested result document with key result and exactly the requested JSON fields. Documents may use a JSON code block. Link the final saved result in your response.` };
 }
 
 export function planTaskProfile(profile: RunnerProfileFixture): RunnerProfileFixture {

@@ -6,7 +6,7 @@ import { collectChatRunEvidence } from "./chat-flow.js";
 import { FixtureRegistry } from "./fixture-registry.js";
 import type { LiveFixtureValues } from "./live-fixtures.js";
 import type { MatrixExecution } from "./types.js";
-import { createTaskThroughUi } from "./user-actions.js";
+import { createPlanTaskThroughUi } from "./plan-task-ui.js";
 import { PLAN_BASE_SHA, PLAN_BUDGET_CENTS, PLAN_MAX_RUNS, parsePlanCase, planDefinitionDigest, planScenario } from "./plan-task-cases.js";
 import { gradePlanTask, type PlanCheck, type PlanDocument, type PlanObservation, type PlanRow } from "./plan-task-scoring.js";
 import { preparePlanSkills, selectPlanSkills, verifyPlanSelection, verifyPlanSkills } from "./plan-task-skills.js";
@@ -82,10 +82,10 @@ export async function runPlanTaskFlow(input: Input) {
     }
     await input.evidence("plan-task-source.json", source);
     await api.patch("/api/instance/settings/experimental", { enableClassicTaskInterface: false });
-    await createTaskThroughUi({ page, issuePrefix: f.company.issuePrefix!, agentName: f.agent.name,
-      title: execution.task.buildTitle(input.nonce), prompt: scenario.prompt, workMode: "standard" });
+    const created = await createPlanTaskThroughUi({ page, companyId: f.company.id, issuePrefix: f.company.issuePrefix!,
+      agentName: f.agent.name, prompt: scenario.prompt });
     parent = await pollUntil({ label: "browser-created planning-guidance task", deadlineAt: input.deadlineAt,
-      load: async () => (await api.get<PlanRow[]>(`${company}/issues`)).find(i => i.title === execution.task.buildTitle(input.nonce)), accept: Boolean });
+      load: () => api.get<PlanRow>(`/api/issues/${created.id}`), accept: i => i.id === created.id });
     if (!parent) throw new Error("Browser task not found");
     let previous = "", same = 0;
     await pollUntil({ label: "planning work and handoffs settle", deadlineAt: input.deadlineAt, intervalMs: 1_500, load: observe,
