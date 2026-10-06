@@ -22,8 +22,8 @@ children keep their existing stable wake key to avoid repeated watchdog loops;
 near-match origin names remain ordinary children. Related open #10559 and
 #4507 concern legacy wake deduplication; #11179 concerns delivery during an
 active parent run; #13044 separately proposes suppressing watchdog signals.
-This change preserves their existing routing boundaries and changes only the
-native committed-decision wake key.
+The initial slice changed only the native committed-decision wake key. The
+failed live trial below requires the bounded native delivery extension described here.
 
 Prior procedure experiments in #15218 exposed stalled and premature parent
 outcomes but do not alone prove this mechanism caused every failure. The
@@ -64,3 +64,34 @@ shipped the smaller planning skills; its report publication is separate.
   origin controls. Repository checks are still running.
 - [ ] Complete frozen live comparison and retain original evidence.
 - [ ] Complete PR review and CI.
+
+
+## Active-parent failure and bounded correction
+
+The original four live cells are complete: Codex PASS → FAIL and Claude FAIL →
+PASS, 17 actual runs with no retries. Original grades remain unchanged. The
+Codex candidate receives the revised child completion while its parent is active;
+the parent later blocks using an outdated child-running view, with no retained
+continuation. Both Claude parent finals reference an earlier artifact, so their
+original grades do not prove delivery/review of the latest child artifact.
+
+The human authorized publishing this summary and fixing the failures. The PR body
+now retains the original results and limits. The next source revision:
+
+- Carries ordinary child completion decision identity through the durable wake.
+- Defers that wake behind an active parent instead of treating updated run context
+  as proof the provider received it. Exact watchdog and legacy behavior stay as before.
+- Preserves a queued/deferred child result across a parent Done claim. Completion
+  authority leaves the task in progress and uses the existing continuation; it
+  rechecks under the parent status lock. Consumed and current-run wakes do not
+  block completion. Cancellation and governance are not bypassed.
+
+67 focused scheduler, native conformance and authority tests pass, along with
+repository typecheck. The controlled scheduler test proves one sequential parent
+continuation carrying the revised summary, including dispatcher replay. Native
+coverage distinguishes queued, claimed, deferred, consumed, and current-run wakes.
+
+The original baseline remains frozen. Measure only the corrected candidate in
+the same two cases, one attempt each, under the existing bounds and oracle. Keep
+all previous runs and inspect final artifact delivery separately from machine
+pass totals. Live qualification and fresh CI/review remain pending; keep draft.

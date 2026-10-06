@@ -1,3 +1,4 @@
+import { hasPendingNativeChildCompletion, type NativeChildCompletionRecipient } from "./native-child-completion-delivery.js";
 import { and, asc, desc, eq, inArray, notInArray, sql } from "drizzle-orm";
 import type { Db } from "@paperclipai/db";
 import type { CreateIssueThreadInteraction } from "@paperclipai/shared";
@@ -1546,6 +1547,7 @@ export async function commitNativeStatusDecision(input: {
   preMaterializedEffects?: NativeMaterializedStatusEffect[];
   supersedesCommittedDecisionId?: string;
   requireExternalChatResponseWaitAuthorization?: { agentId: string };
+  requireNoPendingChildCompletion?: NativeChildCompletionRecipient;
   requireModelRejectionOwner?: { agentId: string; reviewContext: NativeReviewAssignmentContext | null };
   requireProviderFailureOwner?: { agentId: string; reviewContext: NativeReviewAssignmentContext | null };
   requireBoardResponseWaitSource?: NativeBoardResponseWaitSource;
@@ -1635,6 +1637,11 @@ export async function commitNativeStatusDecision(input: {
     ) {
       throw new NativeStatusRaceError();
     }
+    // Recheck under the parent status lock: a child can finish between the
+    // finalizer's read and this commit. Re-arbitrate instead of discarding its wake.
+    if (input.requireNoPendingChildCompletion && await hasPendingNativeChildCompletion(
+      tx as unknown as Db, input.requireNoPendingChildCompletion,
+    )) throw new NativeStatusRaceError();
     if (input.requireModelRejectionOwner || input.requireProviderFailureOwner) {
       const owner = (input.requireProviderFailureOwner ?? input.requireModelRejectionOwner)!;
       // A successor can claim execution without changing statusVersion. Keep
@@ -2002,9 +2009,13 @@ export async function commitNativeStatusDecision(input: {
       // Ordinary children can finish new work after reopening. Key that wake to
       // the committed decision; replaying the decision still shares its identity.
       // Watchdog children retain their stable key to avoid feedback loops.
-      const childCompletionRevision = issue.originKind === "task_watchdog"
-        ? ""
-        : `:${decisionRow.id}`;
+      const childCompletionDecisionId = issue.originKind === "task_watchdog" ? null : decisionRow.id;
+      const childCompletionRevision = childCompletionDecisionId ? `:${childCompletionDecisionId}` : "";
+      // The dispatcher must retain this new input until a fresh parent turn can
+      // read it. Watchdog handoffs keep their existing coalescing semantics.
+      const childCompletionDelivery = childCompletionDecisionId
+        ? { nativeChildCompletionDecisionId: childCompletionDecisionId }
+        : {};
       for (const dependent of dependents) {
         const isCompletedChildParent = parent?.id === dependent.id;
         const idempotencyKey = isCompletedChildParent
@@ -2017,6 +2028,7 @@ export async function commitNativeStatusDecision(input: {
           isCompletedChildParent && parent
             ? {
                 completedChildIssueId: input.issueId,
+                ...childCompletionDelivery,
                 childIssueIds: parent.childIssueIds,
                 childIssueSummaries: parent.childIssueSummaries,
                 onboardingCompletion: parent.onboardingCompletion,
@@ -2062,6 +2074,7 @@ export async function commitNativeStatusDecision(input: {
           idempotencyKey: `issue_children_completed:${parent.id}:${input.issueId}${childCompletionRevision}`,
           payload: {
             completedChildIssueId: input.issueId,
+            ...childCompletionDelivery,
             childIssueIds: parent.childIssueIds,
             childIssueSummaries: parent.childIssueSummaries,
             onboardingCompletion: parent.onboardingCompletion,
@@ -2069,6 +2082,7 @@ export async function commitNativeStatusDecision(input: {
           },
           contextSnapshot: {
             completedChildIssueId: input.issueId,
+            ...childCompletionDelivery,
             childIssueIds: parent.childIssueIds,
             childIssueSummaries: parent.childIssueSummaries,
             onboardingCompletion: parent.onboardingCompletion,
@@ -2082,6 +2096,7 @@ export async function commitNativeStatusDecision(input: {
           payload: {
             parentIssueId: parent.id,
             completedChildIssueId: input.issueId,
+            ...childCompletionDelivery,
             childIssueSummaries: parent.childIssueSummaries,
             onboardingCompletion: parent.onboardingCompletion,
             childIssueSummaryTruncated: parent.childIssueSummaryTruncated,

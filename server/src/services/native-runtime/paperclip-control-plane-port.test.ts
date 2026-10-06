@@ -1411,12 +1411,13 @@ describe("PaperclipControlPlanePort conformance", () => {
 
   });
 
-  it("completes DOT-29-style low-risk work with an environment caveat and no corrective run", async () => {
+  it.each(["none", "queued", "claimed", "deferred_issue_execution", "coalesced", "current_run", "current_intent"])(
+    "preserves completion caveats and pending child delivery (%s)", async (delivery) => {
     const identity = CONTROL_PLANE_CONFORMANCE_OPEN.identity;
-    const issueId = "30000000-0000-4000-8000-000000000029";
-    const localContractId = "31000000-0000-4000-8000-000000000029";
-    const runId = "32000000-0000-4000-8000-000000000029";
-    const runnerInstanceId = "33000000-0000-4000-8000-000000000029";
+    const issueId = randomUUID();
+    const localContractId = randomUUID();
+    const runId = randomUUID();
+    const runnerInstanceId = randomUUID();
     await db.insert(issues).values({
       id: issueId,
       companyId: identity.companyId,
@@ -1494,10 +1495,28 @@ describe("PaperclipControlPlanePort conformance", () => {
       terminal: CONTROL_PLANE_CONFORMANCE_TERMINAL,
       callerResultId: "dot-29-result",
     });
+    const pendingDelivery = ["queued", "claimed", "deferred_issue_execution"].includes(delivery);
+    if (delivery !== "none") {
+      const intentId = randomUUID();
+      await db.insert(agentWakeupRequests).values({
+        id: intentId, companyId: identity.companyId, agentId: identity.agentId,
+        source: "automation", triggerDetail: "system", reason: delivery === "deferred_issue_execution" ? "issue_execution_deferred" : "issue_children_completed",
+        requestedByActorType: "system", requestedByActorId: delivery === "deferred_issue_execution"
+          ? `native-status-wake-dispatch:${randomUUID()}` : "native-status-committer",
+        status: delivery.startsWith("current_") ? "claimed" : delivery,
+        runId: delivery === "current_run" ? runId : null,
+        payload: { issueId, _paperclipWakeContext: { wakeReason: "issue_children_completed", nativeChildCompletionDecisionId: randomUUID() } },
+      });
+      if (delivery === "current_intent") await db.update(heartbeatRuns)
+        .set({ contextSnapshot: { issueId, nativeStatusWakeIntentId: intentId } })
+        .where(eq(heartbeatRuns.id, runId));
+    }
+    const expectedStatus = pendingDelivery ? "in_progress" : "done";
+    const expectedReason = pendingDelivery ? "native_child_completion_pending" : "completion_claim_policy_accepted";
     await finalizeNativeRun({ db, runId, workspaceFinalizeStatus: "succeeded", projectRunStatus: true });
 
     await expect(db.select().from(issues).where(eq(issues.id, issueId))).resolves.toEqual([
-      expect.objectContaining({ status: "done", statusVersion: 1 }),
+      expect.objectContaining({ status: expectedStatus, statusVersion: 1 }),
     ]);
     await expect(db.select().from(issueThreadInteractions).where(eq(issueThreadInteractions.issueId, issueId))).resolves.toEqual([]);
     await expect(db.select().from(agentWakeupRequests).where(eq(agentWakeupRequests.companyId, identity.companyId)))
@@ -1505,12 +1524,12 @@ describe("PaperclipControlPlanePort conformance", () => {
         expect.objectContaining({ payload: expect.objectContaining({ issueId, sourceRunId: runId }) }),
       ]));
     await expect(db.select().from(statusDecisions).where(eq(statusDecisions.issueId, issueId))).resolves.toEqual([
-      expect.objectContaining({ toStatus: "done", reasonCode: "completion_claim_policy_accepted" }),
+      expect.objectContaining({ toStatus: expectedStatus, reasonCode: expectedReason }),
     ]);
     const [persistedRun] = await db.select().from(heartbeatRuns).where(eq(heartbeatRuns.id, runId));
     expect(persistedRun).toMatchObject({ status: "succeeded", nativePhase: "committed" });
     expect(persistedRun?.resultJson).toMatchObject({
-      finalizationReasonCode: "completion_claim_policy_accepted",
+      finalizationReasonCode: expectedReason,
       verificationCaveats: [{
         commandOrCheck: "Run npm test",
         reasonCode: "tool_unavailable",
@@ -1668,6 +1687,12 @@ describe("PaperclipControlPlanePort conformance", () => {
           },
         },
       });
+      if (latestWake) {
+        const delivery = latestWake.payload?._paperclipWakeContext as Record<string, unknown>;
+        expect(delivery.nativeChildCompletionDecisionId).toBe(
+          originKind === "task_watchdog" ? undefined : completedChild!.lastStatusDecisionId,
+        );
+      }
       await finalizeNativeRun({ db, runId, workspaceFinalizeStatus: "succeeded" });
       const replayWakes = await db.select().from(agentWakeupRequests)
         .where(eq(agentWakeupRequests.companyId, identity.companyId))

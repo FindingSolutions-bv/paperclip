@@ -643,6 +643,25 @@ results, remaining exceptions, and follow-ups here before checking it off.
 - [x] **#15218 merged:** complete native-tool measurement and explicit hiring/delegation eval coverage. The proposed production procedure relocation failed qualification and was excluded. Original failures remain recorded.
 - [x] **#15296 merged:** shrink the runtime and bundled plan-to-tasks skills while retaining their installation keys and accepted-plan wiring. GitHub records the merge at 14:36 UTC. The detailed completed comparison report remains local pending its separate publication consent; merging the implementation does not publish that report.
 - [ ] **Next bounded repair:** a reopened native child must notify its parent after its new completion, even when the first notification has already been consumed. Replaying the same committed completion must not create another wake. Work is on `codex/delegation-handoff`, based on master `0fe47882cfcb12082035113c59ca96091c46ebfc`.
-- [ ] Qualify that repair with a database-backed regression and a frozen baseline/candidate `delegate-feedback` comparison using the existing outcome oracle. Keep original grades, incomplete evidence and all actual runs.
+- [x] **#15372 implemented and deterministically verified:** ordinary native child completion wakes include the durable decision ID; exact watchdog behavior and replay deduplication are preserved. Both ordinary regressions fail on baseline, and all 20 database-backed cases pass with the repair. Current head `a2ae2324ce7692e704fc43e99904b076d6246fee` has full green CI and fresh 5/5 review; it remains draft because the completed live comparison contains a new failure.
+- [ ] **#15372 live qualification failed; keep draft:** Codex PASS → FAIL, Claude FAIL → PASS. One new failure, one new pass, no pending pairs; equal totals do not prove non-regression. Four completed cells contain 17 actual agent runs, no retries, cleanup passed. Candidate Codex's revised child completion wakes coalesced into an active parent, which later ended Blocked using an outdated child-running view; no later parent execution is retained. A later backstop log reports repair but does not prove eventual completion. That cell never reached the independent ZIP oracle. The unstarted candidate Codex queue job was cancelled with no runner/steps before its first actual trial in campaign `37513070706`. Four earlier composer setup failures had zero agent runs and remain preserved. Original grades are unchanged; no causal attribution or reroll.
+- [ ] **Latest child delivery/review remains open:** both Claude parent finals point to an earlier parent ZIP while the original oracle checks the revised child's ZIP. The candidate's passing grade does not qualify delivery/review of that latest artifact. Parent ZIP bytes were not retained, so a different hash alone is not proof of missing functionality. This is separate from the consumed-wake regression. Preserve original grades.
 - [ ] Revisit hiring/dependency instruction reduction only after the bounded behavior is qualified. Premature parent completion, discarded unfinished dependencies and broader latest-child review remain separate open behavior questions.
 - [ ] Audit connection procedures separately, then return to the remaining 2.2 / 3.4 / 4–6 work.
+
+#### #15372 reporting disposition — 2026-10-06
+
+The complete original comparison and diagnosis are saved privately at
+[immutable evidence archive](https://github.com/paperclipai/paperclip-evals/blob/a3fdf327907816c22c4097da8839db4f472d5e9c/experiments/2026-10-native-delegation-handoff/README.md).
+The prepared public body is `/private/tmp/delegation-handoff-pr-body.md`.
+The human explicitly authorized publication and requested fixing the failures.
+The prepared summary was published normally to PR #15372; the earlier automatic
+review hold is resolved for this summary. The original comparison remains unchanged.
+
+#### #15372 active-parent repair — 2026-10-06
+
+- [x] Implement durable delivery of ordinary native child completions to a fresh parent turn when the parent is already running; preserve exact watchdog behavior.
+- [x] Keep a parent non-terminal while a newer native child result remains queued or deferred, with a commit-time recheck. Preserve terminal cancellation and governance authority; do not create a second continuation.
+- [x] Provider-free verification: 67 focused scheduler/native-conformance/authority tests and repository typecheck pass. The scheduler regression holds the parent open, dispatches/replays the child result, then verifies exactly one sequential continuation with the latest summary. Pending, consumed and current-run delivery identities have native finalization coverage.
+- [ ] Freeze and measure the corrected source in the same two original live cases, one attempt each. Do not reroll the original baseline or regrade the failed candidate.
+- [ ] Verify the latest source head in CI/review and inspect final parent artifact delivery before claiming readiness. Keep draft until these gates pass.
