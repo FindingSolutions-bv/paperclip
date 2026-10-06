@@ -555,6 +555,19 @@ import {
   isResolvedInteractionContinuationWakeContext,
 } from "../modules/run-dispatch/index.js";
 import {
+  applyRetryNotBeforeOverride,
+  BOUNDED_TRANSIENT_HEARTBEAT_RETRY_DELAYS_MS,
+  BOUNDED_TRANSIENT_HEARTBEAT_RETRY_MAX_ATTEMPTS,
+  BOUNDED_TRANSIENT_HEARTBEAT_RETRY_REASON,
+  BOUNDED_TRANSIENT_HEARTBEAT_RETRY_WAKE_REASON,
+  computeBoundedTransientHeartbeatRetrySchedule,
+  decideBoundedRetrySchedule,
+  decideCodexTransientFallbackMode,
+  decideHardRetryExclusion,
+  isBoundedTransientRetryReason,
+  type CodexTransientFallbackMode,
+} from "../modules/run-retry/index.js";
+import {
   createWakeQueue,
   WakeQueueApplicationError,
   type IssueSnapshot as WakeQueueIssueSnapshot,
@@ -824,17 +837,16 @@ export {
 } from "./recovery/service.js";
 export const ACTIVE_RUN_OUTPUT_PROGRESS_FLUSH_INTERVAL_MS = 60 * 1000;
 export const ACTIVE_RUN_LOG_RUNTIME_STATUS_REFRESH_INTERVAL_MS = 5 * 1000;
-export const BOUNDED_TRANSIENT_HEARTBEAT_RETRY_DELAYS_MS = [
-  30_000, 30_000,
-] as const;
-const BOUNDED_TRANSIENT_HEARTBEAT_RETRY_JITTER_RATIO = 0;
-const BOUNDED_TRANSIENT_HEARTBEAT_RETRY_REASON = "transient_failure";
-const BOUNDED_TRANSIENT_HEARTBEAT_RETRY_WAKE_REASON = "transient_failure_retry";
+export {
+  BOUNDED_TRANSIENT_HEARTBEAT_RETRY_DELAYS_MS,
+  BOUNDED_TRANSIENT_HEARTBEAT_RETRY_MAX_ATTEMPTS,
+  BOUNDED_TRANSIENT_HEARTBEAT_RETRY_REASON,
+  BOUNDED_TRANSIENT_HEARTBEAT_RETRY_WAKE_REASON,
+  computeBoundedTransientHeartbeatRetrySchedule,
+};
 function isTransientWorkspaceGitScanCode(code: string | null | undefined): boolean {
   return code === WORKSPACE_GIT_SCAN_ERROR_CODES.timeout || code === WORKSPACE_GIT_SCAN_ERROR_CODES.saturated;
 }
-const BOUNDED_TRANSIENT_HEARTBEAT_RETRY_MAX_ATTEMPTS =
-  BOUNDED_TRANSIENT_HEARTBEAT_RETRY_DELAYS_MS.length;
 export {
   INTERACTION_CONTINUATION_INFRA_RETRY_REASON,
   INTERACTION_CONTINUATION_INFRA_WAKE_REASON,
@@ -937,12 +949,6 @@ const ISOLATED_EXECUTION_WORKSPACE_MODES = [
   "operator_branch",
   "isolated",
 ] as const;
-type CodexTransientFallbackMode =
-  | "same_session"
-  | "safer_invocation"
-  | "fresh_session"
-  | "fresh_session_safer_invocation";
-
 interface MaxTurnContinuationPolicy {
   enabled: boolean;
   maxAttempts: number;
@@ -1083,15 +1089,6 @@ export function computeWorkspaceBusyRetryDelayMs(
 }
 
 export { isNonAssigneeWorkspaceBusyRetry };
-
-function resolveCodexTransientFallbackMode(
-  attempt: number,
-): CodexTransientFallbackMode {
-  if (attempt <= 1) return "same_session";
-  if (attempt === 2) return "safer_invocation";
-  if (attempt === 3) return "fresh_session";
-  return "fresh_session_safer_invocation";
-}
 
 function readHeartbeatRunErrorFamily(
   run: Pick<typeof heartbeatRuns.$inferSelect, "errorCode" | "resultJson">,
@@ -1983,27 +1980,6 @@ export function applyRunScopedMentionedSkillKeys(
     ...existingPreference.desiredSkillEntries,
     ...normalizedSkillKeys,
   ]);
-}
-
-export function computeBoundedTransientHeartbeatRetrySchedule(
-  attempt: number,
-  now = new Date(),
-  random: () => number = Math.random,
-) {
-  if (!Number.isInteger(attempt) || attempt <= 0) return null;
-  const baseDelayMs = BOUNDED_TRANSIENT_HEARTBEAT_RETRY_DELAYS_MS[attempt - 1];
-  if (typeof baseDelayMs !== "number") return null;
-  const sample = Math.min(1, Math.max(0, random()));
-  const jitterMultiplier =
-    1 + (sample * 2 - 1) * BOUNDED_TRANSIENT_HEARTBEAT_RETRY_JITTER_RATIO;
-  const delayMs = Math.max(1_000, Math.round(baseDelayMs * jitterMultiplier));
-  return {
-    attempt,
-    baseDelayMs,
-    delayMs,
-    dueAt: new Date(now.getTime() + delayMs),
-    maxAttempts: BOUNDED_TRANSIENT_HEARTBEAT_RETRY_MAX_ATTEMPTS,
-  };
 }
 
 async function resolveRunScopedMentionedSkillKeys(input: {
@@ -15446,61 +15422,45 @@ export function heartbeatService(
       delayMs?: number;
     },
   ) {
-    if (run.errorCode === "provider_tool_definition_invalid") {
-      return { outcome: "not_scheduled" as const,
-        reason: "Repair the invalid tool definitions before starting a new attempt.",
-        issueId: readNonEmptyString(run.contextSnapshot?.issueId) };
-    }
-    if (Array.isArray(run.contextSnapshot?.chatCompletionDeliveryIds) &&
-        run.contextSnapshot.chatCompletionDeliveryIds.some(id => typeof id === "string")) {
-      return { outcome: "not_scheduled" as const, reason: "The completion outbox owns this reply's retry budget and publication identity.",
-        errorCode: "chat_completion_outbox_owns_retry" as const, issueId: readNonEmptyString(run.contextSnapshot.issueId) };
+    const hardExclusion = decideHardRetryExclusion({
+      errorCode: run.errorCode,
+      hasChatCompletionDeliveryIds:
+        Array.isArray(run.contextSnapshot?.chatCompletionDeliveryIds) &&
+        run.contextSnapshot.chatCompletionDeliveryIds.some((id) => typeof id === "string"),
+    });
+    if (hardExclusion.excluded) {
+      return {
+        outcome: "not_scheduled" as const,
+        reason: hardExclusion.reason,
+        ...("errorCode" in hardExclusion ? { errorCode: hardExclusion.errorCode } : {}),
+        issueId: readNonEmptyString(run.contextSnapshot?.issueId),
+      };
     }
     const now = opts?.now ?? new Date();
     const retryReason =
       opts?.retryReason ?? BOUNDED_TRANSIENT_HEARTBEAT_RETRY_REASON;
     const wakeReason =
       opts?.wakeReason ?? BOUNDED_TRANSIENT_HEARTBEAT_RETRY_WAKE_REASON;
-    const maxAttempts = Math.max(
-      0,
-      Math.floor(
-        opts?.maxAttempts ?? BOUNDED_TRANSIENT_HEARTBEAT_RETRY_MAX_ATTEMPTS,
-      ),
-    );
     const consumedAttempts = executionRetryAttemptCount(run, retryReason);
     const nextAttempt = consumedAttempts + 1;
-    const computedBaseSchedule =
-      opts?.delayMs != null
-        ? nextAttempt <= maxAttempts
-          ? {
-              attempt: nextAttempt,
-              baseDelayMs: Math.max(0, Math.floor(opts.delayMs)),
-              delayMs: Math.max(0, Math.floor(opts.delayMs)),
-              dueAt: new Date(
-                now.getTime() + Math.max(0, Math.floor(opts.delayMs)),
-              ),
-              maxAttempts,
-            }
-          : null
-        : nextAttempt <= maxAttempts
-          ? computeBoundedTransientHeartbeatRetrySchedule(
-              nextAttempt,
-              now,
-              opts?.random,
-            )
-          : null;
-    const baseSchedule = computedBaseSchedule
-      ? { ...computedBaseSchedule, maxAttempts }
-      : null;
+    const { maxAttempts, schedule: baseSchedule } = decideBoundedRetrySchedule({
+      consumedAttempts,
+      maxAttempts: opts?.maxAttempts,
+      delayMs: opts?.delayMs,
+      now,
+      random: opts?.random,
+    });
     const transientRecovery =
-      retryReason === BOUNDED_TRANSIENT_HEARTBEAT_RETRY_REASON
+      isBoundedTransientRetryReason(retryReason)
         ? readTransientRecoveryContractFromRun(run)
         : null;
-    const codexTransientFallbackMode =
-      agent.adapterType === "codex_local" &&
-      transientRecovery?.errorFamily === "transient_upstream"
-        ? resolveCodexTransientFallbackMode(nextAttempt)
-        : null;
+    const codexTransientFallbackMode: CodexTransientFallbackMode | null =
+      decideCodexTransientFallbackMode({
+        isCodexLocalAdapter: agent.adapterType === "codex_local",
+        isTransientUpstreamErrorFamily:
+          transientRecovery?.errorFamily === "transient_upstream",
+        attempt: nextAttempt,
+      });
     const transientRetryNotBefore = transientRecovery?.retryNotBefore ?? null;
     const contextSnapshot = parseObject(run.contextSnapshot);
     const issueId = readNonEmptyString(contextSnapshot.issueId);
@@ -15579,18 +15539,11 @@ export function heartbeatService(
       }
     }
 
-    const schedule =
-      transientRetryNotBefore &&
-      transientRetryNotBefore.getTime() > baseSchedule.dueAt.getTime()
-        ? {
-            ...baseSchedule,
-            dueAt: transientRetryNotBefore,
-            delayMs: Math.max(
-              0,
-              transientRetryNotBefore.getTime() - now.getTime(),
-            ),
-          }
-        : baseSchedule;
+    const schedule = applyRetryNotBeforeOverride(
+      baseSchedule,
+      transientRetryNotBefore,
+      now,
+    );
 
     const requiresIssueGate =
       isTransientWorkspaceGitScanCode(run.errorCode) ||
