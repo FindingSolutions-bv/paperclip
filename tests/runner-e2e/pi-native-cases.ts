@@ -1,6 +1,8 @@
 import type { RunnerTaskFixture } from "./types.js";
 
 export const PI_NATIVE_MEMORY_PATH = "memory/pi-native.txt";
+export const PI_NATIVE_MEMORY_PARENT_SEED_PATH = "memory/.pi-e2e-parent.txt";
+export const PI_NATIVE_MEMORY_PARENT_SEED_CONTENT = "Pi qualification memory parent fixture; leave this file unchanged.\n";
 export const piNativeTasks: readonly RunnerTaskFixture[] = [
   ["native-questions", "Four native questions survive browser reconnect", 1],
   ["agent-files-fresh-run", "Agent files save and survive a fresh task", 2],

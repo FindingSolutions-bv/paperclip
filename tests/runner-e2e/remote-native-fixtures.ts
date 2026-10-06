@@ -51,12 +51,16 @@ export function remoteNativeFixtureDiagnostics(error: unknown): RpcDiagnostic[] 
 export interface RemoteNativeAuthority { companyId: string; environmentId: string; runId: string; leaseId: string; sandboxId: string; image: string }
 export interface RemoteNativeBinding extends RemoteNativeAuthority { remoteCwd: string }
 export interface RemoteProcessIdentity { pid: number; ppid: number; startTicks: string; bootId: string }
+const INCOMPLETE_REASONS = ["multiple_run_roots", "run_root_changed", "process_identity_reused", "process_sample_failed", "unknown_watch_name", "setup_file_changed", "workspace_event_bound", "workspace_symlink", "unwatched_directory", "directory_identity_changed", "watch_stat_failed", "workspace_watch_error", "target_watch_incomplete", "receipt_byte_bound", "attached_process_live", "control_request_bound", "observer_ttl"] as const;
+type IncompleteReason = typeof INCOMPLETE_REASONS[number];
+const FILESYSTEM_INCOMPLETE_REASONS: readonly IncompleteReason[] = ["unknown_watch_name", "setup_file_changed", "workspace_event_bound", "workspace_symlink", "unwatched_directory", "directory_identity_changed", "watch_stat_failed", "workspace_watch_error", "target_watch_incomplete"];
 export interface RemoteNativeSnapshot {
   binding: RemoteNativeBinding;
   observedAtMs: number;
   observedMonotonicNs: string;
   receivedAtMs: number;
   complete: boolean;
+  incompleteReasons?: IncompleteReason[];
   workspace: Record<string, string>;
   targets: Record<string, { absent: boolean; sha256: string | null; parent: { dev: string; ino: string }; mutationCount: number; complete: boolean }>;
   watcher: { complete: boolean; targetMutationCount: number; workspaceMutationCount: number };
@@ -81,6 +85,7 @@ export function remoteNativeIncompleteTerminalEvidence(error: unknown) {
   const row = error.snapshot, root = row.processes.root;
   return {
     observedAtMs: row.observedAtMs, receivedAtMs: row.receivedAtMs, complete: row.complete,
+    incompleteReasons: [...(row.incompleteReasons ?? [])],
     setupPublished: row.setup.published,
     watcher: { complete: row.watcher.complete, targetMutationCount: row.watcher.targetMutationCount, workspaceMutationCount: row.watcher.workspaceMutationCount },
     processes: { captured: row.processes.captured, liveCount: row.processes.live.length, journalCount: row.processes.journal.length,
@@ -149,6 +154,7 @@ const cwdStat=fs.lstatSync(config.binding.remoteCwd,{bigint:true}),rootStat=fs.l
 const runtimeRoot=path.join(config.binding.remoteCwd,config.runtimeRelative),runtimeStat=fs.lstatSync(runtimeRoot,{bigint:true});if(!runtimeStat.isDirectory()||runtimeStat.isSymbolicLink()||fs.realpathSync(runtimeRoot)!==runtimeRoot)throw Error('runtime_root_identity');let observedPrpEnvironmentLeaseId=null;
 const boot=fs.readFileSync('/proc/sys/kernel/random/boot_id','utf8').trim();
 const targets=new Map();let complete=true,sealed=false,root=null,attached=null,child=null,client=null,childTimer=null;
+const incompleteReasons=new Set();function incomplete(reason){complete=false;incompleteReasons.add(reason)}
 const journal=new Map(),sockets=new Set(),waiters=new Set(),armWaiters=new Set();let observedRootCount=0,publishedHash=null,finalReceipt=null,retiring=false,piFaultAttempted=false;
 function identity(pid){return parseStat(pid,fs.readFileSync('/proc/'+pid+'/stat','utf8'),boot)}
 function table(){const ids=fs.readdirSync('/proc').filter(x=>/^\d+$/.test(x)&&Number(x)>1);if(ids.length>4096)throw Error('process_bound');return ids.flatMap(x=>{try{return [identity(Number(x))]}catch(e){if(e.code==='ENOENT'||e.code==='ESRCH')return [];throw e}})}
@@ -156,11 +162,11 @@ function sample(){
  const all=table();const candidates=[];
  for(const p of all){if(p.state==='Z')continue;let argv;try{argv=fs.readFileSync('/proc/'+p.pid+'/cmdline').toString().split('\0').filter(Boolean)}catch(e){if(e.code==='ENOENT'||e.code==='ESRCH')continue;throw e}
   if(runRoot(argv,config.binding.runId,p)){const at=argv.indexOf('--environment-lease-id'),stateAt=argv.indexOf('--state-dir');if(at<1||argv.lastIndexOf('--environment-lease-id')!==at||!/^[-a-zA-Z0-9._:]{1,256}$/.test(argv[at+1]??''))throw Error('process_prp_identity_shape');if(argv[0]!==path.join(runtimeRoot,'bin','paperclip-runnerd')||stateAt<1||argv.lastIndexOf('--state-dir')!==stateAt||!argv[stateAt+1]?.startsWith(runtimeRoot+'/sessions/')||!/^([a-f0-9]{64})\/runner$/.test(argv[stateAt+1].slice((runtimeRoot+'/sessions/').length)))throw Error('process_runtime_binding');if(observedPrpEnvironmentLeaseId!==null&&observedPrpEnvironmentLeaseId!==argv[at+1])throw Error('process_prp_identity_changed');observedPrpEnvironmentLeaseId=argv[at+1];candidates.push(p);}}
- if(candidates.length>1)complete=false;
+ if(candidates.length>1)incomplete('multiple_run_roots');
  if(!root&&candidates.length===1){if(hash(fs.readFileSync('/proc/'+candidates[0].pid+'/exe'))!==config.runnerdSha256)throw Error('runner_binary_identity');root=candidates[0];journal.set(root.pid,root);observedRootCount++;}
- if(root&&candidates.some(p=>p.pid!==root.pid||p.startTicks!==root.startTicks))complete=false;
+ if(root&&candidates.some(p=>p.pid!==root.pid||p.startTicks!==root.startTicks))incomplete('run_root_changed');
  let changed=true;while(changed){changed=false;for(const p of all){const parent=journal.get(p.ppid);if(!journal.has(p.pid)&&((parent&&all.some(q=>q.pid===parent.pid&&q.startTicks===parent.startTicks))||(root&&p.group===root.pid))){if(journal.size>=512)throw Error('journal_bound');journal.set(p.pid,p);changed=true;}}}
- if(all.some(p=>journal.has(p.pid)&&journal.get(p.pid).startTicks!==p.startTicks))complete=false;
+ if(all.some(p=>journal.has(p.pid)&&journal.get(p.pid).startTicks!==p.startTicks))incomplete('process_identity_reused');
  const live=all.filter(p=>journal.get(p.pid)?.startTicks===p.startTicks&&p.state!=='Z').map(p=>p.pid);
  if(client&&!all.some(p=>p.pid===client.pid&&p.startTicks===client.startTicks&&p.state!=='Z')&&attached&&!attached.clientExitedAtMs){attached.clientExitedAtMs=Date.now();attached.clientExitedMonotonicNs=process.hrtime.bigint().toString();}
  return {captured:root!==null,root,journal:[...journal.values()],live};
@@ -171,7 +177,7 @@ function guard(){const rs=fs.lstatSync(runtimeRoot,{bigint:true});if(!rs.isDirec
 function readSafe(p){const fd=fs.openSync(p,fs.constants.O_RDONLY|fs.constants.O_NOFOLLOW);try{const before=fs.fstatSync(fd,{bigint:true});if(!before.isFile()||before.size>65536n)throw Error('file_bound_or_type');const bytes=fs.readFileSync(fd),after=fs.fstatSync(fd,{bigint:true}),named=fs.lstatSync(p,{bigint:true});if(before.dev!==named.dev||before.ino!==named.ino||named.isSymbolicLink()||before.size!==after.size||before.mtimeNs!==after.mtimeNs||BigInt(bytes.length)!==before.size)throw Error('file_changed');return bytes}finally{fs.closeSync(fd)}}
 function file(p){try{const s=fs.lstatSync(p);if(s.isSymbolicLink()||!s.isFile()||s.size>65536)throw Error('file_bound_or_type');return {absent:false,sha256:hash(readSafe(p))}}catch(e){if(e.code==='ENOENT')return {absent:true,sha256:null};throw e}}
 function workspace(){const result={};let count=0,bytes=0;function visit(dir,prefix){for(const name of fs.readdirSync(dir).sort()){if(++count>512)throw Error('workspace_entry_bound');const full=path.join(dir,name),rel=prefix+name,s=fs.lstatSync(full);if(rel===config.runtimeRelative)continue;if(rel===config.actionFile){if(!publishedHash||file(full).sha256!==publishedHash)throw Error('setup_file_changed');continue;}if(s.isSymbolicLink())throw Error('workspace_symlink');if(s.isDirectory()){result[rel]='directory';visit(full,rel+'/')}else if(s.isFile()){bytes+=s.size;if(s.size>65536||bytes>4194304)throw Error('workspace_byte_bound');result[rel]=hash(readSafe(full))}else throw Error('workspace_special_file')}}visit(config.binding.remoteCwd,'');return result}
-function snapshot(){guard();verifyWorkspaceWatchRoots();const processes=sample(),out={};let watchComplete=complete,total=0;for(const [name,t] of targets){const status=t.watch.snapshot();out[name]={...file(t.path),...status};watchComplete&&=status.complete;total+=status.mutationCount}return {binding:config.binding,observedAtMs:Date.now(),observedMonotonicNs:process.hrtime.bigint().toString(),complete:complete&&watchComplete,workspace:workspace(),targets:out,watcher:{complete:watchComplete,targetMutationCount:total,workspaceMutationCount},processes,scope:{kind:'user_workspace',excludedRuntime:{relativePath:config.runtimeRelative,absolutePath:runtimeRoot,dev:String(runtimeStat.dev),ino:String(runtimeStat.ino),runnerExecutableSha256:config.runnerdSha256},observedPrpEnvironmentLeaseId,prpEnvironmentLeaseIdVerified:false},setup:{path:config.actionFile,sha256:publishedHash,published:publishedHash!==null},attached}}
+function snapshot(){guard();verifyWorkspaceWatchRoots();const processes=sample(),out={},reasons=new Set(incompleteReasons);let watchComplete=complete,total=0;for(const [name,t] of targets){const status=t.watch.snapshot();out[name]={...file(t.path),...status};watchComplete&&=status.complete;if(!status.complete)reasons.add('target_watch_incomplete');total+=status.mutationCount}return {binding:config.binding,observedAtMs:Date.now(),observedMonotonicNs:process.hrtime.bigint().toString(),complete:complete&&watchComplete,incompleteReasons:[...reasons].sort(),workspace:workspace(),targets:out,watcher:{complete:watchComplete,targetMutationCount:total,workspaceMutationCount},processes,scope:{kind:'user_workspace',excludedRuntime:{relativePath:config.runtimeRelative,absolutePath:runtimeRoot,dev:String(runtimeStat.dev),ino:String(runtimeStat.ino),runnerExecutableSha256:config.runnerdSha256},observedPrpEnvironmentLeaseId,prpEnvironmentLeaseIdVerified:false},setup:{path:config.actionFile,sha256:publishedHash,published:publishedHash!==null},attached}}
 for(const name of config.targets){const p=path.join(config.binding.remoteCwd,name);if(fs.realpathSync(path.dirname(p))!==path.dirname(p))throw Error('target_parent_symlink');targets.set(name,{path:p,watch:watchTarget(path.dirname(p),path.basename(p),{watch:fs.watch,lstatSync:fs.lstatSync})})}
 if(config.crossRoot){const p=path.join(config.root,'cross-root-target');fs.writeFileSync(p,config.crossRoot.initialText,{flag:'wx',mode:0o600});targets.set('@cross-root',{path:p,watch:watchTarget(config.root,'cross-root-target',{watch:fs.watch,lstatSync:fs.lstatSync})})}
 let workspaceMutationCount=0;const directoryWatches=[];
@@ -179,14 +185,14 @@ let workspaceMutationCount=0;const directoryWatches=[];
 // accept only the same inode with an already registered recursive watch. New
 // directories and replacements remain incomplete because their writes can race
 // watch installation. Every notification still counts as a workspace mutation.
-function watchDirectory(directory,prefix=''){if(directoryWatches.length>=512)throw Error('watch_directory_bound');const before=fs.lstatSync(directory,{bigint:true});if(!before.isDirectory()||before.isSymbolicLink())throw Error('watch_directory_identity');const handle=fs.watch(directory,(_kind,name)=>{if(name===null){complete=false;return}const relative=prefix+String(name);if(relative===config.runtimeRelative)return;if(relative===config.actionFile){try{if(!publishedHash||file(path.join(config.binding.remoteCwd,config.actionFile)).sha256!==publishedHash)complete=false}catch{complete=false}return}workspaceMutationCount++;if(workspaceMutationCount>4096)complete=false;try{const changed=path.join(directory,String(name)),st=fs.lstatSync(changed,{bigint:true});if(st.isSymbolicLink())complete=false;else if(st.isDirectory()){const watched=directoryWatches.find(item=>item.directory===changed);if(!watched||st.dev!==watched.before.dev||st.ino!==watched.before.ino)complete=false}}catch(e){if(e.code!=='ENOENT')complete=false}});handle.on('error',()=>{complete=false});directoryWatches.push({directory,before,handle});for(const name of fs.readdirSync(directory)){const rel=prefix+name;if(rel===config.runtimeRelative)continue;const full=path.join(directory,name),s=fs.lstatSync(full);if(s.isSymbolicLink())throw Error('workspace_symlink');if(s.isDirectory())watchDirectory(full,rel+'/')}}
+function watchDirectory(directory,prefix=''){if(directoryWatches.length>=512)throw Error('watch_directory_bound');const before=fs.lstatSync(directory,{bigint:true});if(!before.isDirectory()||before.isSymbolicLink())throw Error('watch_directory_identity');const handle=fs.watch(directory,(_kind,name)=>{if(name===null){incomplete('unknown_watch_name');return}const relative=prefix+String(name);if(relative===config.runtimeRelative)return;if(relative===config.actionFile){try{if(!publishedHash||file(path.join(config.binding.remoteCwd,config.actionFile)).sha256!==publishedHash)incomplete('setup_file_changed')}catch{incomplete('setup_file_changed')}return}workspaceMutationCount++;if(workspaceMutationCount>4096)incomplete('workspace_event_bound');try{const changed=path.join(directory,String(name)),st=fs.lstatSync(changed,{bigint:true});if(st.isSymbolicLink())incomplete('workspace_symlink');else if(st.isDirectory()){const watched=directoryWatches.find(item=>item.directory===changed);if(!watched)incomplete('unwatched_directory');else if(st.dev!==watched.before.dev||st.ino!==watched.before.ino)incomplete('directory_identity_changed')}}catch(e){if(e.code!=='ENOENT')incomplete('watch_stat_failed')}});handle.on('error',()=>{incomplete('workspace_watch_error')});directoryWatches.push({directory,before,handle});for(const name of fs.readdirSync(directory)){const rel=prefix+name;if(rel===config.runtimeRelative)continue;const full=path.join(directory,name),s=fs.lstatSync(full);if(s.isSymbolicLink())throw Error('workspace_symlink');if(s.isDirectory())watchDirectory(full,rel+'/')}}
 watchDirectory(config.binding.remoteCwd);
 const workspaceWatch={close(){for(const item of directoryWatches)item.handle.close()}};
 function verifyWorkspaceWatchRoots(){for(const item of directoryWatches){const after=fs.lstatSync(item.directory,{bigint:true});if(after.dev!==item.before.dev||after.ino!==item.before.ino||!after.isDirectory()||after.isSymbolicLink())throw Error('workspace_watch_root_replaced')}}
 function publicSnapshot(){const result=snapshot();if(result.attached)result.attached={connections:attached.connections,failure:attached.failure,commandExit:attached.commandExit,markerWrittenAtMs:attached.markerWrittenAtMs,markerWrittenMonotonicNs:attached.markerWrittenMonotonicNs,clientExitedAtMs:attached.clientExitedAtMs,clientExitedMonotonicNs:attached.clientExitedMonotonicNs};return result}
-function seal(){if(sealed)return;sealed=true;workspaceWatch.close();for(const t of targets.values())t.watch.close();clearInterval(observer);finalReceipt=publicSnapshot();finalReceipt.files={};for(const [name,t] of targets){if(!file(t.path).absent)finalReceipt.files[name]=readSafe(t.path).toString('base64');}if(Buffer.byteLength(JSON.stringify(finalReceipt))>250000){finalReceipt.complete=false;finalReceipt.files={};}if(child&&child.exitCode===null&&child.signalCode===null)finalReceipt.complete=false;for(const socket of waiters)socket.end(JSON.stringify({ok:true,result:finalReceipt})+'\n');waiters.clear();setTimeout(()=>shutdown(null),250);}
-const observer=setInterval(()=>{try{const p=sample();if(p.captured&&p.live.length===0&&!retiring){retiring=true;setTimeout(()=>{try{const end=sample();if(end.live.length===0)seal();else retiring=false}catch{complete=false}},100)}}catch{complete=false}},25);
-const server=net.createServer(socket=>{sockets.add(socket);socket.on('close',()=>sockets.delete(socket));socket.on('error',()=>{});let buffer='';socket.on('data',data=>{buffer+=data;if(Buffer.byteLength(buffer)>8192){socket.destroy();complete=false;return}if(!buffer.includes('\n'))return;socket.removeAllListeners('data');try{const r=JSON.parse(buffer);if(r.nonce!==config.nonce)throw Error('control_identity');guard();let result;
+function seal(){if(sealed)return;sealed=true;workspaceWatch.close();for(const t of targets.values())t.watch.close();clearInterval(observer);finalReceipt=publicSnapshot();finalReceipt.files={};for(const [name,t] of targets){if(!file(t.path).absent)finalReceipt.files[name]=readSafe(t.path).toString('base64');}if(Buffer.byteLength(JSON.stringify(finalReceipt))>250000){finalReceipt.complete=false;finalReceipt.incompleteReasons.push('receipt_byte_bound');finalReceipt.files={};}if(child&&child.exitCode===null&&child.signalCode===null){finalReceipt.complete=false;finalReceipt.incompleteReasons.push('attached_process_live')};for(const socket of waiters)socket.end(JSON.stringify({ok:true,result:finalReceipt})+'\n');waiters.clear();setTimeout(()=>shutdown(null),250);}
+const observer=setInterval(()=>{try{const p=sample();if(p.captured&&p.live.length===0&&!retiring){retiring=true;setTimeout(()=>{try{const end=sample();if(end.live.length===0)seal();else retiring=false}catch{incomplete('process_sample_failed')}},100)}}catch{incomplete('process_sample_failed')}},25);
+const server=net.createServer(socket=>{sockets.add(socket);socket.on('close',()=>sockets.delete(socket));socket.on('error',()=>{});let buffer='';socket.on('data',data=>{buffer+=data;if(Buffer.byteLength(buffer)>8192){socket.destroy();incomplete('control_request_bound');return}if(!buffer.includes('\n'))return;socket.removeAllListeners('data');try{const r=JSON.parse(buffer);if(r.nonce!==config.nonce)throw Error('control_identity');guard();let result;
  if(r.op==='snapshot')result=finalReceipt??publicSnapshot();
  else if(r.op==='wait'){if(finalReceipt)result=finalReceipt;else{if(waiters.size)throw Error('duplicate_receipt_channel');waiters.add(socket);for(const arm of armWaiters)arm.end(JSON.stringify({ok:true,result:{armed:true,sealed:false}})+'\n');armWaiters.clear();socket.on('close',()=>waiters.delete(socket));return}}
  else if(r.op==='arm'){if(waiters.size)result={armed:true,sealed};else{armWaiters.add(socket);socket.on('close',()=>armWaiters.delete(socket));return}}
@@ -215,7 +221,7 @@ const server=net.createServer(socket=>{sockets.add(socket);socket.on('close',()=
  socket.end(JSON.stringify({ok:true,result})+'\n');
  }catch{socket.end(JSON.stringify({ok:false,error:'observer_evidence_incomplete'})+'\n')}})});
 let closing=false;async function shutdown(reply){if(closing){reply?.end(JSON.stringify({ok:false,error:'closing'})+'\n');return}closing=true;sealed=true;workspaceWatch.close();for(const t of targets.values())t.watch.close();clearInterval(observer);let settled=true;try{if(child&&child.exitCode===null&&child.signalCode===null){child.kill('SIGTERM');const exited=new Promise(resolve=>child.once('exit',resolve));await Promise.race([exited,new Promise(resolve=>setTimeout(resolve,2000))]);if(child.exitCode===null&&child.signalCode===null){child.kill('SIGKILL');await Promise.race([exited,new Promise(resolve=>setTimeout(resolve,2000))]);}settled=child.exitCode!==null||child.signalCode!==null;}if(reply)reply.end(JSON.stringify({ok:settled,result:{closed:settled}})+'\n');}finally{for(const s of sockets)if(s!==reply)s.destroy();server.close();if(attached?.server)attached.server.close();setTimeout(()=>{reply?.destroy();if(settled){const current=fs.lstatSync(config.root,{bigint:true});if(current.dev===rootStat.dev&&current.ino===rootStat.ino&&!current.isSymbolicLink())fs.rmSync(config.root,{recursive:true,force:true});else settled=false;}process.exit(settled?0:2)},100)}}
-server.listen(path.join(config.root,'control.sock'));setTimeout(()=>{complete=false;shutdown(null)},config.observerTtlMs).unref();
+server.listen(path.join(config.root,'control.sock'));setTimeout(()=>{incomplete('observer_ttl');shutdown(null)},config.observerTtlMs).unref();
 `;
 const ATTACHED_CLIENT = String.raw`const net=require('node:net');const s=net.connect(process.argv[2]);let b='';s.setTimeout(15000,()=>process.exit(3));s.on('error',()=>process.exit(4));s.on('connect',()=>s.write(JSON.stringify({nonce:process.argv[3],pid:process.pid})+'\n'));s.on('data',x=>{b+=x;if(b.length>1024)process.exit(6);if(b.includes('\n')){const r=JSON.parse(b);s.end();process.exit(r.code===0?0:5)}});`;
 function observerSource() {
@@ -304,6 +310,9 @@ function readSnapshot(value: unknown, binding: RemoteNativeBinding, names: strin
       && /^\d+$/u.test(String(parent.dev)) && /^\d+$/u.test(String(parent.ino)), "target_shape");
   }
   fail(typeof watcher.complete === "boolean" && [watcher.targetMutationCount, watcher.workspaceMutationCount].every(n => Number.isSafeInteger(n) && (n as number) >= 0), "watcher_shape");
+  fail(row.incompleteReasons === undefined || (Array.isArray(row.incompleteReasons) && row.incompleteReasons.length <= INCOMPLETE_REASONS.length
+    && new Set(row.incompleteReasons).size === row.incompleteReasons.length
+    && row.incompleteReasons.every(reason => INCOMPLETE_REASONS.includes(reason as IncompleteReason))), "incomplete_reasons_shape");
   const validProcess = (p: unknown) => {
     const i = record(p); return Number.isSafeInteger(i.pid) && (i.pid as number) >= 2 && Number.isSafeInteger(i.ppid) && (i.ppid as number) >= 0
       && typeof i.startTicks === "string" && /^\d+$/u.test(i.startTicks) && typeof i.bootId === "string" && /^[a-f0-9-]{36}$/u.test(i.bootId);
@@ -481,6 +490,7 @@ export async function bindRemoteNativeFixture(options: RemoteNativeFixtureOption
   }
   let piFaultAttempted = false;
   let closed = false, published = false, finished: RemoteNativeSnapshot | undefined;
+  let retiredTerminal: RemoteNativeSnapshot | undefined;
   const retainedFiles = new Map<string, Buffer>();
   return {
     binding: binding!, remoteCwd: binding!.remoteCwd, actionFile, outsideTarget: options.crossRoot ? `${root}/cross-root-target` : null, baseline,
@@ -526,6 +536,12 @@ export async function bindRemoteNativeFixture(options: RemoteNativeFixtureOption
       if ("error" in receipt) throw receipt.error;
       fail(receipt.receivedAtMs <= receiptDeadlineAt, "receipt_deadline");
       const result = readSnapshot(receipt.value, binding!, names, actionFile, options.runnerdSha256);
+      // The observer only seals its receipt after captured descendants retire.
+      // A lost filesystem watch still fails qualification, but must not require
+      // a second RPC to an already deleted lease just to close that observer.
+      const knownFilesystemGap = result.incompleteReasons !== undefined && result.incompleteReasons.length > 0
+        && result.incompleteReasons.every(reason => FILESYSTEM_INCOMPLETE_REASONS.includes(reason));
+      if (result.processes.captured && result.processes.live.length === 0 && (result.complete || knownFilesystemGap)) retiredTerminal = result;
       if (!(published && result.setup.published && result.complete && result.watcher.complete && result.processes.captured && result.processes.live.length === 0)) {
         throw new IncompleteRemoteTerminalEvidenceError(result);
       }
@@ -546,7 +562,7 @@ export async function bindRemoteNativeFixture(options: RemoteNativeFixtureOption
       closed = true;
       // A finalized receipt survives ordinary public lease deletion. If the
       // lease still exists, clean our opaque observer; never discover by name.
-      if (!finished) { stopReceipt(); await rpc({ op: "close" }); }
+      if (!retiredTerminal) { stopReceipt(); await rpc({ op: "close" }); }
     },
   };
 }

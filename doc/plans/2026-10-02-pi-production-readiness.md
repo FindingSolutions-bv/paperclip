@@ -13,7 +13,67 @@ Runner prompts pass at private definitions revision `7b112ffe3` with unchanged
 graders, one attempt per correction and zero automatic retries. Their original
 failures remain retained. The Mac file-edit correction also passes.
 
-### Latest boundary fixes — 2026-10-05
+### Current fixture corrections and remaining failures — 2026-10-05
+
+Shipping runtime remains `f5024863e`; these changes affect only fixtures and
+documentation. Pi native definition v14 is
+`8a93306b6df0008ff10b5398049fad7b4bfa7a7cbf4f4ee0dedfe76eed6f0111`.
+The model, profile 15, low thinking, byte grades, deadlines and automatic retry
+count remain unchanged. All 691 Pi fixture tests across 20 files and the final
+harness typecheck pass.
+
+The two explicit v13 attempts at harness `b3318d6be` remain failed. Restart
+retains the original question, run, turn, session and producer and accepts the
+exact browser answer. Its provider run succeeds, but the observer is incomplete
+and canonical cleanup fails after lease release. The memory attempt also
+completes its provider turn. Its retained public managed-file response has
+32 bytes without LF, so the exact 33-byte assertion fails before the fresh
+task. Its observer and canonical cleanup also fail. Both evidence manifests
+have no missing files or reported leaks. Independent cleanup verifies both
+owned child sandboxes absent. Original grades and receipt hashes are unchanged.
+
+The observer now retains bounded, closed failure reasons. A valid terminal
+receipt can close the observer without a second RPC after lease release only
+when it proves captured processes retired and has complete evidence or known
+filesystem-watch failures. Unknown causes, reused process identities and live
+attached processes still require cleanup proof. An incomplete filesystem
+receipt still fails qualification and cannot supply qualified file bytes.
+The released-lease regression fails before this correction and passes afterward.
+
+Before memory-task admission, the fixture uses the public managed-file API to
+create `memory/.pi-e2e-parent.txt`. The actual memory target remains absent.
+Both turns must preserve the setup file. This avoids a new directory racing
+strict watcher installation. Actual Linux observer calibration reproduces the
+failure with an absent parent and passes with the seeded parent. Installed Pi
+native write preserves 33 bytes in both controls. Generic transfer scratch
+creation also reproduces an unwatched-directory failure; native sync avoids it.
+This supports a restart-path hypothesis, but the v13 receipt does not identify
+the actual restart cause. No speculative shipping correction is made.
+
+Normal installed Mac startup, the public parent API and actual browser prompt
+submission now pass with zero model calls and cleanup passing. The submitted
+JSON content contains all 33 bytes, including LF. The initial Mac startup
+failure remains recorded: shared-memory capacity was exhausted. Capacity later
+freed without host setting changes or stopping unrelated services. The Linux
+parent API check also passes; its combined auxiliary browser probe remains
+failed because it selected an unavailable browser cache. Earlier installed
+Linux browser proof remains a separate passing receipt.
+
+The live v13 memory tool input is unavailable after owned temporary-root
+cleanup. The saved 32-byte file does not prove whether the model omitted LF or
+a product boundary removed it. Parent setup and cleanup corrections do not
+address that byte failure and do not permit an unchanged paid memory retry.
+Keep both live cases held until a concrete correction addresses the observed
+failure. Then run one explicit attempt per correction, with zero automatic
+retries. Fresh full Product 26/26 and Runner 7/7 proof, Intel installation,
+complete workspace tests, latest-head CI/review and prerequisite disposition
+remain required. Current-runtime qualified counts remain zero.
+
+Final read-only key accounting observes $0.324966594 used, $4.675033406 remaining,
+zero BYOK usage and the unchanged $5 lifetime cap without reset. Billing remains
+provisional. The $100 campaign ceiling and no-merge/no-release instruction remain.
+
+### Prior v13 boundary corrections — 2026-10-05
 
 The next fixture correction preserves the same `f5024863e` shipping inputs.
 The observer now accepts a directory notification only for the same device/inode
@@ -264,11 +324,11 @@ local tests and release review are still required.
 | --- | --- | --- |
 | Runtime identity and admission | Exact runtime/profile/model; verified effective thinking; startup below the 60-second admission limit; unsupported configuration fails before a prompt | Shipping runtime `f5024863e` passes normal profile-15 admission on ARM Mac and native Linux. Completed live runs confirm the frozen model and native low. Fresh Intel admission for these shipping bytes remains required. Profile-14 and earlier profile-15 results below are historical. |
 | Live lifecycle | Pending native question survives controller restart in the original process; one creation and resolution; stale answer after provider death rejected; Stop retires owned processes; three warm turns keep process identity | Current Linux restart retains the same native question/run/turn/session/producer and the browser answer; the run succeeds, but its incomplete independent terminal evidence and failed canonical cleanup keep the case failed. Earlier `b012b3aeb` provider-death and native-question passes do not qualify `f5024863e`. |
-| Product workflows | All 26 explicit Pi Product E2E cells (13 local, 13 Daytona); screenshots, public state, independent artifacts, terminal and cleanup evidence | Not qualified at `f5024863e`. Current Mac memory fails exact saved bytes with cleanup passing. Current Linux restart fails terminal evidence and canonical cleanup; its owned resources are independently absent. Both original grades remain failed. Historical `0bd040093` has 21/26 passes, kept only as history. Fresh complete current-runtime coverage is required. |
+| Product workflows | All 26 explicit Pi Product E2E cells (13 local, 13 Daytona); screenshots, public state, independent artifacts, terminal and cleanup evidence | Not qualified at `f5024863e`. Mac and latest Linux memory attempts fail exact saved bytes. Latest Linux restart fails independent terminal evidence. Both v13 Linux attempts fail canonical cleanup; owned children are independently absent. V14 fixture calibration and 691 tests pass, but do not regrade those cases. Historical `0bd040093` has 21/26 passes, kept only as history. Fresh complete current-runtime coverage is required. |
 | Runner protocol | Pi roster passes through the native packaged runner and authenticated mock control plane; lifecycle/denial/control cases remain distinct from Product tests | Current-runtime Runner qualification remains required. Historical `0bd040093` has 7/7 passes at private definitions `7b112ffe3`, with unchanged graders and zero automatic retries. Those passes retain their original source labels. |
 | Installed distribution | Public CLI/server tars on ARM Mac, Intel Mac and Linux; normal Pi setup; exact Linux companion and immutable Daytona image imported without binary override | Normal ARM public install verifies 722 packages and 79,373 files at `f5024863e`. Normal native Linux install, companion import, Pi setup and admission pass at immutable candidate image `ghcr.io/paperclipai/paperclip-daytona-runner@sha256:20c7fffddeee4298830ead1ea3f0b70819f61e549279588b605440d1155f7260`. No binary override is used. This image is not release-qualified. Fresh Intel proof remains required; earlier three-platform proofs stay historical. |
 | Governance and spend | Company isolation, human-only permission, duplicate/stale answers, Stop and budget hard stop; pricing estimates never become claimed bills | Historical 58 focused invariants and live pending-permission Stop keep their source labels. Fresh shipping qualification remains required. The dedicated key retains a $5 lifetime cap, zero BYOK usage and the $100 campaign ceiling. Last read-only accounting observes $0.319832563 used and $4.680167437 remaining, with delayed settlement still possible. The key cap is not proof of Paperclip budget enforcement. |
-| Integration and rollout | Review each prerequisite; final-head typecheck, tests, build and CI pass; no unresolved review; exact artifacts; rollback recorded | Full build and recursive typecheck pass at shipping runtime `f5024863e`. At harness head `df748c997`, 53 CI checks pass with two skips. The evidence-only follow-up passes 207 affected tests and harness typecheck; its final head still needs CI and review. The full local workspace test command remains failed. Prerequisite #14921's valid production-admission finding remains open. Complete current-runtime qualification and prerequisite disposition remain required. No merge or release is authorized. |
+| Integration and rollout | Review each prerequisite; final-head typecheck, tests, build and CI pass; no unresolved review; exact artifacts; rollback recorded | Full build and recursive typecheck pass at shipping runtime `f5024863e`. V14 fixture changes pass 691 tests and harness typecheck; latest-head CI and review must be recorded separately. The full local workspace test command remains failed. Prerequisite #14921's valid production-admission finding remains open. Complete current-runtime qualification and prerequisite disposition remain required. No merge or release is authorized. |
 
 ## Bounded execution
 

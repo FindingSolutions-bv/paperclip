@@ -8,7 +8,7 @@ import { expect, type Page } from "@playwright/test";
 import { pollUntil, type RunnerApi } from "./api.js";
 import { collectRunEvents } from "./run-observations.js";
 import { createTaskThroughUi } from "./user-actions.js";
-import { gradePiNativeAnswers, hasFailedPiWrite, hasPiCrossRootDenial, PI_NATIVE_MEMORY_PATH, piNativeFinish, piNativeMemoryPrompt } from "./pi-native-cases.js";
+import { gradePiNativeAnswers, hasFailedPiWrite, hasPiCrossRootDenial, PI_NATIVE_MEMORY_PATH, PI_NATIVE_MEMORY_PARENT_SEED_PATH, PI_NATIVE_MEMORY_PARENT_SEED_CONTENT, piNativeFinish, piNativeMemoryPrompt } from "./pi-native-cases.js";
 import type { LiveFixtureValues } from "./live-fixtures.js";
 import type { MatrixExecution } from "./types.js";
 
@@ -162,6 +162,14 @@ export async function runPiNativeFlow(input: {
       await input.evidence("pi-native-typed-proof.json", { proof, interactions: final.interactions, events: await events(runs[0]!.id) });
     } else if (execution.task.id === "agent-files-fresh-run") {
       const retained = randomBytes(16).toString("hex"); const outside = resolve(input.workspacePath, "..", `pi-unassigned-${nonce}.txt`);
+      // The remote oracle cannot cover writes that race new-directory watch
+      // installation. Materialize only the parent before provider admission via
+      // the normal managed-file API; the memory target remains absent.
+      const seed = await api.request.put(`/api/agents/${fixtures.agent.id}/instructions-bundle/file`, {
+        data: { path: PI_NATIVE_MEMORY_PARENT_SEED_PATH, content: PI_NATIVE_MEMORY_PARENT_SEED_CONTENT, baseHash: null },
+      });
+      if (!seed.ok()) throw new Error(`Pi memory parent setup failed (${seed.status()})`);
+      check("memory-parent-seeded", (await seed.json()).content === PI_NATIVE_MEMORY_PARENT_SEED_CONTENT, "Public managed-file setup created the watched memory parent before task admission");
       if (!remote) check("unassigned-initially-absent", await absent(outside), "The isolated cross-root marker did not already exist");
       const prompt = (outsidePath: string) => piNativeMemoryPrompt(retained, outsidePath);
       await create(execution.task.buildTitle(nonce), remote ? fixture => { if (!fixture.outsideTarget) throw new Error("Remote cross-root target is absent"); return prompt(fixture.outsideTarget); } : prompt(outside), { crossRoot: { initialText: `unchanged-${randomBytes(16).toString("hex")}` } });
@@ -184,6 +192,8 @@ export async function runPiNativeFlow(input: {
       check("fresh-run-readback", await readWorkspace("pi-agent-memory-proof.txt") === `${retained}\n`, "A new issue after server restart copied the undisclosed saved agent-file bytes");
       const current = await api.get<Row>(`/api/agents/${fixtures.agent.id}/instructions-bundle/file?path=${encodeURIComponent(PI_NATIVE_MEMORY_PATH)}`);
       check("persistent-bytes-unchanged", current.content === personal.content, "Fresh-run readback preserved the saved managed bytes");
+      const parentSeed = await api.get<Row>(`/api/agents/${fixtures.agent.id}/instructions-bundle/file?path=${encodeURIComponent(PI_NATIVE_MEMORY_PARENT_SEED_PATH)}`);
+      check("memory-parent-seed-unchanged", parentSeed.content === PI_NATIVE_MEMORY_PARENT_SEED_CONTENT, "Both native turns preserved the parent setup file");
       await input.evidence("pi-agent-files-fresh-read.json", { current, runs, events: await events(runs[1]!.id) });
     } else if (execution.task.id === "human-permission-denial") {
       if (!input.registerCleanupAssertion) throw new Error("Pi human denial requires post-retirement cleanup assertions");

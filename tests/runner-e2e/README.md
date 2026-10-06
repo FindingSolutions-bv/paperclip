@@ -1602,6 +1602,18 @@ and unknown notifications remain incomplete. Pi native definition v13 also gives
 memory content a single JSON representation, including the required final LF;
 the exact managed bytes and fresh-task readback assertions remain unchanged.
 
+Pi native definition v14 seeds `memory/.pi-e2e-parent.txt` through the public
+managed-file API before task admission. This creates the watched parent while
+leaving `memory/pi-native.txt` absent; the native write still has to supply all
+33 bytes and both turns must preserve the setup file. New or replaced watched
+directories still fail the oracle. Closed incompleteness reasons identify watch
+gaps or process ambiguity without retaining paths or raw errors. An incomplete
+receipt remains failed. A validated terminal receipt with a captured, retired
+process tree closes its observer without another RPC to a publicly deleted lease
+only when evidence is complete or its failures are known filesystem-watch gaps.
+Unknown causes, reused identities and live attached processes still need cleanup
+proof.
+
 `--suite rich-acp-warm-continuity` adds six explicit cells: all three providers on
 local and Daytona. Three browser-driven turns must preserve native session,
 provider session, runner instance, PID/start identity and project workspace.

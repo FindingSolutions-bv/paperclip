@@ -244,10 +244,52 @@ describe("remote native lease admission", () => {
     const retained = remoteNativeIncompleteTerminalEvidence(error)!;
     expect(retained.complete).toBe(false); expect(retained.watcher.complete).toBe(false);
     expect(retained.processes.liveCount).toBe(0);
+    expect(retained.incompleteReasons).toEqual([]);
     expect(JSON.stringify(retained)).not.toContain("PRIVATE RPC CONTENT");
     retained.watcher.complete = true;
     expect(remoteNativeIncompleteTerminalEvidence(error)!.watcher.complete).toBe(false);
     expect(remoteNativeIncompleteTerminalEvidence(new Error("PRIVATE RPC CONTENT"))).toBeUndefined();
+  });
+  it("retains only closed incompleteness reasons and rejects raw diagnostics", async () => {
+    const h = harness(), f = await bindRemoteNativeFixture(h.options); await f.publishAction("action.txt", "task");
+    h.resolveTerminal({ ...structuredClone(h.current), complete: false, incompleteReasons: ["unwatched_directory"],
+      processes: { ...h.current.processes, live: [] }, files: {} });
+    const error = await f.finish().catch(error => error);
+    expect(remoteNativeIncompleteTerminalEvidence(error)?.incompleteReasons).toEqual(["unwatched_directory"]);
+    await f.close();
+    const bad = harness(), other = await bindRemoteNativeFixture(bad.options); await other.publishAction("action.txt", "task");
+    bad.resolveTerminal({ ...structuredClone(bad.current), complete: false, incompleteReasons: ["PRIVATE RAW PATH"],
+      processes: { ...bad.current.processes, live: [] }, files: {} });
+    const rejected = await other.finish().catch(error => error);
+    expect(rejected.message).toContain("incomplete_reasons_shape");
+    expect(remoteNativeIncompleteTerminalEvidence(rejected)).toBeUndefined();
+    await other.close();
+  });
+  it("keeps incomplete evidence failed while closing a retired observer after public lease deletion", async () => {
+    const h = harness(), f = await bindRemoteNativeFixture(h.options);
+    await f.publishAction("action.txt", "task");
+    h.resolveTerminal({ ...structuredClone(h.current), complete: false, incompleteReasons: ["unwatched_directory"],
+      watcher: { ...h.current.watcher, complete: false }, processes: { ...h.current.processes, live: [] }, files: {} });
+    await expect(f.finish()).rejects.toThrow("terminal_evidence_incomplete");
+    h.setLease({ ...h.lease(), status: "released", releasedAt: "2026-10-06T01:00:00Z" });
+    const before = h.calls.length;
+    await expect(f.close()).resolves.toBeUndefined();
+    expect(h.calls).toHaveLength(before);
+    await expect(f.finish()).rejects.toThrow("terminal_evidence_incomplete");
+    await expect(f.readFile("result.txt")).rejects.toThrow("unregistered_read");
+  });
+  it.each(["live", "missing-root", "invalid-shape", "unknown-cause", "reused-process", "attached-live"])("does not treat %s evidence as retired cleanup", async kind => {
+    const h = harness(), f = await bindRemoteNativeFixture(h.options);
+    await f.publishAction("action.txt", "task");
+    const end: any = { ...structuredClone(h.current), complete: false, processes: { ...h.current.processes, live: [] }, files: {} };
+    if (kind === "live") end.processes.live = [21];
+    if (kind === "missing-root") end.processes = { captured: false, root: null, journal: [], live: [] };
+    if (kind === "invalid-shape") end.observedAtMs = "invalid";
+    if (kind === "reused-process") end.incompleteReasons = ["process_identity_reused"];
+    if (kind === "attached-live") end.incompleteReasons = ["attached_process_live"];
+    h.resolveTerminal(end); await expect(f.finish()).rejects.toThrow();
+    h.setLease({ ...h.lease(), status: "released", releasedAt: "2026-10-06T01:00:00Z" });
+    await expect(f.close()).rejects.toThrow("lease_scope");
   });
   it("keeps a fixture-owned cross-root sentinel distinct from workspace targets", async () => {
     const h = harness(); h.options.crossRoot = { initialText: "outside sentinel" };
