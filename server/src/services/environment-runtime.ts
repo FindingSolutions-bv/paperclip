@@ -4252,7 +4252,9 @@ export function environmentRuntimeService(
           and(
             eq(environmentLeases.environmentId, input.environmentId),
             eq(environmentLeases.leasePolicy, "reuse_by_environment"),
-            inArray(environmentLeases.status, ["active", "released", "retained"]),
+            // A failed run may have stopped its reusable sandbox without
+            // destroying it; that provider handle still needs scoped teardown.
+            inArray(environmentLeases.status, ["active", "released", "retained", "failed"]),
           ),
         );
 
@@ -4312,7 +4314,7 @@ export function environmentRuntimeService(
           .where(
             and(
               eq(environmentLeases.id, leaseRow.id),
-              inArray(environmentLeases.status, ["active", "released", "retained"]),
+              inArray(environmentLeases.status, ["active", "released", "retained", "failed"]),
               sql`NOT EXISTS (
                 SELECT 1 FROM ${heartbeatRuns}
                 WHERE ${heartbeatRuns.id} = ${environmentLeases.heartbeatRunId}

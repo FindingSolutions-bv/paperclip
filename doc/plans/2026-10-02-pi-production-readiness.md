@@ -5,6 +5,41 @@ set of release gates. Pi remains a candidate until every required gate passes.
 Do not expand this work to additional models, widgets, images, Cursor or Copilot
 qualification. The existing draft stack must be reviewed in dependency order.
 
+## Failed reusable-lease deletion correction — 2026-10-06
+
+An independent check finds the Daytona pending-permission Stop child still
+started after the canonical case passes and environment deletion returns 200.
+The fixture environment and child labels match the actual run. Its canonical
+pass is preserved, but it supplies no qualified pass. Exact-owned manual
+teardown deletes the child; a new SDK lookup returns 404. The launcher,
+temporary root and uploaded credential file are independently absent. The
+actual retirement proof records `qualification: false`. Its canonical result
+hash is `9154d3eed0cf909cb2299bc56dfd32d8275f8d9c333a81266005114f6ec50385`.
+The lease's final database state is not retained, so this observation alone
+does not establish the underlying lease transition.
+
+A separate free database regression proves a concrete deletion gap. A failed
+run can successfully stop a reusable sandbox and record its lease as `failed`.
+That lease still holds the provider handle, but the deletion preview, atomic
+delete guard and scoped teardown all omit it. The original source fails three
+regression cases. The correction includes failed reusable leases in all three
+paths. It preserves explicit destruction consent, exact provider scope, the
+live-run fence and the durable `pending_cleanup` claim before provider work.
+All 279 environment service, runtime and route tests pass without provider
+credentials or changed deadlines. The failed regression log hash is
+`441f3d39f33f74c2b323b8bc63993f660a4b48016dc31cc88847ee3dc7b65682`;
+the corrected-suite log hash is
+`c809d93df9e104ad8eb865694cbb9817cd65a768ceeded44e0dd246d4283d977`.
+
+This changes shipping inputs. Rebuild every public archive and the Linux image,
+then freeze and qualify that set. The previous `c0eba7f4d` set has 8/26 Product
+and 5/7 Runner passes, including fresh Daytona hello-complete. Those passes
+remain historical for this correction. The Daytona Stop case remains held
+until a fresh corrected-set attempt proves cleanup without manual intervention.
+The memory, steering and Runner terminal/tool-call failures still need their
+own proven corrections; this cleanup change does not authorize their retries.
+All 26 Product and seven Runner cases remain required on the final set.
+
 ## Linux process-birth correction — 2026-10-06
 
 The prior-set local pending-question restart failed before controller shutdown because the
@@ -71,15 +106,21 @@ The evaluation consumer verifies 722 packages and 79,367 files with zero
 mismatches. Its installed Runner matches all 1,334 freshly packed distribution
 files. All seven pre-service Runner admission checks pass, with profile 14
 rejected. This rebuild and admission work makes zero model calls. Frozen-set
-qualification is Product **5/26** and Runner **3/7**. Local hello-complete,
-human permission denial, restrictive denial and native controller restart pass;
-Daytona native controller restart passes. The packaged Runner task-context, context-before-action and document-creation
+qualification on that source is Product **8/26** and Runner **5/7**. Local hello-complete,
+human permission denial, restrictive denial, native controller restart, pending-permission Stop and native questions pass;
+Daytona native controller restart and hello-complete pass. The packaged Runner task-context, context-before-action, document creation, context/document/progress and governed-wait
 cases pass every unchanged check with native-confirmed low thinking, no retained
 session and independent absence checks for each launcher, daemon and provider. Canonical
 results, archives and actual cleanup proofs are hash-bound in
 `qualified-cases-c0eba7f4d.json`. Historical passes do not qualify this set.
-The new canonical `pnpm test:run` remains live on its original owned handle
-after preparation, with its unchanged fixed 90-minute outer deadline.
+The canonical `pnpm test:run` finishes with 14,976 passes, two failed tests
+and one additional failed suite. PostgreSQL startup and two timeouts fail.
+A separate credential-free check preserves all three files and their deadlines.
+It passes the PostgreSQL and managed-auth suites (71 tests). The Git streaming
+suite still exceeds its original five-minute Mac deadline, then reports
+`ENOTEMPTY` during fixture removal. Both failed commands remain failed.
+The full log hash is `0b0b3f24808fbac4bb2139bfa00d89f4d9a408551f7dafae3c4a41c5f3bdfc7b`;
+the isolated log hash is `13cfe5815aa26cbcc1bb008c05df085824150fec2a271c4f5d92744157772e4b`.
 
 Shipping head `c0eba7f4d` has 53 successful CI checks and two skips. Review
 head `568b7023b` finishes CI with one browser scenario failure and a failed
@@ -89,14 +130,54 @@ the retry mutation. Waiting for that existing redirect before clicking preserves
 all denial, authority and navigation assertions. All nine unchanged retry
 scenarios pass against the normal installed frozen UI without provider
 credentials, changed deadlines or retries. This free browser fixture correction
-changes no packaged runtime or Pi case definitions. Its new review head still
-needs CI and review. The missing-LF memory and finish-task stream failures stay
+changes no packaged runtime or Pi case definitions. Review head `7b674113efa1e927dcb3d29f3fd84d1f1cbd0e4a` passes 53 CI
+checks with two skips. Greptile reports 5/5 on that exact head, and #14956 has
+no unresolved review threads. Later evidence-only heads need their own checks
+and review. Prerequisite #14921 retains its valid premature-admission finding. The missing-LF memory and finish-task stream failures stay
 held for a proven correction. The historical memory request has no provider I/O
 log, and its canonical archive contains no database or provider session file; raw
 write arguments remain unattested. Keep the strict graders, model, low thinking
 and budget caps. Drain active native Linux runs before updating or rolling back across the
 process-birth change; never rewrite a live receipt to force adoption. Do not
 merge or release.
+
+## Closed qualification failures — 2026-10-06
+
+The fresh Runner human-confirmation case reaches its original 120-second
+provider-turn deadline before any control-plane operation or human interaction.
+The native transcript contains a DSML invocation of
+`mcp__paperclip__request_human_input` as assistant text, followed by a claim that
+a card was created. The mock state records no such operation or card. There is
+no terminal turn. Provider metadata records Inceptron HTTP 499 after 119.7 seconds
+at 5.3 tokens/second. This observation narrows the failure to native tool-call
+output and cancellation; it does not establish which component produced that
+text. Preserve the failed score and verified process retirement. Do not parse
+assistant text into an authorized operation or repeat the attempt unchanged.
+The artifact hash is
+`310717c7af7dd031e7db79f09d61ec5cc86ae6828a2e1958112dd027c325df44`.
+
+The fresh local same-turn steering case fails before steering begins. Pi starts
+`bash` and requests permission for `Pi bash`, despite the fixture requiring one
+native `write` and forbidding bash. The required write permission never appears.
+The native session reaches its unchanged 120-second deadline. The canonical
+cleanup assertion remains failed because its required Stop/no-effect sequence
+is incomplete. Separate SDK checks prove launcher, runner, provider, temporary
+root and uploaded credential file absent. That retirement proof does not regrade
+the failed case. Hold it against unchanged retries. Its canonical hash is
+`7d8f15e1d5e96693b28853608337be540fd8725b9a59a51a7766befe9152d585`.
+
+The installed native SDK write/read control preserves both a 33-byte LF input
+and a 32-byte no-LF input exactly. Source inspection shows the managed file
+materializer writes buffers and the checkpoint copies byte chunks. Neither
+control attests the historical model's raw write arguments, which remain
+unavailable. The missing-LF failure still needs a proven correction.
+
+The 2026-10-06 21:01:14 UTC pre-attempt key snapshot records provisional usage of
+$0.378666789 of $5, with $4.621333211 remaining and zero BYOK usage. Fresh signed
+browser observations show all 72 providers unconfigured and the same key's $5
+TOTAL cap. Keep the $100 campaign ceiling, no reset, no fallback key/model and
+zero automatic retries. Physical Intel installation remains unverified; the
+existing repository workflows do not expose an Intel Mac installation lane.
 
 ## Previous frozen-set measurements — 2026-10-06
 
@@ -678,18 +759,19 @@ local tests and release review are still required.
 
 These results describe frozen shipping source `c0eba7f4d` and its package/image
 manifest `e15b2b70cad3890555e422a82e62718d1eadf55c3557920a662d6108b596cf2b`.
-Earlier source measurements remain historical. Completed free checks below do
-not need another rebuild unless shipping inputs change.
+The failed reusable-lease correction changes shipping inputs. These results are
+historical until the corrected set is rebuilt and independently qualified.
+All final-set checks and all 33 live cases remain required.
 
 | Gate | Acceptance evidence | Current result |
 | --- | --- | --- |
 | Runtime identity and admission | Exact runtime/profile/model; verified effective thinking; startup below the 60-second admission limit; unsupported configuration fails before a prompt | Rebuilt profile-15 admission passes without credentials or provider calls: ARM Mac 15.069 seconds, x64 under Rosetta 33.518 seconds, native Linux 8.016 seconds. All seven Runner pre-service requests pass; profile 14 is rejected. The frozen model and low thinking remain pinned. Native low thinking is confirmed in the current packaged Runner task-context artifact. Keep per-case native confirmation for remaining live measurements. |
-| Live lifecycle | Pending native question survives controller restart in the original process; one creation and resolution; stale answer after provider death rejected; Stop retires owned processes; three warm turns keep process identity | Corrected local and fresh Daytona pending-question restarts pass all six unchanged matchers each. They retain the original native request, run, turn, session and producer and deliver one exact browser answer. Canonical cleanup and independent launcher/root/credential absence pass; the Daytona child independently returns 404. Provider-death, Stop, steering and warm continuity remain required. Prior-set grades remain historical. |
-| Product workflows | All 26 explicit Pi Product E2E cells (13 local, 13 Daytona); screenshots, public state, independent artifacts, terminal and cleanup evidence | Frozen-set count 5/26: four local cases and Daytona pending-question restart pass with preserved evidence and actual cleanup. Rebuild, package checks and all 1,847 fixture tests pass. The other 21 live cells remain required. The historical memory failure records 32 bytes without LF before its unchanged deadline; its cause still needs a proven correction. No unchanged paid retries. |
-| Runner protocol | Pi roster passes through the native packaged runner and authenticated mock control plane; lifecycle/denial/control cases remain distinct from Product tests | Frozen-set count 3/7. Task-context, context-before-action and document creation pass every unchanged check with native-confirmed low thinking and actual process absence. The installed Runner matches all 1,334 freshly packed distribution files and passes all seven free admission checks. Private definitions `dc97fdcb`, profile 15, exact model and low thinking stay pinned. The other four live cases remain required. Finish-task stays held for a proven correction to its historical terminal timeout. |
+| Live lifecycle | Pending native question survives controller restart in the original process; one creation and resolution; stale answer after provider death rejected; Stop retires owned processes; three warm turns keep process identity | Corrected local and fresh Daytona pending-question restarts pass all six unchanged matchers each. They retain the original native request, run, turn, session and producer and deliver one exact browser answer. Canonical cleanup and independent launcher/root/credential absence pass; the Daytona child independently returns 404. Local pending-permission Stop passes with canonical and actual cleanup. Provider-death, Daytona Stop, steering and warm continuity remain required; the fresh local steering prerequisite failure stays failed. Prior-set grades remain historical. |
+| Product workflows | All 26 explicit Pi Product E2E cells (13 local, 13 Daytona); screenshots, public state, independent artifacts, terminal and cleanup evidence | Previous frozen-set count 8/26: six local cases, Daytona hello-complete and Daytona pending-question restart pass with preserved evidence and actual cleanup. Rebuild, package checks and all 1,847 fixture tests pass. The other 18 cells were unqualified, including held local steering and the Daytona Stop cleanup failure. All 26 must pass on the corrected final set. The historical memory failure records 32 bytes without LF before its unchanged deadline; its cause still needs a proven correction. No unchanged paid retries. |
+| Runner protocol | Pi roster passes through the native packaged runner and authenticated mock control plane; lifecycle/denial/control cases remain distinct from Product tests | Previous frozen-set count 5/7. All seven must pass on the corrected final set. Task-context, context-before-action, document creation, context/document/progress and governed wait pass every unchanged check with native-confirmed low thinking and actual process absence. The installed Runner matches all 1,334 freshly packed distribution files and passes all seven free admission checks. Private definitions `dc97fdcb`, profile 15, exact model and low thinking stay pinned. Human confirmation fails with a tool invocation rendered as assistant text before any actual operation. It and finish-task remain required. Finish-task stays held for a proven correction to its historical terminal timeout. |
 | Installed distribution | Public CLI/server tars on ARM Mac, Intel Mac and Linux; normal Pi setup; exact Linux companion and immutable Daytona image imported without binary override | All 18 public packages and immutable Linux image are rebuilt and frozen. Anonymous image verification, normal ARM Mac, Rosetta and native Linux install/setup/admission pass without binary overrides. The Linux admission sandbox is independently verified absent. The evaluation consumer matches 722 packages and 79,367 files with zero mismatches. Physical Intel hardware remains unverified. The fresh evaluation controller completes preparation, installed graph checks, Linux controls, browser argument controls, fixture regressions, admission and collection of all 26 cases without provider calls. |
-| Governance and spend | Company isolation, human-only permission, duplicate/stale answers, Stop and budget hard stop; pricing estimates never become claimed bills | Local human permission denial and restrictive denial pass, including negative file-effect checks through process retirement. Company isolation, duplicate/stale answers, Stop and Paperclip budget hard stop still need fresh shipping qualification. Keep the dedicated $5 lifetime key and $100 campaign caps with no reset or BYOK. The 2026-10-06 20:07:25 UTC snapshot records $0.3644694 used and $4.6355306 remaining, with zero BYOK usage; delayed settlement is possible. |
-| Integration and rollout | Review each prerequisite; final-head typecheck, tests, build and CI pass; no unresolved review; exact artifacts; rollback recorded | Frozen-source full build, recursive typecheck, harness typecheck and 53 successful CI checks pass, with two CI skips. Targeted ownership/recovery checks pass, including nine Linux birth-reader tests without skips. The current-source canonical full workspace command remains live on its exact handle. The prior-source Linux full command fails one inherited Git-environment assertion; the unchanged file passes a separate credential-free control after omitting that driver-only setting. Latest review-head CI has one chat-retry browser failure; the navigation-wait correction passes all nine unchanged scenarios on the frozen installed UI. The new review head needs its own CI and review. Prerequisite #14921 retains its valid premature-admission finding. Complete all qualification and reviews before release; drain active native Linux runs across the birth-format change. No merge or release is authorized. |
+| Governance and spend | Company isolation, human-only permission, duplicate/stale answers, Stop and budget hard stop; pricing estimates never become claimed bills | Local human permission denial and restrictive denial pass, including negative file-effect checks through process retirement. Company isolation, duplicate/stale answers, Daytona Stop and Paperclip budget hard stop still need fresh shipping qualification. Local pending-permission Stop passes. Keep the dedicated $5 lifetime key and $100 campaign caps with no reset or BYOK. The 2026-10-06 21:01:14 UTC pre-attempt snapshot records $0.378666789 used and $4.621333211 remaining, with zero BYOK usage; delayed settlement is possible. |
+| Integration and rollout | Review each prerequisite; final-head typecheck, tests, build and CI pass; no unresolved review; exact artifacts; rollback recorded | Frozen-source full build, recursive typecheck, harness typecheck and 53 successful CI checks pass, with two CI skips. Targeted ownership/recovery checks pass, including nine Linux birth-reader tests without skips. The current-source canonical full workspace command finishes failed: 14,976 tests pass, two tests fail and one additional suite fails. Two unchanged suites pass in an isolated diagnostic; the five-minute Mac Git streaming timeout and cleanup removal failure remain. The prior-source Linux full command fails one inherited Git-environment assertion; the unchanged file passes a separate credential-free control after omitting that driver-only setting. The prior review head fails one chat-retry browser scenario. Its navigation-wait correction passes all nine unchanged scenarios on the frozen installed UI. Review head 7b674113e passes 53 checks with two skips, Greptile 5/5 and no unresolved threads. The shipping cleanup correction needs rebuilt packages/image, all 33 live passes and its own checks and review. Prerequisite #14921 retains its valid premature-admission finding. Complete all qualification and reviews before release; drain active native Linux runs across the birth-format change. No merge or release is authorized. |
 
 ## Bounded execution
 
