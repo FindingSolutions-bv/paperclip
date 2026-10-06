@@ -37,6 +37,14 @@ workspace: their independent agent copy therefore lives under the excluded
 `.paperclip-runtime/agent-files/<agent>/<run>/` area. It is not included in task
 workspace sync, Git staging, or task deliverables.
 
+Sandbox transfer scratch lives separately under
+`.paperclip-runtime/paperclip-runner/agent-file-transfers/<agent>/<run>/`.
+Both native sync and the command fallback keep transfer files outside
+`AGENT_HOME`, including recovery after controller restart. Cleanup removes
+only the original materialization's agent directory and transfer scratch
+through its owned lease. A later warm turn keeps that original materialization
+identity; it does not grant collection or cleanup of another run's files.
+
 Regular files (including binary bytes) and directories are supported, up to
 100,000 entries (files and folders), 256 MiB per file and 2 GiB total. Symlinks,
 hardlinks, and special

@@ -554,7 +554,8 @@ describe("persistent agent directories", () => {
     }
     expect(execute).toHaveBeenCalledTimes(2);
     expect(execute).toHaveBeenLastCalledWith(expect.objectContaining({ lease: expect.objectContaining({ id: leaseId, providerLeaseId: "original-sandbox" }),
-      command: "rm", args: ["-rf", "--", executionRoot], bypassSession: true }));
+      command: "rm", args: ["-rf", "--", executionRoot,
+        path.posix.join(remoteCwd, ".paperclip-runtime", "paperclip-runner", "agent-file-transfers", agentId, copy.runId)], bypassSession: true }));
     await copies.recoverCaptured();
     expect(execute).toHaveBeenCalledTimes(2);
     await copies.release(companyId, copy.runId);
@@ -854,6 +855,9 @@ describe("persistent agent directories", () => {
     await fs.mkdir(path.join(root, "build"));
     await fs.writeFile(path.join(root, "build", "personal.txt"), "cache-like names are still agent files");
     const first = await prepare();
+    const firstScratch = path.join(remoteCwd, ".paperclip-runtime", "paperclip-runner", "agent-file-transfers", agentId, first.runId);
+    expect(await fs.readdir(firstScratch)).toEqual([]);
+    await expect(fs.stat(path.join(first.executionRoot, ".paperclip-runtime"))).rejects.toMatchObject({ code: "ENOENT" });
     expect(await fs.readFile(path.join(first.executionRoot, "build", "personal.txt"), "utf8")).toBe("cache-like names are still agent files");
     await fs.mkdir(path.join(first.executionRoot, "notes"));
     await fs.writeFile(path.join(first.executionRoot, "notes", "bytes.bin"), Buffer.from([0, 128, 255]));
@@ -863,6 +867,7 @@ describe("persistent agent directories", () => {
     expect((await execFile("git", ["-C", remoteCwd, "status", "--porcelain", "--untracked-files=all"])).stdout).toBe("?? task-only.txt\n");
     expect((await copies.collectStopped({ companyId, runId: first.runId, target: executionTarget }))?.state).toBe("saved");
     await copies.release(companyId, first.runId);
+    await expect(fs.stat(firstScratch)).rejects.toMatchObject({ code: "ENOENT" });
     expect((await copies.get(companyId, first.runId))?.receipt?.baseline).toBeUndefined();
     await expect(fs.stat(first.localRoot)).rejects.toMatchObject({ code: "ENOENT" });
     await fs.rm(remoteCwd, { recursive: true });

@@ -13,7 +13,7 @@ import { HttpError, conflict, notFound } from "../errors.js";
 import type { AuthorizationActor } from "./authorization.js";
 import type { EnvironmentRuntimeService } from "./environment-runtime.js";
 import type { Environment, EnvironmentLease } from "@paperclipai/shared";
-import { agentDirectoryBaselineDigest, agentDirectoryProbeProgram, agentDirectoryTransferCleanupProgram, observeLocalAgentDirectory } from "./agent-directory-probe.js";
+import { agentDirectoryBaselineDigest, agentDirectoryProbeProgram, observeLocalAgentDirectory } from "./agent-directory-probe.js";
 import { hasRemoteTerminationReceipt } from "./remote-execution-termination.js";
 import { cachedAgentFileManifest, captureAgentFileCheckpoint, checkpointBaseline, checkpointSnapshot, type AgentFileManifest } from "./agent-file-checkpoints.js";
 import { logger } from "../middleware/logger.js";
@@ -23,6 +23,10 @@ export class AgentDirectoryReuseInvalidatedError extends Error {}
 const completed = new Set(["saved", "unchanged", "resolved", "unavailable"]);
 const transports = new Map<string, PreparedAdapterExecutionTargetRuntime>();
 const key = (row: Pick<Copy, "companyId" | "runId">) => `${row.companyId}:${row.runId}`;
+function sandboxTransferRoot(row: Copy, remoteCwd: string): string {
+  const origin = typeof row.receipt?.materializationRunId === "string" ? row.receipt.materializationRunId : String(row.receipt?.directoryRunId ?? row.runId);
+  return path.posix.join(remoteCwd, ".paperclip-runtime", "paperclip-runner", "agent-file-transfers", row.agentId, origin);
+}
 export function isAgentDirectoryCopy(row: Pick<Copy, "receipt"> | null): boolean {
   return row?.receipt?.schema === AGENT_FILES_CONTRACT;
 }
@@ -62,6 +66,10 @@ export function agentDirectoryWorkingCopyService(db: Db, get: (companyId: string
     }
     return prepareAdapterExecutionTargetRuntime({ target, runId: row.runId, adapterKey: "agent-files",
       workspaceLocalDir: row.localRoot, workspaceRemoteDir: row.executionRoot,
+      // Agent files are an independently observed native directory. Transfer
+      // scratch belongs to the host runtime, including the fallback selected
+      // while plugin capability discovery is cold after controller restart.
+      runtimeRootDir: sandboxTransferRoot(row, target.remoteCwd),
       syncWorkspace: true, workspaceInboundMode: recovering ? "adopt_remote" : undefined,
       workspaceBaseline: baseline(row), workspaceGitSnapshot: null, workspaceFileMode: "all",
       workspaceExclude: [".paperclip-runtime", ".paperclip-runtime/**"] });
@@ -198,11 +206,7 @@ export function agentDirectoryWorkingCopyService(db: Db, get: (companyId: string
         const runtime = await transport(row, input.target, false);
         transports.set(key(row), runtime);
         if (input.target.transport === "sandbox") {
-          if (runtime.runtimeRootDir !== path.posix.join(row.executionRoot, ".paperclip-runtime", "agent-files")) throw new Error("Agent directory transfer scratch path changed");
-          const retired = await runAdapterExecutionTargetShellCommand(input.runId, input.target,
-            `node -e ${quote(agentDirectoryTransferCleanupProgram)} ${quote(row.executionRoot)}`,
-            { cwd: input.target.remoteCwd, env: {}, timeoutSec: 10 });
-          if (retired.exitCode !== 0 || retired.timedOut) throw new Error("Agent directory transfer scratch could not be safely retired");
+          if (runtime.runtimeRootDir !== sandboxTransferRoot(row, input.target.remoteCwd)) throw new Error("Agent directory transfer scratch path changed");
         }
       }
       const observed = await observe(row, input.target).catch(() => null);
@@ -416,7 +420,8 @@ export function agentDirectoryWorkingCopyService(db: Db, get: (companyId: string
     else if (!destroyed && row.processStoppedAt && completed.has(row.state) && cleanupTarget?.kind === "remote") {
       const expected = path.posix.join(cleanupTarget.remoteCwd, ".paperclip-runtime", "agent-files", row.agentId, typeof row.receipt?.materializationRunId === "string" ? row.receipt.materializationRunId : String(row.receipt?.directoryRunId ?? row.runId));
       if (row.executionRoot !== expected) throw new Error("Agent directory cleanup path changed");
-      const quoted = `'${expected.replaceAll("'", `'"'"'`)}'`;
+      const paths = cleanupTarget.transport === "sandbox" ? [expected, sandboxTransferRoot(row, cleanupTarget.remoteCwd)] : [expected];
+      const quoted = paths.map(p => `'${p.replaceAll("'", `'"'"'`)}'`).join(" ");
       const remoteCleanupFailed = await runAdapterExecutionTargetShellCommand(row.runId, cleanupTarget, `rm -rf -- ${quoted}`,
         { cwd: cleanupTarget.remoteCwd, env: {}, timeoutSec: 15 }).then(result => result.exitCode !== 0 || result.timedOut, () => true);
       cleanupPending ||= remoteCleanupFailed;
@@ -480,7 +485,8 @@ export function agentDirectoryWorkingCopyService(db: Db, get: (companyId: string
     if (!environment) return false;
     const remoteCwd = cleanup?.remoteCwd ?? lease.metadata?.remoteCwd;
     if (typeof remoteCwd !== "string" || row.executionRoot !== path.posix.join(remoteCwd, ".paperclip-runtime", "agent-files", row.agentId, typeof row.receipt?.materializationRunId === "string" ? row.receipt.materializationRunId : String(row.receipt?.directoryRunId ?? row.runId))) return false;
-    const result = await environmentRuntime.execute({ environment: environment as Environment, lease: lease as EnvironmentLease, command: "rm", args: ["-rf", "--", row.executionRoot],
+    const paths = environment.driver === "sandbox" ? [row.executionRoot, sandboxTransferRoot(row, remoteCwd)] : [row.executionRoot];
+    const result = await environmentRuntime.execute({ environment: environment as Environment, lease: lease as EnvironmentLease, command: "rm", args: ["-rf", "--", ...paths],
       cwd: remoteCwd, env: {}, timeoutMs: 15_000, bypassSession: true });
     return result.exitCode === 0 && !result.timedOut;
   }

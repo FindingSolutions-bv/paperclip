@@ -5,6 +5,48 @@ set of release gates. Pi remains a candidate until every required gate passes.
 Do not expand this work to additional models, widgets, images, Cursor or Copilot
 qualification. The existing draft stack must be reviewed in dependency order.
 
+## Restart transfer correction — 2026-10-06
+
+The current source changes shipping inputs. The `f5024863e` packages and image
+remain historical evidence; rebuild and freeze a new set before any live
+qualification. No new paid attempt has run. Current qualified counts remain
+Product 0/26 and Runner 0/7.
+
+A credential-free regression reproduces the fallback restore defect after
+controller recovery: file bytes survive, but transfer creates a reserved
+`.paperclip-runtime/agent-files` directory inside native `AGENT_HOME`. The
+product's complete agent-directory probe rejects that directory. Transfer
+scratch now lives in the original materialization's host runtime area, outside
+native memory. Both staging and recovery use the same lease-confined path.
+Owned cleanup removes that path with the corresponding agent copy. The strict
+probe, byte checks and qualification graders are unchanged. The actual fallback
+regression fails before this correction and passes afterward. This identifies
+a product defect and matches the prior Linux watch calibration; it does not
+regrade or identify the missing reason in the original v13 restart receipt.
+
+A stronger free byte calibration exercises the installed OpenRouter stream
+parser, Pi agent loop, real RPC serializer, permission extension/bridge and
+native write/read. A synthetic response split at every argument character
+preserves 33 bytes and LF through each boundary. Its 32-byte negative control
+stays 32 bytes and fails the exact grade. It makes no network requests or model
+calls and does not qualify the model. The retained Mac and Linux run logs have
+no native argument fields, so neither failed live input's byte count is known.
+The earlier statement below about 33-byte native input is corrected to describe
+the task specification. A live newline correction is still required.
+
+The initial database tests could not start because the owned dependency copy
+omitted its pinned Postgres package's library-symlink postinstall. Restoring its
+17 declared links fixes `initdb --version`; no binary, host setting, unrelated
+service or shipping dependency changes. Preserve the failed test logs. Keep
+rollout held until the new package/image set, all 33 cases, platform installs,
+full checks and prerequisite reviews pass. No merge or release is authorized.
+
+All 92 memory/probe/cleanup tests and 146 sandbox transport controls pass.
+Adapter-utils and server typechecks pass. Broad transport discovery also ran
+stale compiled tests from `dist/`; its failures remain retained. The canonical
+stable runner excludes `**/dist/**`; current source-only validation is pending.
+New-head CI, full build/typecheck/tests and new distribution proof remain open.
+
 ## Case corrections — 2026-10-05
 
 The historical profile-14 proofs are **28/33: Product 21/26 and
@@ -94,8 +136,9 @@ restart terminal snapshot's exact cause. A corrected live result is still needed
 Pi native definition v13 removes the competing bare nonce from the memory
 instructions. Its sole JSON content specification still decodes to 33 bytes with
 one final LF. Frozen native parser/validator/write/read preserve those bytes
-without provider calls. The failed run's native input contained 33 bytes while
-its native read returned 32; original managed content was not captured. No byte
+without provider calls. The failed run's task specification contained 33 bytes;
+its native input was not retained. Its native read returned 32; original managed
+content was not captured. No byte
 conversion was found in the wrapper or public file API. The prompt correction
 addresses a copying ambiguity; it does not establish a product byte-loss cause.
 The missing-LF negative control and exact saved/readback assertions stay in place.
@@ -329,13 +372,13 @@ local tests and release review are still required.
 
 | Gate | Acceptance evidence | Current result |
 | --- | --- | --- |
-| Runtime identity and admission | Exact runtime/profile/model; verified effective thinking; startup below the 60-second admission limit; unsupported configuration fails before a prompt | Shipping runtime `f5024863e` passes normal profile-15 admission on ARM Mac and native Linux. Completed live runs confirm the frozen model and native low. Fresh Intel admission for these shipping bytes remains required. Profile-14 and earlier profile-15 results below are historical. |
-| Live lifecycle | Pending native question survives controller restart in the original process; one creation and resolution; stale answer after provider death rejected; Stop retires owned processes; three warm turns keep process identity | Current Linux restart retains the same native question/run/turn/session/producer and the browser answer; the run succeeds, but its incomplete independent terminal evidence and failed canonical cleanup keep the case failed. Earlier `b012b3aeb` provider-death and native-question passes do not qualify `f5024863e`. |
-| Product workflows | All 26 explicit Pi Product E2E cells (13 local, 13 Daytona); screenshots, public state, independent artifacts, terminal and cleanup evidence | Not qualified at `f5024863e`. Mac and latest Linux memory attempts fail exact saved bytes. Latest Linux restart fails independent terminal evidence. Both v13 Linux attempts fail canonical cleanup; owned children and controller are independently absent. V14 fixture calibration and 693 tests pass, but do not regrade those cases. Historical `0bd040093` has 21/26 passes, kept only as history. Fresh complete current-runtime coverage is required. |
-| Runner protocol | Pi roster passes through the native packaged runner and authenticated mock control plane; lifecycle/denial/control cases remain distinct from Product tests | Current-runtime Runner qualification remains required. Historical `0bd040093` has 7/7 passes at private definitions `7b112ffe3`, with unchanged graders and zero automatic retries. Those passes retain their original source labels. |
-| Installed distribution | Public CLI/server tars on ARM Mac, Intel Mac and Linux; normal Pi setup; exact Linux companion and immutable Daytona image imported without binary override | Normal ARM public install verifies 722 packages and 79,373 files at `f5024863e`. Normal native Linux install, companion import, Pi setup and admission pass at immutable candidate image `ghcr.io/paperclipai/paperclip-daytona-runner@sha256:20c7fffddeee4298830ead1ea3f0b70819f61e549279588b605440d1155f7260`. No binary override is used. This image is not release-qualified. Fresh Intel proof remains required; earlier three-platform proofs stay historical. |
+| Runtime identity and admission | Exact runtime/profile/model; verified effective thinking; startup below the 60-second admission limit; unsupported configuration fails before a prompt | New shipping source requires a rebuilt frozen package/image set and fresh profile-15 admission on ARM Mac, Intel Mac and Linux. Earlier `f5024863e` admission and live model/low proofs remain historical. |
+| Live lifecycle | Pending native question survives controller restart in the original process; one creation and resolution; stale answer after provider death rejected; Stop retires owned processes; three warm turns keep process identity | The new fallback-transfer regression passes without changing strict probes or graders. The original v13 restart remains failed: provider success, incomplete independent terminal evidence and failed canonical cleanup. Fresh lifecycle qualification on the new artifacts is required. |
+| Product workflows | All 26 explicit Pi Product E2E cells (13 local, 13 Daytona); screenshots, public state, independent artifacts, terminal and cleanup evidence | Current qualified count is 0/26. Missing LF remains unresolved. Original memory and restart failures, manifests and independently absent owned resources remain retained. V14 fixture controls and new source regressions do not qualify any live case. Run every explicit cell on the new frozen artifacts. |
+| Runner protocol | Pi roster passes through the native packaged runner and authenticated mock control plane; lifecycle/denial/control cases remain distinct from Product tests | Current qualified count is 0/7. The seven historical passes at private definitions `7b112ffe3` retain their original runtime labels. Fresh packaged-runner qualification is required. |
+| Installed distribution | Public CLI/server tars on ARM Mac, Intel Mac and Linux; normal Pi setup; exact Linux companion and immutable Daytona image imported without binary override | Rebuild the public CLI/server set, Linux companion and immutable image for the shipping correction. Verify normal ARM Mac, Intel Mac and Linux installs of those bytes. Earlier `f5024863e` ARM/Linux proofs and image remain historical; they cannot admit the new code. |
 | Governance and spend | Company isolation, human-only permission, duplicate/stale answers, Stop and budget hard stop; pricing estimates never become claimed bills | Historical 58 focused invariants and live pending-permission Stop keep their source labels. Fresh shipping qualification remains required. The dedicated key retains a $5 lifetime cap, zero BYOK usage and the $100 campaign ceiling. Final v14 read-only accounting observes $0.324966594 used and $4.675033406 remaining, with delayed settlement still possible. The key cap is not proof of Paperclip budget enforcement. |
-| Integration and rollout | Review each prerequisite; final-head typecheck, tests, build and CI pass; no unresolved review; exact artifacts; rollback recorded | Full build and recursive typecheck pass at shipping runtime `f5024863e`. V14 fixture changes pass 693 tests and harness typecheck; latest-head CI and review must be recorded separately. The full local workspace test command remains failed. Prerequisite #14921's valid production-admission finding remains open. Complete current-runtime qualification and prerequisite disposition remain required. No merge or release is authorized. |
+| Integration and rollout | Review each prerequisite; final-head typecheck, tests, build and CI pass; no unresolved review; exact artifacts; rollback recorded | 92 scoped memory/probe/cleanup tests, 146 sandbox transport tests and affected adapter-utils/server typechecks pass. Broad source-only tests and full current-source build/typecheck/tests remain pending. Previous 53 CI passes and Greptile 5/5 belong to `1eb327cd6`. New-head checks/review and the valid #14921 admission finding remain open. No merge or release is authorized. |
 
 ## Bounded execution
 
