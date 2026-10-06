@@ -7,6 +7,39 @@ qualification. The existing draft stack must be reviewed in dependency order.
 
 ## Failed reusable-lease deletion correction — 2026-10-06
 
+Review of `fc661a364` identifies a further crash window: issue/workspace
+closure calls provider destruction before recording `pending_cleanup`. The
+correction now shares one durable, scoped cleanup claim with environment
+deletion. The atomic claim re-checks company, environment, issue/workspace,
+lease policy, current status and holding-run liveness. It records an attempt
+identity and renewable cleanup ownership before provider work, preventing
+concurrent closures or sweeps from destroying the same resource. A failed
+provider call or settlement retains the handle for recovery. Controller loss
+leaves bounded ownership which the sweep can reclaim after expiry.
+
+All 288 environment tests and the complete server typecheck pass with this
+correction, without provider credentials or changed test deadlines. Six new
+regressions fail semantically on the preceding shipping source: two closure
+paths lack the durable record, environment teardown lacks exclusive cleanup
+ownership, and queued, scheduled-retry and running transitions bypass the stale
+closure live-run check. The failed log hash is
+`3e87d913a7ecfadf5a5e8988526b6f8236d602d18edc32d28aeb5406e370b203`;
+the corrected suite hash is
+`9a21949740b6cdc6055950bb847eae546a071dc7e4ce9dc5c410a3cf0d88f30b`.
+The first free regression also contains two test-spy restoration failures;
+that output remains preserved. Correcting only spy restoration permits the
+six semantic failures above; no assertion or deadline changes.
+
+The preceding `fc661a364` revision completes full build, recursive typecheck,
+Product harness typecheck and all 1,847 Product unit tests. All 18 freshly
+packed archives install with verified integrity and its Darwin x64 binary
+compiles. Its intermediate image is
+`ghcr.io/paperclipai/paperclip-daytona-runner@sha256:4238d570faac69149ab718bc0a336876b2afbef6924ab2c1eccbaddb2a347d65`.
+That exact head has 52 successful checks, two skips and one failed Greptile
+cleanup review. These artifacts and checks stay historical for the new claim
+correction; do not admit or qualify them as the final shipping set. No paid
+attempt runs during these corrections.
+
 An independent check finds the Daytona pending-permission Stop child still
 started after the canonical case passes and environment deletion returns 200.
 The fixture environment and child labels match the actual run. Its canonical
@@ -71,6 +104,11 @@ No new paid attempts run in either correction. Latest-head CI and review remain
 required. The first cleanup head fails its connection-intent browser scenario:
 its continuation reaches `cancelled` where the unchanged test requires
 `succeeded`. Keep that failure and inspect the actual run before changing code.
+The first local diagnosis cannot launch Chromium from its isolated home.
+Supplying the exact cached Chromium revision passes the unchanged scenario
+with a full trace: both runs succeed, the provider is called once more, and
+the task is done. This does not regrade the failed CI run or prove its cause.
+The fresh `fc661a364` CI browser shard and aggregate subsequently pass.
 
 
 ## Linux process-birth correction — 2026-10-06

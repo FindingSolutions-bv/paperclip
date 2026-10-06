@@ -6753,6 +6753,103 @@ describeEmbeddedPostgres("environmentRuntimeService", () => {
     ).resolves.toMatchObject({ status });
   });
 
+  it.each(["issue", "workspace", "environment"] as const)(
+    "durably claims failed reusable cleanup before %s teardown and recovers a provider failure",
+    async (scope) => {
+      const seeded = await seedReusablePluginSandboxLease();
+      await db.update(heartbeatRuns).set({ status: "failed" }).where(eq(heartbeatRuns.id, seeded.runId));
+      await environmentService(db).releaseLease(seeded.reusableLease.id, "failed");
+      const issueId = randomUUID();
+      if (scope === "issue") {
+        await db.insert(issues).values({ id: issueId, companyId: seeded.companyId, title: "Cleanup crash window", status: "done" });
+        await db.update(environmentLeases).set({ issueId }).where(eq(environmentLeases.id, seeded.reusableLease.id));
+      }
+      let enterProvider!: () => void;
+      let finishProvider!: () => void;
+      const entered = new Promise<void>((resolve) => { enterProvider = resolve; });
+      const finish = new Promise<void>((resolve) => { finishProvider = resolve; });
+      let unavailable = true;
+      const call = vi.fn(async (_id: string, method: string) => {
+        if (method !== "environmentDestroyLease") throw new Error(`Unexpected method ${method}`);
+        if (unavailable) {
+          enterProvider();
+          await finish;
+          throw new Error("Provider response lost");
+        }
+        return { providerLeaseId: seeded.reusableLease.providerLeaseId, state: "destroyed" };
+      });
+      const makeRuntime = () => environmentRuntimeService(db, { pluginWorkerManager: {
+        isRunning: () => true, call,
+        getWorker: () => ({ supportedMethods: ["environmentDestroyLease"] }),
+      } as unknown as PluginWorkerManager });
+      const runtime = makeRuntime();
+      const close = (service: ReturnType<typeof makeRuntime>) => scope === "environment"
+        ? service.destroyReusableSandboxLeasesForEnvironment({ environmentId: seeded.environment.id })
+        : service.destroyReusableSandboxLeases({ companyId: seeded.companyId,
+          ...(scope === "issue" ? { issueId } : { executionWorkspaceId: seeded.executionWorkspaceId }) });
+      const closing = close(runtime);
+      try {
+        await entered;
+        // This independently persisted row is what survives controller loss
+        // during the provider call. No provider receipt has arrived yet.
+        expect(await environmentService(db).getLeaseById(seeded.reusableLease.id)).toMatchObject({
+          status: "pending_cleanup", cleanupStatus: "failed", companyId: seeded.companyId,
+          providerLeaseId: seeded.reusableLease.providerLeaseId,
+          metadata: { pendingCleanupAttemptId: expect.any(String), pendingCleanupInFlight: true,
+            pendingCleanupLeaseExpiresAtMs: expect.any(Number) },
+        });
+        await close(makeRuntime());
+        expect(await heartbeatService(db, { environmentRuntime: makeRuntime() }).sweepPendingCleanupLeases({ backoffMs: 0 }))
+          .toEqual({ swept: 0, destroyed: 0, capped: 0 });
+        expect(call).toHaveBeenCalledOnce();
+      } finally {
+        finishProvider();
+        await closing;
+      }
+      expect(await environmentService(db).getLeaseById(seeded.reusableLease.id)).toMatchObject({
+        status: "pending_cleanup", metadata: { pendingCleanupInFlight: false },
+      });
+      unavailable = false;
+      expect(await heartbeatService(db, { environmentRuntime: makeRuntime() }).sweepPendingCleanupLeases({ backoffMs: 0 }))
+        .toEqual({ swept: 1, destroyed: 1, capped: 0 });
+      expect(call).toHaveBeenCalledTimes(2);
+      expect(await environmentService(db).getLeaseById(seeded.reusableLease.id)).toMatchObject({
+        status: "expired", cleanupStatus: "success", metadata: { remoteExecutionTermination: { state: "destroyed" } },
+      });
+    },
+  );
+
+  it.each(["queued", "scheduled_retry", "running"] as const)(
+    "fences scoped cleanup when its holding run becomes %s after selection", async (status) => {
+      const seeded = await seedReusablePluginSandboxLease();
+      await db.update(heartbeatRuns).set({ status: "failed" }).where(eq(heartbeatRuns.id, seeded.runId));
+      await environmentService(db).releaseLease(seeded.reusableLease.id, "failed");
+      const originalService = environmentsModule.environmentService;
+      const serviceSpy = vi.spyOn(environmentsModule, "environmentService").mockImplementation((client) => {
+        const service = originalService(client);
+        return { ...service, getById: async (id: string) => {
+          const environment = await service.getById(id);
+          if (id === seeded.environment.id) {
+            await db.update(heartbeatRuns).set({ status }).where(eq(heartbeatRuns.id, seeded.runId));
+          }
+          return environment;
+        } };
+      });
+      const call = vi.fn(async () => undefined);
+      const runtime = environmentRuntimeService(db, { pluginWorkerManager: {
+        isRunning: () => true, call, getWorker: () => ({ supportedMethods: ["environmentDestroyLease"] }),
+      } as unknown as PluginWorkerManager });
+      try {
+        expect(await runtime.destroyReusableSandboxLeases({ companyId: seeded.companyId,
+          executionWorkspaceId: seeded.executionWorkspaceId })).toEqual([]);
+        expect(call).not.toHaveBeenCalled();
+        expect(await originalService(db).getLeaseById(seeded.reusableLease.id)).toMatchObject({ status: "failed" });
+      } finally {
+        serviceSpy.mockRestore();
+      }
+    },
+  );
+
   it("destroys reusable plugin-backed sandbox leases scoped to an environment", async () => {
     const { pluginId, runId, reusableLease } = await seedReusablePluginSandboxLease();
     // The holding run is finished, so the reservation is stale and destroyable.
