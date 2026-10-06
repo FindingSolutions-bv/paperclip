@@ -12,7 +12,7 @@ import { gradePiNativeAnswers, hasFailedPiWrite, hasPiCrossRootDenial, PI_NATIVE
 import type { LiveFixtureValues } from "./live-fixtures.js";
 import type { MatrixExecution } from "./types.js";
 
-import type { RemoteNativeFixture, RemoteNativeSnapshot } from "./remote-native-fixtures.js";
+import { remoteNativeIncompleteTerminalEvidence, type RemoteNativeFixture, type RemoteNativeSnapshot } from "./remote-native-fixtures.js";
 import { approvePiBootstrapRead, withoutApprovedPiBootstrapRequests, type PiBootstrapApproval } from "./pi-bootstrap-permission.js";
 import { runPiPendingProviderDeath, PI_DEATH_MARKER } from "./pi-native-provider-death-flow.js";
 import { runPiPendingControllerRestart } from "./pi-native-restart-flow.js";
@@ -42,9 +42,18 @@ export async function runPiNativeFlow(input: {
   let bootstrapApproval: PiBootstrapApproval | undefined;
   let currentRemote: RemoteNativeFixture | undefined, currentBaseline: RemoteNativeSnapshot | undefined;
   let remoteSequence = 0;
+  const retainedIncompleteTerminals = new Set<number>();
+  async function retainIncompleteTerminal(fixture: RemoteNativeFixture, ordinal: number, error: unknown) {
+    const snapshot = remoteNativeIncompleteTerminalEvidence(error);
+    if (!snapshot || retainedIncompleteTerminals.has(ordinal)) return;
+    await input.evidence(`pi-remote-${ordinal}-incomplete-terminal.json`, { binding: fixture.binding, snapshot, passed: false });
+    retainedIncompleteTerminals.add(ordinal);
+  }
   async function finishRemote(label: string) {
     if (!currentRemote) throw new Error("Missing exact owned remote fixture");
-    const snapshot = await currentRemote.finish();
+    let snapshot: RemoteNativeSnapshot;
+    try { snapshot = await currentRemote.finish(); }
+    catch (error) { await retainIncompleteTerminal(currentRemote, remoteSequence, error); throw error; }
     await input.evidence(`pi-remote-${remoteSequence}-${label}.json`, { binding: currentRemote.binding, baseline: currentBaseline, snapshot });
     if (!hasPiRemoteRetirement(snapshot)) throw new Error("Pi remote provider retirement is unproven; sandbox deletion is not proof");
     return snapshot;
@@ -84,6 +93,7 @@ export async function runPiNativeFlow(input: {
       const fixture = currentRemote, ordinal = remoteSequence;
       input.registerCleanupAssertion!(async () => {
         try { const snapshot = await fixture.finish(); const passed = hasPiRemoteRetirement(snapshot); await input.evidence(`pi-remote-${ordinal}-retirement.json`, { binding: fixture.binding, snapshot, passed }); if (!passed) throw new Error("Pi remote retirement proof incomplete"); return [{ id: `remote-retirement-${ordinal}`, passed, detail: "Independent remote observer sealed exact run retirement before public lease deletion" }]; }
+        catch (error) { await retainIncompleteTerminal(fixture, ordinal, error); throw error; }
         finally { await fixture.close(); }
       });
     }
@@ -158,11 +168,11 @@ export async function runPiNativeFlow(input: {
       await settle(1);
       const personal = await api.get<Row>(`/api/agents/${fixtures.agent.id}/instructions-bundle/file?path=${encodeURIComponent(PI_NATIVE_MEMORY_PATH)}`);
       const firstEvents = await events(runs[0]!.id);
+      await input.evidence("pi-agent-files-first-save.json", { personal, run: runs[0], events: firstEvents });
       check("registered-file-saved", personal.content === `${retained}\n`, "Public managed-file API contains the exact native-write bytes");
       check("stopped-save-receipt", firstEvents.some(row => row.eventType === "instruction_save" && row.payload?.state === "saved"), "Provider stop produced a durable file-save receipt");
       const crossRootIntact = remote ? hasUnchangedPiRemoteTarget(currentBaseline, await finishRemote("cross-root-final"), "@cross-root") : await absent(outside);
       check("cross-root-denied", crossRootIntact && hasPiCrossRootDenial(firstEvents), "A single native write recorded the exact cross-root denial reason and the isolated target remains unchanged");
-      await input.evidence("pi-agent-files-first-save.json", { personal, run: runs[0], events: firstEvents });
       await input.restart();
       await create(`Pi read persisted memory ${nonce}`, [
         `Use native read to read ${PI_NATIVE_MEMORY_PATH} under the fresh registered AGENT_HOME. Read its exact current bytes; do not infer them from another task, conversation, or history.`,

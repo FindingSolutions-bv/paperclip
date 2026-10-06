@@ -9,7 +9,7 @@ const browser = vi.hoisted(() => ({ create: (_value: any) => {} }));
 vi.mock("./user-actions.js", () => ({ createTaskThroughUi: async (value: unknown) => browser.create(value) }));
 vi.mock("@playwright/test", () => ({ expect: (value: unknown, message?: string) => ({ toBe: (expected: unknown) => expect(value, message).toBe(expected), toBeVisible: async () => {} }) }));
 
-it("rebinds both remote runs, saves managed bytes, and reads sealed sandbox bytes after restart", async () => {
+it.each([false, true])("retains managed bytes before grading and rebinds successful runs (missing LF=%s)", async missingLF => {
   const root = await mkdtemp(join(tmpdir(), "pi-remote-memory-"));
   const task = piNativeTasks.find(row => row.id === "agent-files-fresh-run")!;
   const issues: any[] = [], runs: any[] = [], cleanup: Array<() => Promise<any>> = []; const captures: any[] = [], evidence = new Map<string, any>();
@@ -46,13 +46,22 @@ it("rebinds both remote runs, saves managed bytes, and reads sealed sandbox byte
       personal = JSON.parse(content!).content;
       expect(personal).toMatch(/^[a-f0-9]{32}\n$/);
       expect(Buffer.byteLength(personal, "utf8")).toBe(33);
+      if (missingLF) personal = personal.slice(0, -1);
     } else { expect(action).not.toContain(personal.trim()); expect(input.targets).toEqual(["pi-agent-memory-proof.txt"]); }
     issues.at(-1).status = "done"; runs.at(-1).status = "succeeded"; captures.push(fixture.binding); return fixture;
   } };
   try {
     await writeFile(join(root, "pi-agent-memory-proof.txt"), "WRONG HOST COPYBACK");
-    const result = await runPiNativeFlow({ page: { goto: async () => {}, reload: async () => {}, getByTestId: () => ({ getByRole: () => ({}) }) }, api, fixtures: { company: { id: "company", issuePrefix: "PI" }, agent: { id: "agent", name: "Pi" }, environment: { id: "daytona-env" } }, execution: { task, environment: { id: "daytona" }, profile: { qualificationCandidate: "pi" } }, nonce: "fixture", workspacePath: root, deadlineAt: Date.now() + 2000,
+    const call = runPiNativeFlow({ page: { goto: async () => {}, reload: async () => {}, getByTestId: () => ({ getByRole: () => ({}) }) }, api, fixtures: { company: { id: "company", issuePrefix: "PI" }, agent: { id: "agent", name: "Pi" }, environment: { id: "daytona-env" } }, execution: { task, environment: { id: "daytona" }, profile: { qualificationCandidate: "pi" } }, nonce: "fixture", workspacePath: root, deadlineAt: Date.now() + 2000,
       restart: async () => { expect(evidence.has("pi-remote-1-cross-root-final.json")).toBe(true); restarted = true; }, observe: () => {}, capture: async () => {}, evidence: async (name: string, value: unknown) => { evidence.set(name, value); }, remoteBootstrap, registerCleanupAssertion: (fn: () => Promise<any>) => cleanup.push(fn) } as any);
+    if (missingLF) {
+      await expect(call).rejects.toThrow("Public managed-file API contains the exact native-write bytes");
+      expect(evidence.get("pi-agent-files-first-save.json").personal.content).toBe(personal);
+      expect(Buffer.byteLength(personal)).toBe(32);
+      expect(restarted).toBe(false); expect(runs).toHaveLength(1);
+      return;
+    }
+    const result = await call;
     expect(result.checks.every(check => check.passed)).toBe(true); expect(captures).toEqual([{ runId: "run-1" }, { runId: "run-2" }]); expect(readAfterFinish).toBe(true); expect(cleanup).toHaveLength(2); for (const fn of cleanup) await fn();
   } finally { await rm(root, { recursive: true, force: true }); }
 });

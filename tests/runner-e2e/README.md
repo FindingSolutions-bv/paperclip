@@ -1483,6 +1483,11 @@ the durable browser form bridge. The existing five extended-harness journeys
 continue to prove semantic Paperclip questions and planning separately. Personal
 file persistence uses two fresh task runs and independent byte checks; restrictive
 denial uses one run and requires both a failed tool receipt and no file effect.
+The first managed-file API response is saved before its byte assertion, including
+when the final LF is missing. An incomplete remote terminal receipt retains only
+validated completion flags, watcher counts, process counts and target hashes.
+Raw RPC fields and file bodies are omitted. These diagnostic records do not
+change a failed byte or retirement grade and do not justify an unchanged retry.
 `human-permission-denial` additionally requires the exact browser Decline response,
 delivered native denial and independent file/process observation through retirement.
 The restrictive Daytona fixtures approve only the exact operator-published

@@ -15,6 +15,60 @@ failures remain retained. The Mac file-edit correction also passes.
 
 ### Latest boundary fixes — 2026-10-05
 
+Current shipping artifacts are bound to `f5024863e9ed014e2661e6d7f23fc0e6b32e0911`
+and profile 15. The normal public ARM graph verifies 722 packages and 79,373
+files with zero mismatches. Full build and recursive typecheck pass. Normal
+Linux public install, companion import, native admission and browser startup
+pass against immutable image
+`ghcr.io/paperclipai/paperclip-daytona-runner@sha256:20c7fffddeee4298830ead1ea3f0b70819f61e549279588b605440d1155f7260`.
+Its controller passes 342 fixture checks, 21 native fault checks and collection
+of all 26 Product cells with zero model calls. An installed-UI intercepted POST
+proves one fenced prompt with valid JSON, all 33 content bytes and no duplicate.
+
+The canonical-root Mac attempt uses shipping runtime `f5024863e` and harness
+`df748c997`; the recorded diff contains only fixture infrastructure and the plan.
+The provider now completes its first turn and writes to the correct native
+agent directory. Its native read returns the 32-character nonce without LF.
+The exact managed-byte assertion fails; canonical cleanup passes. The public
+description independently contains one valid JSON content value of 33 bytes.
+The original managed-file response was not retained before that assertion, so
+its exact returned bytes cannot be claimed from the saved evidence. A free
+check of the frozen Pi JSON parser, argument validator, native write and native
+read preserves all 33 bytes. There is no proven byte-trimming product defect.
+Do not weaken the byte grade, add a newline in the product, or repeat this paid
+attempt without a concrete correction.
+
+The next Linux restart attempt retains the same native request, turn, run,
+session and producer across controller restart and accepts the exact browser
+answer. The original run succeeds. Its independent observer returns incomplete
+terminal evidence; canonical cleanup also fails after public lease release.
+Both owned child and controller are separately verified absent, and the active
+campaign claim is closed. The canonical result stays failed. The missing
+incomplete receipt prevents a precise observer-cause attribution; do not claim
+that public run success proves the final independent file or cleanup grades.
+The initial controller preparation also fails before provider calls because
+consumer and plugin shared-package archives collide by basename. Separating
+their staging namespaces fixes preparation with every archive digest unchanged.
+
+The fixture now records the managed-file response before grading and retains a
+closed, validated summary of an incomplete terminal receipt before rethrowing.
+It omits raw RPC content and file bodies. A missing-LF regression fails before
+the capture-order correction and still fails the byte grade afterward while
+retaining the response. These are evidence-only changes; no runtime input,
+model, timeout, assertion or original result changes. They do not justify a
+paid rerun solely to collect diagnostics.
+All 207 affected fixture tests pass with filesystem-watch access, and the
+harness typecheck passes. The initial sandbox run retains three failed watch
+observations; it is not reported as a passing run.
+
+At `df748c997`, 53 CI checks pass with two skips. This is source-bound CI, not
+proof for a later evidence-only commit. Current-source live qualification is
+still incomplete: neither failed attempt qualifies its case, and historical
+profile-14 or earlier profile-15 passes cannot certify this runtime. Review and
+the complete workspace unit command remain held. Last observed dedicated-key
+usage is $0.318304276 against its $5 lifetime cap; the immediate restart delta
+of $0.000785504 is provisional. No merge or release is authorized.
+
 The next explicit Mac attempt at `f5024863e` confirms that the description is
 no longer duplicated, but still times out with cleanup passing. Its runtime
 context advertises `/tmp/.../live`, while the native Pi grant binds the physical

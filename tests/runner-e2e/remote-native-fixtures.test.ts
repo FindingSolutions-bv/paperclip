@@ -7,7 +7,7 @@ import { tmpdir } from "node:os";
 import { join } from "node:path";
 import { Script } from "node:vm";
 import { describe, expect, it, vi } from "vitest";
-import { REMOTE_FIXTURE_MIN_SETUP_BUDGET_MS, bindRemoteNativeFixture, validatePiProviderDeathReceipt, createRemoteTargetWatch, isRemoteRunRoot, parseRemoteProcStat, remoteNativeFixtureDiagnostics, type RemoteNativeFixtureOptions, type RemoteNativeSnapshot } from "./remote-native-fixtures.js";
+import { REMOTE_FIXTURE_MIN_SETUP_BUDGET_MS, bindRemoteNativeFixture, validatePiProviderDeathReceipt, createRemoteTargetWatch, isRemoteRunRoot, parseRemoteProcStat, remoteNativeFixtureDiagnostics, remoteNativeIncompleteTerminalEvidence, type RemoteNativeFixtureOptions, type RemoteNativeSnapshot } from "./remote-native-fixtures.js";
 
 import { PI_DISTRIBUTION_CLOSURE_SHA256 } from "../../packages/paperclip-runner/src/drivers/acpx/pi-closure-pins.js";
 import { createRemoteNativeBootstrap } from "./remote-native-bootstrap.js";
@@ -232,6 +232,22 @@ describe("remote native lease admission", () => {
     if (type === "missing-root") end.processes = { captured: false, root: null, journal: [], live: [] };
     if (type === "bad-file") end.targets["result.txt"] = { ...end.targets["result.txt"], absent: false, sha256: hash("missing") };
     h.resolveTerminal(end); await expect(f.finish()).rejects.toThrow();
+  });
+  it("retains a validated incomplete terminal receipt without raw file or RPC content", async () => {
+    const h = harness(), f = await bindRemoteNativeFixture(h.options);
+    await f.publishAction("action.txt", "task");
+    const end = { ...structuredClone(h.current), complete: false, watcher: { ...h.current.watcher, complete: false },
+      processes: { ...h.current.processes, live: [] }, files: { "private.txt": "PRIVATE RPC CONTENT" }, untrustedDump: "PRIVATE RPC CONTENT" };
+    h.resolveTerminal(end);
+    const error = await f.finish().catch(error => error);
+    expect(error.message).toBe("remote_native_fixture:terminal_evidence_incomplete");
+    const retained = remoteNativeIncompleteTerminalEvidence(error)!;
+    expect(retained.complete).toBe(false); expect(retained.watcher.complete).toBe(false);
+    expect(retained.processes.liveCount).toBe(0);
+    expect(JSON.stringify(retained)).not.toContain("PRIVATE RPC CONTENT");
+    retained.watcher.complete = true;
+    expect(remoteNativeIncompleteTerminalEvidence(error)!.watcher.complete).toBe(false);
+    expect(remoteNativeIncompleteTerminalEvidence(new Error("PRIVATE RPC CONTENT"))).toBeUndefined();
   });
   it("keeps a fixture-owned cross-root sentinel distinct from workspace targets", async () => {
     const h = harness(); h.options.crossRoot = { initialText: "outside sentinel" };

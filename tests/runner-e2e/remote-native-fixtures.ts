@@ -70,6 +70,25 @@ export interface RemoteNativeSnapshot {
   setup: { path: string; sha256: string | null; published: boolean };
   attached: { connections: number; failure: string | null; commandExit: { code: number; observedAtMs: number; observedMonotonicNs: string } | null; markerWrittenAtMs: number | null; markerWrittenMonotonicNs: string | null; clientExitedAtMs: number | null; clientExitedMonotonicNs: string | null } | null;
 }
+class IncompleteRemoteTerminalEvidenceError extends Error {
+  constructor(readonly snapshot: RemoteNativeSnapshot) {
+    super("remote_native_fixture:terminal_evidence_incomplete");
+  }
+}
+/** Retain only a shape-validated public receipt, without raw RPC text or files. */
+export function remoteNativeIncompleteTerminalEvidence(error: unknown) {
+  if (!(error instanceof IncompleteRemoteTerminalEvidenceError)) return undefined;
+  const row = error.snapshot, root = row.processes.root;
+  return {
+    observedAtMs: row.observedAtMs, receivedAtMs: row.receivedAtMs, complete: row.complete,
+    setupPublished: row.setup.published,
+    watcher: { complete: row.watcher.complete, targetMutationCount: row.watcher.targetMutationCount, workspaceMutationCount: row.watcher.workspaceMutationCount },
+    processes: { captured: row.processes.captured, liveCount: row.processes.live.length, journalCount: row.processes.journal.length,
+      root: root ? { pid: root.pid, ppid: root.ppid, startTicks: root.startTicks, bootId: root.bootId } : null },
+    targets: Object.fromEntries(Object.entries(row.targets).map(([name, target]) => [name,
+      { absent: target.absent, sha256: target.sha256, mutationCount: target.mutationCount, complete: target.complete }])),
+  };
+}
 /** Structural subset of pinned SDK0.203.0; caller supplies its authenticated
  * client. No create/list/delete or arbitrary remote command API is exposed. */
 export interface RemoteFixtureDaytona {
@@ -503,7 +522,9 @@ export async function bindRemoteNativeFixture(options: RemoteNativeFixtureOption
       if ("error" in receipt) throw receipt.error;
       fail(receipt.receivedAtMs <= receiptDeadlineAt, "receipt_deadline");
       const result = readSnapshot(receipt.value, binding!, names, actionFile, options.runnerdSha256);
-      fail(published && result.setup.published && result.complete && result.watcher.complete && result.processes.captured && result.processes.live.length === 0, "terminal_evidence_incomplete");
+      if (!(published && result.setup.published && result.complete && result.watcher.complete && result.processes.captured && result.processes.live.length === 0)) {
+        throw new IncompleteRemoteTerminalEvidenceError(result);
+      }
       const files = record(record(receipt.value).files);
       for (const name of names) {
         const target = result.targets[name]!;
