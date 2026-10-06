@@ -302,8 +302,13 @@ Undisclosed text and independent workspace JSON prove delivery to the same live 
 Pi's SDK cannot distinguish negative confirmation from dismissal; the expected
 result is explicitly `negative_or_cancelled`, not proof of cancellation.
 
-`agent-files-fresh-run` writes a hidden nonce through native file tools to the
-registered AGENT_HOME, requires a stopped-run save receipt and public managed-file
+`agent-files-fresh-run` supplies one native write argument object whose content
+is the hidden nonce plus exactly one final LF. The agent replaces only the
+AGENT_HOME prefix in the supplied path; it preserves the JSON newline escape in
+the content argument, then reads the complete file once. A missing LF, literal
+backslash-and-n, repeated write, or claimed success cannot satisfy the independent
+byte oracle. The flow uses native file tools in the registered AGENT_HOME,
+requires a stopped-run save receipt and public managed-file
 readback, then restarts the server and verifies exact bytes from a fresh task. An
 attempted write to an unassigned isolated sibling path must fail without creating
 a file. `restrictive-denial` requires a correlated failed native write and absent

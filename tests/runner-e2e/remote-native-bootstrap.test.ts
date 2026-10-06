@@ -57,6 +57,8 @@ it("keeps async completion immediate with a private sentinel and no delivery wai
   expect(action).toContain("attempt to finish immediately without calling read_bash or another waiting tool");
   expect(action).toContain("Do not modify fixture code, manufacture its result, or start another command.");
   expect(action).toContain("private diagnostic sentinel, not a requested file deliverable");
+  expect(action).toContain("Do not publish it. Do not attach it.");
+  expect(explicitlyRequestsFileOutput(`${action}\nAttach a downloadable report.txt file.`)).toBe(true);
   expect(action).toContain("evidence [], verification []");
   expect(action).not.toContain("register_deliverable");
 });

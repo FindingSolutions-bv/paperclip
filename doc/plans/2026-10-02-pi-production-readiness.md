@@ -5,6 +5,42 @@ set of release gates. Pi remains a candidate until every required gate passes.
 Do not expand this work to additional models, widgets, images, Cursor or Copilot
 qualification. The existing draft stack must be reviewed in dependency order.
 
+## Rebuilt candidate and exact write arguments — 2026-10-06
+
+Shipping source is now `0cff2b20b5ea785880ad119dde59e6f011a3f9e1`.
+All 18 public workspace tarballs are freshly packed from that source. The Linux
+image is `ghcr.io/paperclipai/paperclip-daytona-runner@sha256:f8cfc51909edbc728063e815a2c81ce9169ab58784d1f7c26f7a9f422b3f718f`.
+Anonymous pull, source labels, immutable Daytona import and normal Linux npm
+installation, Pi setup and admission pass. Its owned admission sandbox is deleted.
+Normal npm lifecycle installation, Pi setup and admission also pass on ARM Mac
+and with x64 Node under Rosetta on ARM Mac. The latter proves the Intel package
+path under emulation; it is not a physical Intel hardware test.
+
+Pi native definition v15 is
+`d4fdf90fbed8741f53f2cbea921ef1b86d181f63f00c10beb999cf40f2e43578`.
+The memory prompt now supplies native write arguments directly. Only the
+AGENT_HOME path prefix may change; content keeps its JSON newline escape.
+The exact 33-byte/LF grade, one write/read, cross-root denial, fresh-task readback,
+deadlines and zero automatic retries remain unchanged. The failed live input
+was not retained, so the prompt correction still needs a new live measurement.
+Free installed Pi parser/agent-loop/permission/native-tool calibration takes the
+new argument object: 33 bytes stay 33 and the 32-byte negative still fails.
+
+All 1,847 Product E2E fixture tests across 93 files and harness typecheck pass.
+The first broad run retains one failure in an existing Copilot fixture: its
+compound prohibition on publication and attachment triggered the production
+delivery gate. Separate prohibitions fix the fixture; a requested attachment
+still triggers that same gate. Copilot definitions advance to v9 and remain
+pending. No production delivery rule or qualification grader changes.
+
+Build and recursive typecheck pass at the shipping source. Its GitHub checks
+have 53 successes and two skips. The full local workspace test command remains
+live and must reach an authoritative terminal result. Fixture-only edits need
+fresh head CI and review; they do not change package or image build inputs.
+No new paid attempts have run. Current qualified counts remain Product 0/26 and
+Runner 0/7. Keep rollout held for the live newline/restart proof, all 33 cases,
+complete checks and prerequisite review. Do not merge or release.
+
 ## Restart transfer correction — 2026-10-06
 
 The current source changes shipping inputs. The `f5024863e` packages and image
@@ -376,13 +412,13 @@ local tests and release review are still required.
 
 | Gate | Acceptance evidence | Current result |
 | --- | --- | --- |
-| Runtime identity and admission | Exact runtime/profile/model; verified effective thinking; startup below the 60-second admission limit; unsupported configuration fails before a prompt | New shipping source requires a rebuilt frozen package/image set and fresh profile-15 admission on ARM Mac, Intel Mac and Linux. Earlier `f5024863e` admission and live model/low proofs remain historical. |
+| Runtime identity and admission | Exact runtime/profile/model; verified effective thinking; startup below the 60-second admission limit; unsupported configuration fails before a prompt | The `0cff2b20b` packages/image are rebuilt. Fresh profile-15 normal admission passes on ARM Mac, Intel x64 under Rosetta and Linux. Live model/low and all 33 cases still require current-artifact proof. Earlier `f5024863e` proofs remain historical. |
 | Live lifecycle | Pending native question survives controller restart in the original process; one creation and resolution; stale answer after provider death rejected; Stop retires owned processes; three warm turns keep process identity | The new fallback-transfer regression passes without changing strict probes or graders. The original v13 restart remains failed: provider success, incomplete independent terminal evidence and failed canonical cleanup. Fresh lifecycle qualification on the new artifacts is required. |
-| Product workflows | All 26 explicit Pi Product E2E cells (13 local, 13 Daytona); screenshots, public state, independent artifacts, terminal and cleanup evidence | Current qualified count is 0/26. Missing LF remains unresolved. Original memory and restart failures, manifests and independently absent owned resources remain retained. V14 fixture controls and new source regressions do not qualify any live case. Run every explicit cell on the new frozen artifacts. |
+| Product workflows | All 26 explicit Pi Product E2E cells (13 local, 13 Daytona); screenshots, public state, independent artifacts, terminal and cleanup evidence | Current qualified count is 0/26. Missing LF remains unresolved. Original memory and restart failures, manifests and independently absent owned resources remain retained. V15 fixture controls and new source regressions do not qualify any live case. Run every explicit cell on the new frozen artifacts. |
 | Runner protocol | Pi roster passes through the native packaged runner and authenticated mock control plane; lifecycle/denial/control cases remain distinct from Product tests | Current qualified count is 0/7. The seven historical passes at private definitions `7b112ffe3` retain their original runtime labels. Fresh packaged-runner qualification is required. |
-| Installed distribution | Public CLI/server tars on ARM Mac, Intel Mac and Linux; normal Pi setup; exact Linux companion and immutable Daytona image imported without binary override | Rebuild the public CLI/server set, Linux companion and immutable image for the shipping correction. Verify normal ARM Mac, Intel Mac and Linux installs of those bytes. Earlier `f5024863e` ARM/Linux proofs and image remain historical; they cannot admit the new code. |
+| Installed distribution | Public CLI/server tars on ARM Mac, Intel Mac and Linux; normal Pi setup; exact Linux companion and immutable Daytona image imported without binary override | All 18 public package tars are repacked at `0cff2b20b`; its immutable Linux image passes anonymous import and normal installation. Normal lifecycle-enabled ARM Mac, Intel under Rosetta and Linux Pi setup/admission pass. The fresh E2E Linux controller and companion import remain required. Earlier proofs keep their original sources. |
 | Governance and spend | Company isolation, human-only permission, duplicate/stale answers, Stop and budget hard stop; pricing estimates never become claimed bills | Historical 58 focused invariants and live pending-permission Stop keep their source labels. Fresh shipping qualification remains required. The dedicated key retains a $5 lifetime cap, zero BYOK usage and the $100 campaign ceiling. Final v14 read-only accounting observes $0.324966594 used and $4.675033406 remaining, with delayed settlement still possible. The key cap is not proof of Paperclip budget enforcement. |
-| Integration and rollout | Review each prerequisite; final-head typecheck, tests, build and CI pass; no unresolved review; exact artifacts; rollback recorded | 92 scoped memory/probe/cleanup tests, 146 sandbox transport tests and affected adapter-utils/server typechecks pass. Broad source-only tests and full current-source build/typecheck/tests remain pending. Previous 53 CI passes and Greptile 5/5 belong to `1eb327cd6`. New-head checks/review and the valid #14921 admission finding remain open. No merge or release is authorized. |
+| Integration and rollout | Review each prerequisite; final-head typecheck, tests, build and CI pass; no unresolved review; exact artifacts; rollback recorded | 92 scoped memory/probe/cleanup tests, 146 transport tests, 12 lock tests, all 1,847 Product fixture tests and harness typecheck pass. Full build and recursive typecheck pass at `0cff2b20b`; its CI has 53 successes and two skips. Local full-workspace tests remain live. Fixture-head CI/review and the valid #14921 admission finding remain open. No merge or release is authorized. |
 
 ## Bounded execution
 

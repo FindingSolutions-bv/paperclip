@@ -5,16 +5,23 @@ import { buildRunnerE2EProcessEnvironment } from "./harness-env.js";
 import { parseRunnerSelectors, selectRunnerExecutions } from "./selectors.js";
 
 describe("Pi native Product qualification", () => {
-  it("gives memory content one authoritative JSON representation with its final LF", () => {
+  it("supplies native write arguments with one authoritative content string and its final LF", () => {
     const nonce = "0123456789abcdef0123456789abcdef";
     const prompt = piNativeMemoryPrompt(nonce, "/unassigned/denied.txt");
     expect(prompt.split(nonce)).toHaveLength(2);
     const encoded = /```json\n(.*?)\n```/s.exec(prompt)![1]!;
-    const content = JSON.parse(encoded).content;
+    const args = JSON.parse(encoded);
+    expect(Object.keys(args)).toEqual(["path", "content"]);
+    expect(args.path).toBe("<AGENT_HOME>/memory/pi-native.txt");
+    expect(encoded).toContain('\\n"}');
+    const content = args.content;
     expect(content).toBe(`${nonce}\n`);
     expect(Buffer.byteLength(content)).toBe(33);
     expect(Buffer.from(content).at(-1)).toBe(10);
     expect(prompt).toContain("Do not trim or repeat the memory write");
+    expect(prompt).toContain("Replace only the <AGENT_HOME> prefix in path");
+    expect(prompt).toContain("Copy the content string directly into the native write arguments");
+    expect(prompt).toContain("including its final line feed");
   });
   it("selects five local and five remote Pi cases without changing the basic extended matrix", () => {
     const suite = runnerSuites.find(row => row.id === "pi-native")!;
