@@ -24,3 +24,5 @@ export type {
   HardRetryExclusionFacts,
   RetrySchedule,
 } from "./domain/policy.js";
+
+export { createPostgresRunRetryAdapter } from "./adapters/postgres.js";

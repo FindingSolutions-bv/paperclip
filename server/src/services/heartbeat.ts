@@ -564,6 +564,7 @@ import {
   decideBoundedRetrySchedule,
   decideCodexTransientFallbackMode,
   decideHardRetryExclusion,
+  createPostgresRunRetryAdapter,
   isBoundedTransientRetryReason,
   type CodexTransientFallbackMode,
 } from "../modules/run-retry/index.js";
@@ -9661,6 +9662,7 @@ export function heartbeatService(
       BOUNDED_TRANSIENT_HEARTBEAT_RETRY_MAX_ATTEMPTS,
   });
   const runDispatch = createRunDispatch(db);
+  const runRetry = createPostgresRunRetryAdapter(db);
 
   // Applies the post-commit effects a run-dispatch operation returns, on a
   // best-effort basis, exactly as this service publishes them for every
@@ -15502,7 +15504,8 @@ export function heartbeatService(
       };
     }
 
-    if (await legacyExecutionNeedsReconciliationWithEvidence(db, run)) {
+    const legacyReconciliationBlocked = await legacyExecutionNeedsReconciliationWithEvidence(db, run);
+    if (legacyReconciliationBlocked) {
       return {
         outcome: "not_scheduled" as const,
         reason:
@@ -15512,7 +15515,7 @@ export function heartbeatService(
       };
     }
     if (retryReason !== MAX_TURN_CONTINUATION_RETRY_REASON) {
-      const invokability = await getAgentInvokability(agent);
+      const invokability = await runRetry.checkAgentInvokability({ companyId: run.companyId, now, agent });
       if (!invokability.invokable) {
         await appendRunEvent(run, {
           eventType: "lifecycle",
@@ -15668,525 +15671,29 @@ export function heartbeatService(
           ? `interaction-continuation:${run.companyId}:${issueId ?? "no-issue"}:${run.id}:${schedule.attempt}`
           : null;
 
-    type ScheduledRetryTransactionResult =
-      | {
-          outcome: "scheduled";
-          run: typeof heartbeatRuns.$inferSelect;
-          reusedExisting: boolean;
-        }
-      | {
-          outcome: "not_scheduled";
-          reason: string;
-          errorCode:
-            | "issue_not_found"
-            | "issue_reassigned"
-            | "issue_cancelled"
-            | "issue_terminal_status"
-            | "issue_not_in_progress"
-            | "continuation_user_authorization_missing"
-            | "issue_execution_lock_changed";
-          issueId: string | null;
-          details: Record<string, unknown>;
-        };
-
-    const scheduleResult = await db.transaction(
-      async (tx): Promise<ScheduledRetryTransactionResult> => {
-        // All automatic failure paths share the same predecessor claim. A
-        // duplicate monitor, restart sweep or wake must reuse its successor.
-        if (
-          retryReason !== MAX_TURN_CONTINUATION_RETRY_REASON &&
-          retryReason !== INTERACTION_CONTINUATION_INFRA_RETRY_REASON
-        ) {
-          if (issueId)
-            await tx.execute(
-              sql`select id from issues where company_id = ${run.companyId} and id = ${issueId} for update`,
-            );
-          await tx.execute(
-            sql`select id from heartbeat_runs where company_id = ${run.companyId} and id = ${run.id} for update`,
-          );
-          const [existing] = await tx
-            .select()
-            .from(heartbeatRuns)
-            .where(
-              and(
-                eq(heartbeatRuns.companyId, run.companyId),
-                eq(heartbeatRuns.retryOfRunId, run.id),
-              ),
-            )
-            .limit(1);
-          if (existing)
-            return {
-              outcome: "scheduled",
-              run: existing,
-              reusedExisting: true,
-            };
-        }
-        if (retryReason === INTERACTION_CONTINUATION_INFRA_RETRY_REASON) {
-          if (issueId) {
-            await tx.execute(
-              sql`select id from issues where company_id = ${run.companyId} and id = ${issueId} for update`,
-            );
-          } else {
-            await tx.execute(
-              sql`select id from heartbeat_runs where company_id = ${run.companyId} and id = ${run.id} for update`,
-            );
-          }
-
-          const existingContinuation = await tx
-            .select()
-            .from(heartbeatRuns)
-            .where(
-              and(
-                eq(heartbeatRuns.companyId, run.companyId),
-                eq(heartbeatRuns.retryOfRunId, run.id),
-                eq(heartbeatRuns.scheduledRetryReason, retryReason),
-                eq(heartbeatRuns.scheduledRetryAttempt, schedule.attempt),
-                inArray(heartbeatRuns.status, [
-                  ...MAX_TURN_CONTINUATION_LIVE_RUN_STATUSES,
-                ]),
-                issueId
-                  ? sql`${heartbeatRuns.contextSnapshot} ->> 'issueId' = ${issueId}`
-                  : sql`${heartbeatRuns.contextSnapshot} ->> 'issueId' is null`,
-              ),
-            )
-            .orderBy(asc(heartbeatRuns.createdAt), asc(heartbeatRuns.id))
-            .limit(1)
-            .then((rows) => rows[0] ?? null);
-
-          if (existingContinuation) {
-            if (existingContinuation.wakeupRequestId) {
-              const existingWakeup = await tx
-                .select({ coalescedCount: agentWakeupRequests.coalescedCount })
-                .from(agentWakeupRequests)
-                .where(
-                  eq(
-                    agentWakeupRequests.id,
-                    existingContinuation.wakeupRequestId,
-                  ),
-                )
-                .then((rows) => rows[0] ?? null);
-
-              await tx
-                .update(agentWakeupRequests)
-                .set({
-                  coalescedCount: (existingWakeup?.coalescedCount ?? 0) + 1,
-                  updatedAt: now,
-                })
-                .where(
-                  eq(
-                    agentWakeupRequests.id,
-                    existingContinuation.wakeupRequestId,
-                  ),
-                );
-            }
-
-            return {
-              outcome: "scheduled",
-              run: existingContinuation,
-              reusedExisting: true,
-            };
-          }
-        }
-
-        if (retryReason === MAX_TURN_CONTINUATION_RETRY_REASON) {
-          if (issueId) {
-            await tx.execute(
-              sql`select id from issues where company_id = ${run.companyId} and id = ${issueId} for update`,
-            );
-          } else {
-            await tx.execute(
-              sql`select id from heartbeat_runs where company_id = ${run.companyId} and id = ${run.id} for update`,
-            );
-          }
-
-          const existingContinuation = await tx
-            .select()
-            .from(heartbeatRuns)
-            .where(
-              and(
-                eq(heartbeatRuns.companyId, run.companyId),
-                eq(heartbeatRuns.retryOfRunId, run.id),
-                eq(heartbeatRuns.scheduledRetryReason, retryReason),
-                eq(heartbeatRuns.scheduledRetryAttempt, schedule.attempt),
-                inArray(heartbeatRuns.status, [
-                  ...MAX_TURN_CONTINUATION_LIVE_RUN_STATUSES,
-                ]),
-                issueId
-                  ? sql`${heartbeatRuns.contextSnapshot} ->> 'issueId' = ${issueId}`
-                  : sql`${heartbeatRuns.contextSnapshot} ->> 'issueId' is null`,
-              ),
-            )
-            .orderBy(asc(heartbeatRuns.createdAt), asc(heartbeatRuns.id))
-            .limit(1)
-            .then((rows) => rows[0] ?? null);
-
-          if (existingContinuation) {
-            if (existingContinuation.wakeupRequestId) {
-              const existingWakeup = await tx
-                .select({ coalescedCount: agentWakeupRequests.coalescedCount })
-                .from(agentWakeupRequests)
-                .where(
-                  eq(
-                    agentWakeupRequests.id,
-                    existingContinuation.wakeupRequestId,
-                  ),
-                )
-                .then((rows) => rows[0] ?? null);
-
-              await tx
-                .update(agentWakeupRequests)
-                .set({
-                  coalescedCount: (existingWakeup?.coalescedCount ?? 0) + 1,
-                  updatedAt: now,
-                })
-                .where(
-                  eq(
-                    agentWakeupRequests.id,
-                    existingContinuation.wakeupRequestId,
-                  ),
-                );
-            }
-
-            return {
-              outcome: "scheduled",
-              run: existingContinuation,
-              reusedExisting: true,
-            };
-          }
-
-          if (issueId) {
-            const lockedIssue = await tx
-              .select({
-                id: issues.id,
-                status: issues.status,
-                assigneeAgentId: issues.assigneeAgentId,
-                executionRunId: issues.executionRunId,
-              })
-              .from(issues)
-              .where(
-                and(
-                  eq(issues.id, issueId),
-                  eq(issues.companyId, run.companyId),
-                ),
-              )
-              .then((rows) => rows[0] ?? null);
-
-            if (!lockedIssue) {
-              return {
-                outcome: "not_scheduled",
-                reason:
-                  "Scheduled max-turn continuation suppressed because the target issue no longer exists",
-                errorCode: "issue_not_found",
-                issueId,
-                details: { issueId },
-              };
-            }
-
-            if (lockedIssue.assigneeAgentId !== run.agentId) {
-              return {
-                outcome: "not_scheduled",
-                reason:
-                  "Scheduled max-turn continuation suppressed because issue ownership changed",
-                errorCode: "issue_reassigned",
-                issueId,
-                details: {
-                  issueId,
-                  previousAssigneeAgentId: run.agentId,
-                  currentAssigneeAgentId: lockedIssue.assigneeAgentId,
-                },
-              };
-            }
-
-            if (
-              lockedIssue.status === "cancelled" ||
-              lockedIssue.status === "done"
-            ) {
-              return {
-                outcome: "not_scheduled",
-                reason: `Scheduled max-turn continuation suppressed because issue reached terminal status (${lockedIssue.status})`,
-                errorCode:
-                  lockedIssue.status === "cancelled"
-                    ? "issue_cancelled"
-                    : "issue_terminal_status",
-                issueId,
-                details: { issueId, currentStatus: lockedIssue.status },
-              };
-            }
-
-            if (lockedIssue.status !== "in_progress") {
-              return {
-                outcome: "not_scheduled",
-                reason: `Scheduled max-turn continuation suppressed because issue is no longer in_progress (current status: ${lockedIssue.status})`,
-                errorCode: "issue_not_in_progress",
-                issueId,
-                details: {
-                  issueId,
-                  currentStatus: lockedIssue.status,
-                  requiredStatus: "in_progress",
-                },
-              };
-            }
-
-            if (lockedIssue.executionRunId !== run.id) {
-              return {
-                outcome: "not_scheduled",
-                reason:
-                  "Scheduled max-turn continuation suppressed because the issue execution lock belongs to a different run",
-                errorCode: "issue_execution_lock_changed",
-                issueId,
-                details: {
-                  issueId,
-                  expectedExecutionRunId: run.id,
-                  currentExecutionRunId: lockedIssue.executionRunId,
-                },
-              };
-            }
-          }
-        }
-
-        if (
-          (retryReason === AI_CONNECTION_BUSY_RETRY_REASON || retryReason === AI_CONNECTION_POOL_WAIT_RETRY_REASON) && issueId &&
-          !isNonAssigneeWorkspaceBusyRetry(retryReason, contextSnapshot)
-        ) {
-          // The issue row is locked above. Recheck after the preflight gate so
-          // cancellation or recovery cannot leave a successor without its lock.
-          const [lockedIssue] = await tx.select({ executionRunId: issues.executionRunId })
-            .from(issues).where(and(eq(issues.id, issueId), eq(issues.companyId, run.companyId)));
-          if (lockedIssue?.executionRunId !== run.id) {
-            return {
-              outcome: "not_scheduled", issueId, errorCode: "issue_execution_lock_changed",
-              reason: "Subscription retry suppressed because the task execution lock changed",
-              details: { issueId, expectedExecutionRunId: run.id, currentExecutionRunId: lockedIssue?.executionRunId ?? null },
-            };
-          }
-        }
-
-        const scheduledRunId = randomUUID();
-        if (contextSnapshot.explicitUserContinuation) {
-          const continuation = issueId && retryReason === "transient_failure" ? await admitExplicitContinuationRetry({
-            db: tx as unknown as Db, companyId: run.companyId, issueId, agentId: run.agentId,
-            parentRunId: run.id, successorRunId: scheduledRunId, now,
-          }) : null;
-          if (!continuation) return {
-            outcome: "not_scheduled", issueId,
-            errorCode: "continuation_user_authorization_missing",
-            reason: "The automatic retry could not revalidate the original user continuation.",
-            details: {},
-          };
-          retryContextSnapshot.explicitUserContinuation = continuation;
-          retryContextSnapshot.previousRunId = continuation.previousRunId;
-        }
-
-        const wakeupRequest = await tx
-          .insert(agentWakeupRequests)
-          .values({
-            companyId: run.companyId,
-            agentId: run.agentId,
-            source: "automation",
-            triggerDetail: "system",
-            reason: wakeReason,
-            payload: withRecoveryContext(
-              {
-                ...(issueId ? { issueId } : {}),
-                retryOfRunId: run.id,
-                ...interactionContinuationPayload,
-                retryReason,
-                ...(transientRecovery
-                  ? { errorFamily: transientRecovery.errorFamily }
-                  : {}),
-                scheduledRetryAttempt: schedule.attempt,
-                scheduledRetryAt: schedule.dueAt.toISOString(),
-                ...(transientRetryNotBefore
-                  ? {
-                      transientRetryNotBefore:
-                        transientRetryNotBefore.toISOString(),
-                    }
-                  : {}),
-                ...(transientRecovery?.errorFamily === "provider_quota" &&
-                transientRetryNotBefore
-                  ? {
-                      providerQuotaRetryNotBefore:
-                        transientRetryNotBefore.toISOString(),
-                    }
-                  : {}),
-                ...(codexTransientFallbackMode
-                  ? { codexTransientFallbackMode }
-                  : {}),
-              },
-              "normal_model",
-            ),
-            status: "queued",
-            requestedByActorType: "system",
-            requestedByActorId: null,
-            idempotencyKey: continuationRetryIdempotencyKey,
-            updatedAt: now,
-          })
-          .returning()
-          .then((rows) => rows[0]);
-
-        const scheduledRun = await tx
-          .insert(heartbeatRuns)
-          .values({
-            id: scheduledRunId,
-            companyId: run.companyId,
-            agentId: run.agentId,
-            invocationSource: "automation",
-            triggerDetail: "system",
-            status: "scheduled_retry",
-            wakeupRequestId: wakeupRequest.id,
-            contextSnapshot: retryContextSnapshot,
-            ...(hasConversationContinuationPolicy(run.resultJson)
-              ? { resultJson: { conversationContinuation: CONVERSATION_CONTINUATION_POLICY } } : {}),
-            responsibleUserId,
-            sessionIdBefore: sessionBefore,
-            retryOfRunId: run.id,
-            scheduledRetryAt: schedule.dueAt,
-            scheduledRetryAttempt: schedule.attempt,
-            scheduledRetryReason: retryReason,
-            continuationAttempt: readContinuationAttempt(
-              retryContextSnapshot.livenessContinuationAttempt,
-            ),
-            updatedAt: now,
-          })
-          .returning()
-          .then((rows) => rows[0]);
-
-        await tx
-          .update(agentWakeupRequests)
-          .set({
-            runId: scheduledRun.id,
-            updatedAt: now,
-          })
-          .where(eq(agentWakeupRequests.id, wakeupRequest.id));
-
-        let detachWorkspaceFromIssue = false;
-        if (issueId && shouldQuarantineWorkspaceForRetry) {
-          const issueWorkspace = await tx
-            .select({
-              id: issues.id,
-              companyId: issues.companyId,
-              executionWorkspaceId: issues.executionWorkspaceId,
-            })
-            .from(issues)
-            .where(
-              and(eq(issues.id, issueId), eq(issues.companyId, run.companyId)),
-            )
-            .for("update")
-            .then((rows) => rows[0] ?? null);
-          const failedExecutionWorkspaceId =
-            readNonEmptyString(
-              workspaceValidationRetryPayload?.executionWorkspaceId,
-            ) ?? readNonEmptyString(issueWorkspace?.executionWorkspaceId);
-
-          if (issueWorkspace && failedExecutionWorkspaceId) {
-            const failedWorkspace = await tx
-              .select({
-                id: executionWorkspaces.id,
-                companyId: executionWorkspaces.companyId,
-                sourceIssueId: executionWorkspaces.sourceIssueId,
-                status: executionWorkspaces.status,
-                metadata: executionWorkspaces.metadata,
-              })
-              .from(executionWorkspaces)
-              .where(
-                and(
-                  eq(executionWorkspaces.id, failedExecutionWorkspaceId),
-                  eq(executionWorkspaces.companyId, run.companyId),
-                ),
-              )
-              .for("update")
-              .then((rows) => rows[0] ?? null);
-
-            const workspaceBelongsToIssue = failedWorkspace
-              ? failedWorkspace.sourceIssueId === issueId
-              : false;
-
-            if (
-              failedWorkspace &&
-              workspaceBelongsToIssue &&
-              issueWorkspace.executionWorkspaceId === failedExecutionWorkspaceId
-            ) {
-              const existingMetadata = parseObject(failedWorkspace.metadata);
-              const quarantine = {
-                reason: WORKSPACE_VALIDATION_FAILURE_CODE,
-                retryReason,
-                sourceRunId: run.id,
-                retryRunId: scheduledRun.id,
-                issueId,
-                sourceIssueId: failedWorkspace.sourceIssueId ?? null,
-                quarantinedAt: now.toISOString(),
-                workspaceValidation: workspaceValidationRetryPayload ?? {},
-              };
-              await tx
-                .update(executionWorkspaces)
-                .set({
-                  status: "archived",
-                  closedAt: now,
-                  cleanupEligibleAt: null,
-                  cleanupReason: WORKSPACE_VALIDATION_FAILURE_CODE,
-                  metadata: {
-                    ...existingMetadata,
-                    workspaceValidationQuarantine: quarantine,
-                  },
-                  updatedAt: now,
-                })
-                .where(
-                  and(
-                    eq(executionWorkspaces.id, failedWorkspace.id),
-                    eq(executionWorkspaces.companyId, run.companyId),
-                  ),
-                );
-
-              await logActivity(tx as unknown as Db, {
-                companyId: run.companyId,
-                actorType: "system",
-                actorId: "heartbeat",
-                agentId: run.agentId,
-                runId: run.id,
-                action: "execution_workspace.workspace_validation_quarantined",
-                entityType: "execution_workspace",
-                entityId: failedWorkspace.id,
-                details: quarantine,
-              });
-              detachWorkspaceFromIssue =
-                issueWorkspace.executionWorkspaceId ===
-                failedExecutionWorkspaceId;
-            }
-          }
-        }
-
-        if (issueId) {
-          await tx
-            .update(issues)
-            .set({
-              executionRunId: scheduledRun.id,
-              checkoutRunId: sql`case when ${issues.checkoutRunId} = ${run.id} then null else ${issues.checkoutRunId} end`,
-              executionAgentNameKey: normalizeAgentNameKey(agent.name),
-              executionLockedAt: now,
-              ...(detachWorkspaceFromIssue
-                ? {
-                    executionWorkspaceId: null,
-                    executionWorkspacePreference: null,
-                  }
-                : {}),
-              updatedAt: now,
-            })
-            .where(
-              and(
-                eq(issues.id, issueId),
-                eq(issues.companyId, run.companyId),
-                eq(issues.executionRunId, run.id),
-              ),
-            );
-        }
-
-        return {
-          outcome: "scheduled",
-          run: scheduledRun,
-          reusedExisting: false,
-        };
-      },
-    );
+    const scheduleResult = await runRetry.scheduleRetry({
+      companyId: run.companyId,
+      now,
+      run,
+      agentName: agent.name,
+      retryReason,
+      wakeReason,
+      issueId,
+      contextSnapshot,
+      retryContextSnapshot,
+      schedule,
+      transientRecovery,
+      transientRetryNotBefore,
+      codexTransientFallbackMode,
+      interactionContinuationPayload,
+      workspaceValidationRetryPayload,
+      shouldQuarantineWorkspaceForRetry,
+      responsibleUserId,
+      sessionBefore,
+      continuationRetryIdempotencyKey,
+      legacyReconciliationBlocked,
+      legacyReconciliationEvidence: { sourceRunId: run.id },
+    });
 
     if (scheduleResult.outcome === "not_scheduled") {
       await appendRunEvent(run, {
