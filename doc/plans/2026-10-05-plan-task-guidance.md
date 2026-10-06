@@ -89,6 +89,10 @@ Repository checks at the previous source: full typecheck and build pass. Local
 full tests: 9,591 pass, 5,796 skip and one unchanged macOS real-Git streaming test
 hits its five-minute deadline; an isolated check also fails. Preserve this
 limitation. Normal CI found a different, exact cause: truncated random fixture
-company prefixes collided in chat integration setup. A monotonic per-suite
-prefix removes that collision; all five affected native-modal variants pass
-locally (1,058 unrelated cases filtered). This is a test-only repair.
+company prefixes collided in chat integration setup. An initial per-suite counter fixed within-run collisions but review found that
+its values repeat against an external database on subsequent runs. The corrected
+prefix contains the complete company UUID, with no truncation; distinct company
+IDs therefore produce distinct prefixes within and across runs. All five affected
+native-modal variants pass locally (1,058 unrelated cases filtered). This is a
+test-only repair; the measured planning fixture and production guidance remain
+frozen at `8538cfce4c2defdedc2efba7519bcfce880c4e00`.

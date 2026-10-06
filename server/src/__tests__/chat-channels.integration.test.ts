@@ -1080,7 +1080,6 @@ describeEmbeddedPostgres("chat channel control-plane integration", () => {
       .where(and(inArray(chatConversations.companyId, companyIds), inArray(chatConversations.state, ["active", "waiting"])));
   }
 
-  let fixtureCompanySequence = 0;
   async function seedCompany() {
     const companyId = randomUUID();
     fixtureCompanies.add(companyId);
@@ -1089,7 +1088,7 @@ describeEmbeddedPostgres("chat channel control-plane integration", () => {
     await db.insert(companies).values({
       id: companyId,
       name: `Chat Test ${companyId.slice(0, 8)}`,
-      issuePrefix: `C${(++fixtureCompanySequence).toString(36).padStart(7, "0").toUpperCase()}`,
+      issuePrefix: `C${companyId.replace(/-/g, "").toUpperCase()}`,
       requireBoardApprovalForNewAgents: false,
     });
     const now = new Date();
