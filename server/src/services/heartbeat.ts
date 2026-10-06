@@ -1,3 +1,4 @@
+import { getAgentReadiness } from "./agent-readiness.js";
 import { createAgentIdentityRedactor } from "./agent-identity-redaction.js";
 import { agentIdentityService, supportsManagedAgentIdentity } from "./agent-identity.js";
 import { buildAgentIdentityEnv } from "@paperclipai/adapter-utils/server-utils";
@@ -17429,6 +17430,9 @@ export function heartbeatService(
       );
       return null;
     }
+
+    const readiness = await getAgentReadiness(db, options.pluginWorkerManager, agent);
+    if (readiness.some(provider => provider.state !== "ready")) return null;
 
     const context = parseObject(run.contextSnapshot);
     const budgetBlock = await budgets.getInvocationBlock(
