@@ -5,7 +5,36 @@ set of release gates. Pi remains a candidate until every required gate passes.
 Do not expand this work to additional models, widgets, images, Cursor or Copilot
 qualification. The existing draft stack must be reviewed in dependency order.
 
-## Frozen corrected-set measurements — 2026-10-06
+## Linux process-birth correction — 2026-10-06
+
+The local pending-question restart fails before controller shutdown because the
+unchanged ownership guard rejects the public run's daemon birth receipt. Its
+canonical failed grade and passed cleanup remain preserved. Actual SDK inspection
+proves the launcher and temporary fixture root absent before releasing the claim.
+
+A zero-provider Linux control reproduces a concrete mismatch: production records
+`/proc/PID` directory ctime, while the strict restart guard observes actual birth
+through `ps`. The installed daemon's ctime is `18:46:34.102Z`, but its kernel
+birth is `18:46:33.800Z`. The same unchanged guard rejects the former and accepts
+the latter. It also rejects a deliberately wrong birth receipt. The daemon's
+identity stays stable through delayed inspection and its process is retired.
+The proof is hash-bound at
+`32580fe4f97a9799049ae887ff5652f4b5243cc53c3c2e77404bb13e0c40f32e`.
+
+The correction shares a kernel-tick birth reader between server process receipts
+and retained Runner maintenance. Malformed metadata fails closed. PID, group,
+ancestry, role and cleanup checks stay intact. Parser, hot-restart, native-recovery
+and process-owner checks pass 94 tests; one Linux-only parser integration is
+skipped on Mac and the separate installed Linux daemon proof passes. Runner,
+server and Product E2E typechecks pass. No paid attempt follows this correction
+yet. It changes shipping inputs: rebuild all public packages and the image,
+then freeze a new set starting at Product **0/26** and Runner **0/7**. The prior
+set's 1/26 and 6/7 passes remain historical. Its canonical full Linux tests are
+still confirmed live on their original handle; do not stop or duplicate them.
+The missing-LF memory failure and finish-task stream timeout still need a proven
+correction. Production remains held.
+
+## Previous frozen-set measurements — 2026-10-06
 
 The rebuilt `7f66a30ad` package/image set has Product **1/26** and Runner
 **6/7** verified passes. The Daytona controller-restart case passes all six
@@ -584,13 +613,13 @@ local tests and release review are still required.
 
 | Gate | Acceptance evidence | Current result |
 | --- | --- | --- |
-| Runtime identity and admission | Exact runtime/profile/model; verified effective thinking; startup below the 60-second admission limit; unsupported configuration fails before a prompt | Frozen `7f66a30ad` packages/image pass normal profile-15 offline admission on ARM Mac, Intel x64 under Rosetta and Linux. Live model/low and all 33 cases still need proof on this set. Historical admission retains its original source. |
-| Live lifecycle | Pending native question survives controller restart in the original process; one creation and resolution; stale answer after provider death rejected; Stop retires owned processes; three warm turns keep process identity | The corrected sandbox GitHub path passes both actual Linux observer controls and all 35 affected Linux tests. The old-set restart remains failed with incomplete terminal evidence and failed canonical cleanup, despite independent resource absence. A new exact live restart measurement is required. |
-| Product workflows | All 26 explicit Pi Product E2E cells (13 local, 13 Daytona); screenshots, public state, independent artifacts, terminal and cleanup evidence | Current set: 1/26. The corrected Daytona controller-restart case passes exact same-request/answer, terminal, retirement and cleanup grades. The new local memory measurement fails at 120 seconds; independent output shows 32 bytes without LF. Preserve all failures, hold unchanged retries, and complete every cell on this freeze. |
-| Runner protocol | Pi roster passes through the native packaged runner and authenticated mock control plane; lifecycle/denial/control cases remain distinct from Product tests | Current set: 6/7. Task context, context-before-action, document creation, human confirmation, context/document/progress and governed-wait workflows pass on the new frozen artifacts. Private definitions `dc97fdcb`, profile 15, model and low thinking stay pinned. Finish-task stays held pending a concrete correction to its historical terminal timeout. |
-| Installed distribution | Public CLI/server tars on ARM Mac, Intel Mac and Linux; normal Pi setup; exact Linux companion and immutable Daytona image imported without binary override | All 18 public tars are repacked at `7f66a30ad`. Image `ghcr.io/paperclipai/paperclip-daytona-runner@sha256:8e744211ded7c19015aececeb87da4e1ee994ca9d85c6fbbebcd916682425231` passes anonymous import and normal Linux installation. Normal ARM Mac and x64 under Rosetta install/setup/admission pass. Physical Intel hardware remains unverified. The new Linux controller passes imported companion, browser, complete consumer/plugin graph audits, offline native controls and collection of all 26 cases. |
-| Governance and spend | Company isolation, human-only permission, duplicate/stale answers, Stop and budget hard stop; pricing estimates never become claimed bills | Historical invariant checks keep their source labels. Fresh live shipping qualification remains required. The dedicated key has a $5 lifetime cap, zero BYOK usage and a $100 campaign ceiling. Last provisional read-only accounting observes $0.34323782 used and $4.65676218 remaining. Delayed settlement is possible. The key cap does not prove Paperclip budget enforcement. |
-| Integration and rollout | Review each prerequisite; final-head typecheck, tests, build and CI pass; no unresolved review; exact artifacts; rollback recorded | At `7f66a30ad`, all 1,847 Product fixture tests, harness typecheck, full build and recursive typecheck pass. CI has 53 successes and two skips; Greptile is 5/5 with zero open #14956 threads. Documentation head `99e823164` also has 53 successful checks, two skips and zero open #14956 threads. The old full test command is terminal with an npm-PATH failure; its exact packaging test passes after the owned tooling correction. Current-source typecheck and build pass; full tests remain on their recorded live handle. Current-source full workspace command evidence remains required. The valid #14921 premature-qualification finding stays open until all live qualification passes. Later docs heads need current CI/review. No merge or release is authorized. |
+| Runtime identity and admission | Exact runtime/profile/model; verified effective thinking; startup below the 60-second admission limit; unsupported configuration fails before a prompt | The Linux process-birth correction changes shipping inputs. Fresh rebuilt packages/image and normal profile-15 admission are required. Prior `7f66a30ad` ARM, Rosetta and Linux proofs remain historical. |
+| Live lifecycle | Pending native question survives controller restart in the original process; one creation and resolution; stale answer after provider death rejected; Stop retires owned processes; three warm turns keep process identity | The prior-set Daytona restart passes. The local restart fails daemon-birth admission before shutdown. A zero-provider installed Linux daemon control proves the kernel-birth correction against the unchanged ownership guard, including wrong-birth rejection and actual retirement. Fresh live lifecycle measurements remain required. |
+| Product workflows | All 26 explicit Pi Product E2E cells (13 local, 13 Daytona); screenshots, public state, independent artifacts, terminal and cleanup evidence | Rebuild pending; new-set count 0/26. Prior `7f66a30ad` has 1/26. Its local memory and local restart failures remain unchanged. Memory still reaches 120 seconds after an independently observed 32-byte file without LF. No unchanged paid retries. |
+| Runner protocol | Pi roster passes through the native packaged runner and authenticated mock control plane; lifecycle/denial/control cases remain distinct from Product tests | Rebuild pending; new-set count 0/7. Prior `7f66a30ad` has 6/7. Private definitions `dc97fdcb`, profile 15, exact model and low thinking stay pinned. Finish-task remains held pending a proven correction to the historical terminal timeout. |
+| Installed distribution | Public CLI/server tars on ARM Mac, Intel Mac and Linux; normal Pi setup; exact Linux companion and immutable Daytona image imported without binary override | Rebuild all 18 public packages and the immutable Linux image for the Linux birth-reader change. Repeat normal installation and admission on the new set. Prior ARM Mac, Rosetta and Linux receipts remain historical. Physical Intel hardware remains unverified. |
+| Governance and spend | Company isolation, human-only permission, duplicate/stale answers, Stop and budget hard stop; pricing estimates never become claimed bills | Company isolation, human authority, duplicate/stale answers, Stop and Paperclip budget hard stop still need fresh shipping qualification. Keep the dedicated $5 lifetime key and $100 campaign caps with no reset or BYOK. Last provisional accounting is $0.357317585 used; delayed settlement is possible. |
+| Integration and rollout | Review each prerequisite; final-head typecheck, tests, build and CI pass; no unresolved review; exact artifacts; rollback recorded | The birth-reader correction passes 94 targeted tests, with one Linux-only skip on Mac, plus Runner, server and E2E typechecks and the installed Linux daemon proof. Full build, recursive typecheck, full tests and latest-head CI remain required. The prior-source full Linux command remains confirmed live with passed build/typecheck. Prerequisite #14921 still has a valid premature-admission finding; draft-stack review and all qualification must finish before release. No merge or release is authorized. |
 
 ## Bounded execution
 
@@ -1595,6 +1624,8 @@ reviews pass. This goal does not publish, merge or deploy the candidate.
    current company configuration and the exact retained package set. Run
    `paperclipai db:backup --json` against the intended instance. Retain the
    reported backup path and size. Record the backup file SHA256 before updating.
+   Drain active Linux native runs before crossing between ctime-based and
+   kernel-birth receipts. Never rewrite an active identity to force adoption.
 2. Use the exact qualified published version. For a managed npm installation,
    preview and apply the pinned update below. The operator must supply
    `PI_RELEASE_VERSION` after publication. Keep the default pre-update backup.
@@ -1637,6 +1668,9 @@ On any failed qualification gate, keep admission held. On a rollout regression,
 stop new Pi dispatch and retire active work through the control-plane Stop path.
 For a managed installation, verify that the preview names the recorded prior
 payload before applying rollback:
+
+Complete the owned Stop path before rolling Linux runs back across the process
+birth format change. Preserve their terminal and cleanup evidence.
 
 ```sh
 paperclipai update --rollback --dry-run --json

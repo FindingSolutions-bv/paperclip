@@ -5,6 +5,7 @@ import { waitForWarmAttachmentReadiness } from "./warm-attachment-readiness.js";
 import { codexExecutableReadOnlyRoots } from "../drivers/codex/codex-security-config.js";
 import { isCanonicalProviderEventType } from "../provider-events.js";
 import { execFileSync } from "node:child_process";
+import { readLinuxProcessStartedAt } from "./linux-process-start.js";
 import { createHash, randomUUID } from "node:crypto";
 import {
   appendFileSync,
@@ -96,7 +97,7 @@ function readLocalProcessStartedAt(pid: number): string | null {
   if (!Number.isInteger(pid) || pid <= 0) return null;
   try {
     if (process.platform === "linux") {
-      return new Date(statSync(`/proc/${pid}`).ctimeMs).toISOString();
+      return readLinuxProcessStartedAt(pid);
     }
     if (
       ["darwin", "freebsd", "openbsd", "aix", "sunos"].includes(

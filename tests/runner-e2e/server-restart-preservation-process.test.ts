@@ -7,6 +7,7 @@ import { expect, it } from "vitest";
 import { createRunnerE2EServerStopper } from "./server-stop.js";
 import { createProcessTreeOwner } from "./process-tree-owner.js";
 import { readProcessTable } from "./process-tree.js";
+import { readLinuxProcessStartedAt } from "../../packages/paperclip-runner/src/live/linux-process-start.js";
 
 it.skipIf(process.platform === "win32")("keeps the real admitted daemon and child alive across controller exit, then drains both controller generations", async () => {
   const directory = await mkdtemp(path.join(await realpath(os.tmpdir()), "pc-restart-owner-"));
@@ -57,7 +58,7 @@ it.skipIf(process.platform === "win32")("keeps the real admitted daemon and chil
     const descendants = before!.filter(row => row.parentPid === runner.pid);
     expect(descendants.length).toBeGreaterThan(0);
     await stop.forRestart(first.child, { processPid: runner.pid, processGroupId: runner.processGroupId,
-      processStartedAt: new Date(runner.started).toISOString() });
+      processStartedAt: process.platform === "linux" ? readLinuxProcessStartedAt(runner.pid) : new Date(runner.started).toISOString() });
     const after = await readProcessTable();
     expect(after!.find(row => row.pid === runner.pid)?.started).toBe(runner.started);
     for (const descendant of descendants) expect(after!.find(row => row.pid === descendant.pid)?.started).toBe(descendant.started);
