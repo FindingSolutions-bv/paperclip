@@ -5,6 +5,64 @@ set of release gates. Pi remains a candidate until every required gate passes.
 Do not expand this work to additional models, widgets, images, Cursor or Copilot
 qualification. The existing draft stack must be reviewed in dependency order.
 
+## Frozen corrected-set measurements — 2026-10-06
+
+The rebuilt `7f66a30ad` package/image set has Product **1/26** and Runner
+**6/7** verified passes. The Daytona controller-restart case passes all six
+unchanged matchers: the same unanswered native request survives the restart,
+the browser supplies its exact answer once, the original native turn completes,
+and independent retirement and canonical cleanup pass. Actual SDK observation
+also proves the child sandbox, launcher and temporary fixture root absent.
+The former restart failure remains unchanged; its canonical hash is retained.
+
+The new local memory measurement fails. Its first invocation stops before any
+provider construction because Daytona-only plugin pins were supplied to a local
+selection. Removing only those invocation pins passes actual installed CLI
+admission plus positive and negative local/Daytona controls without tokens or
+shipping/grader changes. The single corrected measurement then reaches the
+provider and fails at the original 120-second native-session deadline. Closed
+native shell output independently reports 32 bytes without LF before the timeout;
+the provider also used an extra shell inspection. Cleanup passes, its launcher
+and temporary root are verified absent, and its failure stays failed. The raw
+write arguments are not attested, so the location where LF was lost remains
+unproven. Do not infer a transport defect or repeat the paid attempt unchanged.
+
+The native packaged Runner passes task context, context-before-action, document
+creation, human confirmation, context/document/progress and governed-wait
+workflows on this same freeze, model and low thinking.
+Every measured case has one attempt, a canonical score, verified native identity,
+no retained session and no raw-key leak. The historical finish-task timeout remains
+held pending a concrete correction; a successful task mutation alone is
+insufficient terminal evidence.
+
+The new Linux controller completes all free admission: its consumer graph checks
+722 packages and 101,216 files with zero mismatches, the public plugin graph
+checks 191 packages and 16,365 files with zero mismatches, actual Linux observer
+controls and browser arguments pass, and all 26 cells collect. Local execution
+cells may run on this Linux controller; their `local` driver, real server,
+native provider and unchanged graders remain in use. Mac installation evidence
+is separate from the controller platform.
+
+Documentation head `99e823164` has 53 successful checks, two skips and no open
+#14956 review threads. The corrected source already passes full build,
+recursive typecheck, harness typecheck and 1,847 Product fixture tests. The old
+canonical Linux full test command completes with 15,077 passes and 57 skips in
+its first lane, but later fails because `npm` is absent from the test PATH. The
+normal installed npm CLI is added only to the owned test tools; the exact failed
+packaging test passes on current source. The subsequent storage preflights remain
+failed records. Two orphan HTTP fixture processes are retired only after their
+exact process identities and old test-root bindings are verified. One closed
+test root is fully archived before removal, restoring the original disk reserve;
+the second root remains intact. Current-source recursive typecheck and full build pass. The canonical full
+workspace tests run on their retained session with unchanged deadlines. Never
+stop or restart a live handle based on an observation timeout.
+
+The release gates remain open. Keep the `$100` campaign and `$5` lifetime key
+caps, 72 unconfigured BYOK providers, frozen model and low thinking. Latest
+provisional key usage is $0.357317585 of $5, with zero BYOK usage. The count
+above contains only current artifact measurements; historical passes do not
+qualify changed shipping inputs. Keep rollout held and do not merge or release.
+
 ## Sandbox GitHub housekeeping correction — 2026-10-06
 
 The shipping correction moves sandbox GitHub launchers, upload locks and
@@ -528,11 +586,11 @@ local tests and release review are still required.
 | --- | --- | --- |
 | Runtime identity and admission | Exact runtime/profile/model; verified effective thinking; startup below the 60-second admission limit; unsupported configuration fails before a prompt | Frozen `7f66a30ad` packages/image pass normal profile-15 offline admission on ARM Mac, Intel x64 under Rosetta and Linux. Live model/low and all 33 cases still need proof on this set. Historical admission retains its original source. |
 | Live lifecycle | Pending native question survives controller restart in the original process; one creation and resolution; stale answer after provider death rejected; Stop retires owned processes; three warm turns keep process identity | The corrected sandbox GitHub path passes both actual Linux observer controls and all 35 affected Linux tests. The old-set restart remains failed with incomplete terminal evidence and failed canonical cleanup, despite independent resource absence. A new exact live restart measurement is required. |
-| Product workflows | All 26 explicit Pi Product E2E cells (13 local, 13 Daytona); screenshots, public state, independent artifacts, terminal and cleanup evidence | Current set: 0/26. The old-set memory case saves and reads the exact 33 bytes with LF after server restart; that historical pass does not qualify changed shipping inputs. Preserve earlier missing-LF and restart failures. Run every explicit cell on the new freeze. |
-| Runner protocol | Pi roster passes through the native packaged runner and authenticated mock control plane; lifecycle/denial/control cases remain distinct from Product tests | Current set: 0/7. Private definitions `dc97fdcb` bind profile 15 and retain their 76 free test passes and clean review. The old set has three passes and one finish-task timeout after a successful mutation. Preserve those measurements. No unchanged retry of the failed case. |
-| Installed distribution | Public CLI/server tars on ARM Mac, Intel Mac and Linux; normal Pi setup; exact Linux companion and immutable Daytona image imported without binary override | All 18 public tars are repacked at `7f66a30ad`. Image `ghcr.io/paperclipai/paperclip-daytona-runner@sha256:8e744211ded7c19015aececeb87da4e1ee994ca9d85c6fbbebcd916682425231` passes anonymous import and normal Linux installation. Normal ARM Mac and x64 under Rosetta install/setup/admission pass. Physical Intel hardware remains unverified. The new Linux E2E controller is preparing; its imported companion, browser and complete graphs still need free admission. |
+| Product workflows | All 26 explicit Pi Product E2E cells (13 local, 13 Daytona); screenshots, public state, independent artifacts, terminal and cleanup evidence | Current set: 1/26. The corrected Daytona controller-restart case passes exact same-request/answer, terminal, retirement and cleanup grades. The new local memory measurement fails at 120 seconds; independent output shows 32 bytes without LF. Preserve all failures, hold unchanged retries, and complete every cell on this freeze. |
+| Runner protocol | Pi roster passes through the native packaged runner and authenticated mock control plane; lifecycle/denial/control cases remain distinct from Product tests | Current set: 6/7. Task context, context-before-action, document creation, human confirmation, context/document/progress and governed-wait workflows pass on the new frozen artifacts. Private definitions `dc97fdcb`, profile 15, model and low thinking stay pinned. Finish-task stays held pending a concrete correction to its historical terminal timeout. |
+| Installed distribution | Public CLI/server tars on ARM Mac, Intel Mac and Linux; normal Pi setup; exact Linux companion and immutable Daytona image imported without binary override | All 18 public tars are repacked at `7f66a30ad`. Image `ghcr.io/paperclipai/paperclip-daytona-runner@sha256:8e744211ded7c19015aececeb87da4e1ee994ca9d85c6fbbebcd916682425231` passes anonymous import and normal Linux installation. Normal ARM Mac and x64 under Rosetta install/setup/admission pass. Physical Intel hardware remains unverified. The new Linux controller passes imported companion, browser, complete consumer/plugin graph audits, offline native controls and collection of all 26 cases. |
 | Governance and spend | Company isolation, human-only permission, duplicate/stale answers, Stop and budget hard stop; pricing estimates never become claimed bills | Historical invariant checks keep their source labels. Fresh live shipping qualification remains required. The dedicated key has a $5 lifetime cap, zero BYOK usage and a $100 campaign ceiling. Last provisional read-only accounting observes $0.34323782 used and $4.65676218 remaining. Delayed settlement is possible. The key cap does not prove Paperclip budget enforcement. |
-| Integration and rollout | Review each prerequisite; final-head typecheck, tests, build and CI pass; no unresolved review; exact artifacts; rollback recorded | At `7f66a30ad`, all 1,847 Product fixture tests, harness typecheck, full build and recursive typecheck pass. CI has 53 successes and two skips; Greptile is 5/5 with zero open #14956 threads. The old-set canonical Linux full tests remain running on their retained handle. Current-source full workspace command evidence remains required. The valid #14921 premature-qualification finding stays open until all live qualification passes. Later docs heads need current CI/review. No merge or release is authorized. |
+| Integration and rollout | Review each prerequisite; final-head typecheck, tests, build and CI pass; no unresolved review; exact artifacts; rollback recorded | At `7f66a30ad`, all 1,847 Product fixture tests, harness typecheck, full build and recursive typecheck pass. CI has 53 successes and two skips; Greptile is 5/5 with zero open #14956 threads. Documentation head `99e823164` also has 53 successful checks, two skips and zero open #14956 threads. The old full test command is terminal with an npm-PATH failure; its exact packaging test passes after the owned tooling correction. Current-source typecheck and build pass; full tests remain on their recorded live handle. Current-source full workspace command evidence remains required. The valid #14921 premature-qualification finding stays open until all live qualification passes. Later docs heads need current CI/review. No merge or release is authorized. |
 
 ## Bounded execution
 
@@ -1569,6 +1627,8 @@ reviews pass. This goal does not publish, merge or deploy the candidate.
    existing company permissions and budget hard stop. Record the installed
    package, runtime, companion and image identities with each canary run.
    Verify an exact memory write with its final LF and read it in a fresh task.
+   The present 32-byte memory failure blocks this rollout; a historical LF pass
+   does not satisfy the current-artifact canary or qualification gate.
    Verify controller recovery while a native question is pending: answer the
    original question once, retain the original run and producer identities, and
    prove complete terminal evidence and cleanup. Stop expansion if either fails.
