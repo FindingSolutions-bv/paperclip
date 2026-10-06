@@ -7,7 +7,7 @@ qualification. The existing draft stack must be reviewed in dependency order.
 
 ## Linux process-birth correction — 2026-10-06
 
-The local pending-question restart fails before controller shutdown because the
+The prior-set local pending-question restart failed before controller shutdown because the
 unchanged ownership guard rejects the public run's daemon birth receipt. Its
 canonical failed grade and passed cleanup remain preserved. Actual SDK inspection
 proves the launcher and temporary fixture root absent before releasing the claim.
@@ -26,11 +26,17 @@ and retained Runner maintenance. Malformed metadata fails closed. PID, group,
 ancestry, role and cleanup checks stay intact. Parser, hot-restart, native-recovery
 and process-owner checks pass 94 tests; one Linux-only parser integration is
 skipped on Mac and the separate installed Linux daemon proof passes. Runner,
-server and Product E2E typechecks pass. No paid attempt follows this correction
-yet. It changes shipping inputs: rebuild all public packages and the image,
-then freeze a new set starting at Product **0/26** and Runner **0/7**. The prior
-set's 1/26 and 6/7 passes remain historical. Its canonical full Linux tests are
-still confirmed live on their original handle; do not stop or duplicate them.
+server and Product E2E typechecks pass. The rebuilt vendor-boundary set now
+passes the corrected local restart and the fresh Daytona restart measurement,
+with all six unchanged matchers in each case. Both preserve the original native
+question and turn through controller restart. Canonical cleanup passes; actual
+SDK observations prove owned launchers, temporary roots and uploaded credential
+files absent. The Daytona child sandbox independently returns 404. The prior
+set's 1/26 and 6/7 passes remain historical. Its canonical full Linux command
+finishes with one failure caused by the driver forcing `GIT_CONFIG_GLOBAL`
+into a test that expects the normal unset variable. Omitting that driver-only
+setting passes the same unchanged test file without provider calls. The full
+Linux command remains failed; the narrow correction does not regrade it.
 The missing-LF memory failure and finish-task stream timeout still need a proven
 correction. Production remains held.
 
@@ -42,7 +48,7 @@ CI shards and company-import test show the same missing-module error. Those
 failed receipts and image remain preserved and supply no qualification evidence.
 The follow-up routes the import through the existing vendor shim and mirrors the
 compiled Runner export there. All 39 hot-restart and native-recovery tests pass
-with that correction. Rebuild the artifacts from this follow-up before admission.
+with that correction. The artifacts from this follow-up are rebuilt and admitted.
 The exact nine Linux birth-reader tests also pass on Linux without skips or
 provider calls. The 2026-10-06 18:58:24 UTC key snapshot records provisional
 usage of $0.358793129 of $5, with $4.641206871 remaining and zero BYOK usage.
@@ -65,16 +71,30 @@ The evaluation consumer verifies 722 packages and 79,367 files with zero
 mismatches. Its installed Runner matches all 1,334 freshly packed distribution
 files. All seven pre-service Runner admission checks pass, with profile 14
 rejected. This rebuild and admission work makes zero model calls. Frozen-set
-qualification remains Product **0/26** and Runner **0/7**; historical passes do
-not qualify this set. The new canonical `pnpm test:run` command is started once
-after local preparation finishes, with a fixed 90-minute outer deadline.
+qualification is Product **5/26** and Runner **3/7**. Local hello-complete,
+human permission denial, restrictive denial and native controller restart pass;
+Daytona native controller restart passes. The packaged Runner task-context, context-before-action and document-creation
+cases pass every unchanged check with native-confirmed low thinking, no retained
+session and independent absence checks for each launcher, daemon and provider. Canonical
+results, archives and actual cleanup proofs are hash-bound in
+`qualified-cases-c0eba7f4d.json`. Historical passes do not qualify this set.
+The new canonical `pnpm test:run` remains live on its original owned handle
+after preparation, with its unchanged fixed 90-minute outer deadline.
 
-Shipping head `c0eba7f4d` has 53 successful CI checks and two skips. Later
-documentation heads still need their own CI and review. The missing-LF memory
-and finish-task stream failures remain held for a proven correction. One
-rebuilt local restart measurement is allowed by the concrete Linux birth fix,
-but remains unmeasured. Keep the strict graders, model, low thinking and budget
-caps. Drain active native Linux runs before updating or rolling back across the
+Shipping head `c0eba7f4d` has 53 successful CI checks and two skips. Review
+head `568b7023b` finishes CI with one browser scenario failure and a failed
+aggregate; its other 45 CI jobs pass. The chat-retry fixture clicks during UUID
+to canonical-agent navigation, which reloads the agent query and can discard
+the retry mutation. Waiting for that existing redirect before clicking preserves
+all denial, authority and navigation assertions. All nine unchanged retry
+scenarios pass against the normal installed frozen UI without provider
+credentials, changed deadlines or retries. This free browser fixture correction
+changes no packaged runtime or Pi case definitions. Its new review head still
+needs CI and review. The missing-LF memory and finish-task stream failures stay
+held for a proven correction. The historical memory request has no provider I/O
+log, and its canonical archive contains no database or provider session file; raw
+write arguments remain unattested. Keep the strict graders, model, low thinking
+and budget caps. Drain active native Linux runs before updating or rolling back across the
 process-birth change; never rewrite a live receipt to force adoption. Do not
 merge or release.
 
@@ -663,13 +683,13 @@ not need another rebuild unless shipping inputs change.
 
 | Gate | Acceptance evidence | Current result |
 | --- | --- | --- |
-| Runtime identity and admission | Exact runtime/profile/model; verified effective thinking; startup below the 60-second admission limit; unsupported configuration fails before a prompt | Rebuilt profile-15 admission passes without credentials or provider calls: ARM Mac 15.069 seconds, x64 under Rosetta 33.518 seconds, native Linux 8.016 seconds. All seven Runner pre-service requests pass; profile 14 is rejected. The frozen model and low thinking remain pinned. Effective thinking still needs native confirmation in each live measurement. |
-| Live lifecycle | Pending native question survives controller restart in the original process; one creation and resolution; stale answer after provider death rejected; Stop retires owned processes; three warm turns keep process identity | Fresh live lifecycle measurements remain unexecuted. The concrete kernel-birth correction passes the unchanged ownership guard, wrong-birth rejection and actual retirement controls. One corrected local restart measurement is eligible after fresh controller admission and budget checks. The prior-set Daytona restart pass and local restart failure remain historical. |
-| Product workflows | All 26 explicit Pi Product E2E cells (13 local, 13 Daytona); screenshots, public state, independent artifacts, terminal and cleanup evidence | Frozen-set count 0/26. Rebuild, package checks and all 1,847 fixture tests pass. All 26 live cells remain required. The historical memory failure records 32 bytes without LF before its unchanged deadline; its cause still needs a proven correction. No unchanged paid retries. |
-| Runner protocol | Pi roster passes through the native packaged runner and authenticated mock control plane; lifecycle/denial/control cases remain distinct from Product tests | Frozen-set count 0/7. The installed Runner matches all 1,334 freshly packed distribution files and passes all seven free admission checks. Private definitions `dc97fdcb`, profile 15, exact model and low thinking stay pinned. All seven live cases remain required. Finish-task stays held for a proven correction to its historical terminal timeout. |
-| Installed distribution | Public CLI/server tars on ARM Mac, Intel Mac and Linux; normal Pi setup; exact Linux companion and immutable Daytona image imported without binary override | All 18 public packages and immutable Linux image are rebuilt and frozen. Anonymous image verification, normal ARM Mac, Rosetta and native Linux install/setup/admission pass without binary overrides. The Linux admission sandbox is independently verified absent. The evaluation consumer matches 722 packages and 79,367 files with zero mismatches. Physical Intel hardware remains unverified; fresh evaluation-controller preparation is still running. |
-| Governance and spend | Company isolation, human-only permission, duplicate/stale answers, Stop and budget hard stop; pricing estimates never become claimed bills | Company isolation, human authority, duplicate/stale answers, Stop and Paperclip budget hard stop still need fresh shipping qualification. Keep the dedicated $5 lifetime key and $100 campaign caps with no reset or BYOK. The 2026-10-06 18:58:24 UTC snapshot records $0.358793129 used and $4.641206871 remaining, with zero BYOK usage; delayed settlement is possible. |
-| Integration and rollout | Review each prerequisite; final-head typecheck, tests, build and CI pass; no unresolved review; exact artifacts; rollback recorded | Frozen-source full build, recursive typecheck, harness typecheck and 53 successful CI checks pass, with two CI skips. Targeted ownership/recovery checks pass, including nine Linux birth-reader tests without skips. The current-source canonical full workspace command and prior-source Linux full command remain live on their exact handles. Later plan-only heads need their own CI and review. Prerequisite #14921 retains its valid premature-admission finding. Complete all qualification and reviews before release; drain active native Linux runs across the birth-format change. No merge or release is authorized. |
+| Runtime identity and admission | Exact runtime/profile/model; verified effective thinking; startup below the 60-second admission limit; unsupported configuration fails before a prompt | Rebuilt profile-15 admission passes without credentials or provider calls: ARM Mac 15.069 seconds, x64 under Rosetta 33.518 seconds, native Linux 8.016 seconds. All seven Runner pre-service requests pass; profile 14 is rejected. The frozen model and low thinking remain pinned. Native low thinking is confirmed in the current packaged Runner task-context artifact. Keep per-case native confirmation for remaining live measurements. |
+| Live lifecycle | Pending native question survives controller restart in the original process; one creation and resolution; stale answer after provider death rejected; Stop retires owned processes; three warm turns keep process identity | Corrected local and fresh Daytona pending-question restarts pass all six unchanged matchers each. They retain the original native request, run, turn, session and producer and deliver one exact browser answer. Canonical cleanup and independent launcher/root/credential absence pass; the Daytona child independently returns 404. Provider-death, Stop, steering and warm continuity remain required. Prior-set grades remain historical. |
+| Product workflows | All 26 explicit Pi Product E2E cells (13 local, 13 Daytona); screenshots, public state, independent artifacts, terminal and cleanup evidence | Frozen-set count 5/26: four local cases and Daytona pending-question restart pass with preserved evidence and actual cleanup. Rebuild, package checks and all 1,847 fixture tests pass. The other 21 live cells remain required. The historical memory failure records 32 bytes without LF before its unchanged deadline; its cause still needs a proven correction. No unchanged paid retries. |
+| Runner protocol | Pi roster passes through the native packaged runner and authenticated mock control plane; lifecycle/denial/control cases remain distinct from Product tests | Frozen-set count 3/7. Task-context, context-before-action and document creation pass every unchanged check with native-confirmed low thinking and actual process absence. The installed Runner matches all 1,334 freshly packed distribution files and passes all seven free admission checks. Private definitions `dc97fdcb`, profile 15, exact model and low thinking stay pinned. The other four live cases remain required. Finish-task stays held for a proven correction to its historical terminal timeout. |
+| Installed distribution | Public CLI/server tars on ARM Mac, Intel Mac and Linux; normal Pi setup; exact Linux companion and immutable Daytona image imported without binary override | All 18 public packages and immutable Linux image are rebuilt and frozen. Anonymous image verification, normal ARM Mac, Rosetta and native Linux install/setup/admission pass without binary overrides. The Linux admission sandbox is independently verified absent. The evaluation consumer matches 722 packages and 79,367 files with zero mismatches. Physical Intel hardware remains unverified. The fresh evaluation controller completes preparation, installed graph checks, Linux controls, browser argument controls, fixture regressions, admission and collection of all 26 cases without provider calls. |
+| Governance and spend | Company isolation, human-only permission, duplicate/stale answers, Stop and budget hard stop; pricing estimates never become claimed bills | Local human permission denial and restrictive denial pass, including negative file-effect checks through process retirement. Company isolation, duplicate/stale answers, Stop and Paperclip budget hard stop still need fresh shipping qualification. Keep the dedicated $5 lifetime key and $100 campaign caps with no reset or BYOK. The 2026-10-06 20:07:25 UTC snapshot records $0.3644694 used and $4.6355306 remaining, with zero BYOK usage; delayed settlement is possible. |
+| Integration and rollout | Review each prerequisite; final-head typecheck, tests, build and CI pass; no unresolved review; exact artifacts; rollback recorded | Frozen-source full build, recursive typecheck, harness typecheck and 53 successful CI checks pass, with two CI skips. Targeted ownership/recovery checks pass, including nine Linux birth-reader tests without skips. The current-source canonical full workspace command remains live on its exact handle. The prior-source Linux full command fails one inherited Git-environment assertion; the unchanged file passes a separate credential-free control after omitting that driver-only setting. Latest review-head CI has one chat-retry browser failure; the navigation-wait correction passes all nine unchanged scenarios on the frozen installed UI. The new review head needs its own CI and review. Prerequisite #14921 retains its valid premature-admission finding. Complete all qualification and reviews before release; drain active native Linux runs across the birth-format change. No merge or release is authorized. |
 
 ## Bounded execution
 
