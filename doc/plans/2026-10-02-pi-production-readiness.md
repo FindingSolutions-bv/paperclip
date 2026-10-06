@@ -44,7 +44,39 @@ The follow-up routes the import through the existing vendor shim and mirrors the
 compiled Runner export there. All 39 hot-restart and native-recovery tests pass
 with that correction. Rebuild the artifacts from this follow-up before admission.
 The exact nine Linux birth-reader tests also pass on Linux without skips or
-provider calls. Latest provisional key usage is $0.358793129 with zero BYOK usage.
+provider calls. The 2026-10-06 18:58:24 UTC key snapshot records provisional
+usage of $0.358793129 of $5, with $4.641206871 remaining and zero BYOK usage.
+
+The corrected vendor-boundary source is
+`c0eba7f4d94e01bd74e4342a258842a2b10d798b`. Full build, recursive typecheck,
+harness typecheck and all 1,847 Product fixture tests pass. All 18 public package
+archives are freshly packed and integrity-verified. Normal ARM Mac, Darwin x64
+under Rosetta, and native Linux install, Pi setup and offline admission pass
+without provider credentials or a binary override. Physical Intel hardware
+remains unverified. Independent SDK observation confirms the Linux admission
+sandbox absent, and the superseded Product controller is retired after both its
+jobs finish and every runner process is absent. Their evidence stays preserved.
+
+The rebuilt immutable image is
+`ghcr.io/paperclipai/paperclip-daytona-runner@sha256:6029b52f8266a64b84160b51b1cd68914b7ea42657896fa30358834254aab071`.
+Anonymous digest/source-label verification passes. The freeze manifest is
+`sha256:e15b2b70cad3890555e422a82e62718d1eadf55c3557920a662d6108b596cf2b`.
+The evaluation consumer verifies 722 packages and 79,367 files with zero
+mismatches. Its installed Runner matches all 1,334 freshly packed distribution
+files. All seven pre-service Runner admission checks pass, with profile 14
+rejected. This rebuild and admission work makes zero model calls. Frozen-set
+qualification remains Product **0/26** and Runner **0/7**; historical passes do
+not qualify this set. The new canonical `pnpm test:run` command is started once
+after local preparation finishes, with a fixed 90-minute outer deadline.
+
+Shipping head `c0eba7f4d` has 53 successful CI checks and two skips. Later
+documentation heads still need their own CI and review. The missing-LF memory
+and finish-task stream failures remain held for a proven correction. One
+rebuilt local restart measurement is allowed by the concrete Linux birth fix,
+but remains unmeasured. Keep the strict graders, model, low thinking and budget
+caps. Drain active native Linux runs before updating or rolling back across the
+process-birth change; never rewrite a live receipt to force adoption. Do not
+merge or release.
 
 ## Previous frozen-set measurements — 2026-10-06
 
@@ -99,8 +131,9 @@ workspace tests run on their retained session with unchanged deadlines. Never
 stop or restart a live handle based on an observation timeout.
 
 The release gates remain open. Keep the `$100` campaign and `$5` lifetime key
-caps, 72 unconfigured BYOK providers, frozen model and low thinking. Latest
-provisional key usage is $0.357317585 of $5, with zero BYOK usage. The count
+caps, 72 unconfigured BYOK providers, frozen model and low thinking. That earlier
+measurement recorded provisional key usage of $0.357317585 of $5, with zero
+BYOK usage; the newer snapshot above supersedes that accounting. The count
 above contains only current artifact measurements; historical passes do not
 qualify changed shipping inputs. Keep rollout held and do not merge or release.
 
@@ -630,7 +663,7 @@ local tests and release review are still required.
 | Product workflows | All 26 explicit Pi Product E2E cells (13 local, 13 Daytona); screenshots, public state, independent artifacts, terminal and cleanup evidence | Rebuild pending; new-set count 0/26. Prior `7f66a30ad` has 1/26. Its local memory and local restart failures remain unchanged. Memory still reaches 120 seconds after an independently observed 32-byte file without LF. No unchanged paid retries. |
 | Runner protocol | Pi roster passes through the native packaged runner and authenticated mock control plane; lifecycle/denial/control cases remain distinct from Product tests | Rebuild pending; new-set count 0/7. Prior `7f66a30ad` has 6/7. Private definitions `dc97fdcb`, profile 15, exact model and low thinking stay pinned. Finish-task remains held pending a proven correction to the historical terminal timeout. |
 | Installed distribution | Public CLI/server tars on ARM Mac, Intel Mac and Linux; normal Pi setup; exact Linux companion and immutable Daytona image imported without binary override | Rebuild all 18 public packages and the immutable Linux image for the Linux birth-reader change. Repeat normal installation and admission on the new set. Prior ARM Mac, Rosetta and Linux receipts remain historical. Physical Intel hardware remains unverified. |
-| Governance and spend | Company isolation, human-only permission, duplicate/stale answers, Stop and budget hard stop; pricing estimates never become claimed bills | Company isolation, human authority, duplicate/stale answers, Stop and Paperclip budget hard stop still need fresh shipping qualification. Keep the dedicated $5 lifetime key and $100 campaign caps with no reset or BYOK. Last provisional accounting is $0.357317585 used; delayed settlement is possible. |
+| Governance and spend | Company isolation, human-only permission, duplicate/stale answers, Stop and budget hard stop; pricing estimates never become claimed bills | Company isolation, human authority, duplicate/stale answers, Stop and Paperclip budget hard stop still need fresh shipping qualification. Keep the dedicated $5 lifetime key and $100 campaign caps with no reset or BYOK. The 2026-10-06 18:58:24 UTC snapshot records $0.358793129 used and $4.641206871 remaining, with zero BYOK usage; delayed settlement is possible. |
 | Integration and rollout | Review each prerequisite; final-head typecheck, tests, build and CI pass; no unresolved review; exact artifacts; rollback recorded | The birth-reader correction passes 94 targeted tests, with one Linux-only skip on Mac, plus Runner, server and E2E typechecks and the installed Linux daemon proof. Full build, recursive typecheck, full tests and latest-head CI remain required. The prior-source full Linux command remains confirmed live with passed build/typecheck. Prerequisite #14921 still has a valid premature-admission finding; draft-stack review and all qualification must finish before release. No merge or release is authorized. |
 
 ## Bounded execution
