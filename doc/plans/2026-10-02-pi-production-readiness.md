@@ -40,6 +40,39 @@ The memory, steering and Runner terminal/tool-call failures still need their
 own proven corrections; this cleanup change does not authorize their retries.
 All 26 Product and seven Runner cases remain required on the final set.
 
+Review also identifies the issue/workspace closure path, which omitted failed
+reusable leases. The follow-up includes them there while retaining company and
+issue/workspace scope and the live-run check. All 282 environment tests pass,
+including failed-lease closure for each scope and rejection of another company.
+The complete server typecheck passes with all corrected services and tests.
+The corrected-suite log hash is
+`9b965b9cf0acc1dc49340f85d4efb5588f6f59b3bc2522df7ec96d3bb515443a`.
+The first filtered review regression reaches its unchanged database startup
+hook timeout before any test executes. That failure stays preserved and its
+owned Postgres process is independently confirmed absent. It proves no semantic
+regression result.
+
+Two unchanged pinned-runtime controls also pass with no provider credentials:
+native agent-file write/read preserves the exact final LF, and serialized RPC
+warm recovery preserves that memory across both sessions and reaches both
+terminal turns at low thinking. The synthetic server supplies six requests;
+external socket connections are denied before connect. The log hash is
+`b902ea76b2d0ee377dc28c42e7fe96d91e9e92671060380fe2dd87901b801797`.
+These controls narrow the failing live memory/terminal investigation. They do
+not attest its missing raw write arguments or regrade either live failure.
+
+The first cleanup revision `3f6b11a1e` passes full build, recursive typecheck and
+Product harness typecheck. Its qualification-only Linux image is built and
+published at
+`ghcr.io/paperclipai/paperclip-daytona-runner@sha256:ab05e949af8ccff1a1f94317272ce5d934398a9548b6197de273bfb942bf74a4`.
+The issue/workspace follow-up changes shipping inputs again, so that intermediate
+image is historical and is not admitted or qualified. Preserve its receipts.
+No new paid attempts run in either correction. Latest-head CI and review remain
+required. The first cleanup head fails its connection-intent browser scenario:
+its continuation reaches `cancelled` where the unchanged test requires
+`succeeded`. Keep that failure and inspect the actual run before changing code.
+
+
 ## Linux process-birth correction — 2026-10-06
 
 The prior-set local pending-question restart failed before controller shutdown because the

@@ -6662,13 +6662,24 @@ describeEmbeddedPostgres("environmentRuntimeService", () => {
     });
   });
 
-  it("destroys scoped reusable plugin-backed sandbox leases", async () => {
+  it.each([
+    { status: "active", scope: "workspace" },
+    { status: "failed", scope: "workspace" },
+    { status: "failed", scope: "issue" },
+  ] as const)("destroys $status reusable plugin-backed sandbox leases scoped to an $scope", async ({ status, scope }) => {
     const { pluginId, companyId, runId, executionWorkspaceId, reusableLease } =
       await seedReusablePluginSandboxLease();
     await db
       .update(heartbeatRuns)
-      .set({ status: "succeeded" })
+      .set({ status: status === "failed" ? "failed" : "succeeded" })
       .where(eq(heartbeatRuns.id, runId));
+    if (status === "failed") await environmentService(db).releaseLease(reusableLease.id, "failed");
+    const issueId = randomUUID();
+    if (scope === "issue") {
+      await db.insert(issues).values({ id: issueId, companyId, title: "Failed reusable lease cleanup", status: "done", priority: "medium" });
+      await db.update(environmentLeases).set({ issueId }).where(eq(environmentLeases.id, reusableLease.id));
+    }
+    const selection = scope === "issue" ? { issueId } : { executionWorkspaceId };
 
     const workerManager = {
       isRunning: vi.fn((id: string) => id === pluginId),
@@ -6682,9 +6693,12 @@ describeEmbeddedPostgres("environmentRuntimeService", () => {
     } as unknown as PluginWorkerManager;
     const runtimeWithPlugin = environmentRuntimeService(db, { pluginWorkerManager: workerManager });
 
+    // A known issue/workspace id does not authorize another company's teardown.
+    expect(await runtimeWithPlugin.destroyReusableSandboxLeases({ companyId: randomUUID(), ...selection })).toEqual([]);
+    expect(workerManager.call).not.toHaveBeenCalled();
     const destroyed = await runtimeWithPlugin.destroyReusableSandboxLeases({
       companyId,
-      executionWorkspaceId,
+      ...selection,
       failureReason: "execution_workspace_closed",
     });
 
@@ -6707,9 +6721,10 @@ describeEmbeddedPostgres("environmentRuntimeService", () => {
     });
   });
 
-  it("does not destroy a scoped reusable lease while its run is active", async () => {
+  it.each(["active", "failed"] as const)("does not destroy a %s scoped reusable lease while its run is active", async (status) => {
     const { pluginId, companyId, executionWorkspaceId, reusableLease } =
       await seedReusablePluginSandboxLease();
+    if (status === "failed") await environmentService(db).releaseLease(reusableLease.id, "failed");
     const workerManager = {
       isRunning: vi.fn((id: string) => id === pluginId),
       call: vi.fn(async () => undefined),
@@ -6735,7 +6750,7 @@ describeEmbeddedPostgres("environmentRuntimeService", () => {
     expect(workerManager.call).not.toHaveBeenCalled();
     await expect(
       environmentService(db).getLeaseById(reusableLease.id),
-    ).resolves.toMatchObject({ status: "active" });
+    ).resolves.toMatchObject({ status });
   });
 
   it("destroys reusable plugin-backed sandbox leases scoped to an environment", async () => {
