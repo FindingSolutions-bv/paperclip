@@ -65,8 +65,8 @@ At `df748c997`, 53 CI checks pass with two skips. This is source-bound CI, not
 proof for a later evidence-only commit. Current-source live qualification is
 still incomplete: neither failed attempt qualifies its case, and historical
 profile-14 or earlier profile-15 passes cannot certify this runtime. Review and
-the complete workspace unit command remain held. Last observed dedicated-key
-usage is $0.318304276 against its $5 lifetime cap; the immediate restart delta
+the complete workspace unit command remain held. Last read-only dedicated-key
+usage is $0.319832563 against its $5 lifetime cap; the immediate restart delta
 of $0.000785504 is provisional. No merge or release is authorized.
 
 The next explicit Mac attempt at `f5024863e` confirms that the description is
@@ -241,13 +241,13 @@ local tests and release review are still required.
 
 | Gate | Acceptance evidence | Current result |
 | --- | --- | --- |
-| Runtime identity and admission | Exact runtime/profile/model; verified effective thinking; startup below the 60-second admission limit; unsupported configuration fails before a prompt | Frozen shipping source `0bd040093` passes normal public CLI/server installation, Pi setup and credential-free profile-14 admission on ARM Mac (7.921 s), Intel Mac (31.692 s), and native Linux in Daytona (8.699 s). No prompt, credentials or binary override is used. The local Rosetta handshake failures remain failed evidence. |
-| Live lifecycle | Pending native question survives controller restart in the original process; one creation and resolution; stale answer after provider death rejected; Stop retires owned processes; three warm turns keep process identity | Frozen shipping source `0bd040093` passes local Stop, steering, controller restart, native questions and warm continuity. Daytona warm continuity, human denial, corrected Stop and first steering pass. Native questions, native controller-restart and provider-death remain failed. Prior failed attempts remain unchanged. |
-| Product workflows | All 26 explicit Pi Product E2E cells (13 local, 13 Daytona); screenshots, public state, independent artifacts, terminal and cleanup evidence | Historical frozen runtime `0bd040093`: **21/26 pass** (local 12/13, Daytona 9/13). Remaining failures: local and Daytona agent-files, Daytona native questions, native controller restart and provider death. Corrected local/Daytona file-edit, human denial, Stop and steering pass with their source-bound fingerprints. All original grades remain retained. The changed shipping candidate has no paid qualification yet. |
-| Runner protocol | Pi roster passes through the native packaged runner and authenticated mock control plane; lifecycle/denial/control cases remain distinct from Product tests | Historical frozen runtime `0bd040093`: **7/7 pass**, including corrected context-before-action and finish-task prompts at private definitions `7b112ffe3`, unchanged graders and zero automatic retries. Earlier failures stay failed. The changed shipping candidate requires a fresh Runner qualification. |
-| Installed distribution | Public CLI/server tars on ARM Mac, Intel Mac and Linux; normal Pi setup; exact Linux companion and immutable Daytona image imported without binary override | Public CLI/server installation and normal Pi setup pass on all three platforms at original execution source `0bd040093`. The installer correction at `fcef1eae9` changes CLI and provisioner bytes; fresh normal public artifact/install proof must bind the updated source. Old artifact proofs keep their original labels. Public immutable image `ghcr.io/paperclipai/paperclip-daytona-runner@sha256:342f1fd5cb8cabfa2242f38f4f686608b28b6536aa879c54b0cb0da6fba9ef47` imports into native Linux Daytona and passes closed admission. Temporary sandbox cleanup passes. Image jobs 37102904889, 37106313185 and 37110683910 are terminal/cancelled. |
-| Governance and spend | Company isolation, human-only permission, duplicate/stale answers, Stop and budget hard stop; pricing estimates never become claimed bills | 58 focused governance/cost/session invariants pass at `f5f57e380`. Live pending-permission Stop passes at `03dd6ef93`. The qualification key cap is not proof of Paperclip budget enforcement. |
-| Integration and rollout | Review each prerequisite; final-head typecheck, tests, build and CI pass; no unresolved review; exact artifacts; rollback recorded | Last verified readiness head `146f578c0` has 53 successful CI checks, two skips, current-head Greptile 5/5 and no unresolved root threads, including full build and typecheck. The new installer integration must receive its own completed current-head CI, review and updated public artifact/install proof. All 116 targeted native Linux fixture tests and 13 browser-case collections pass at `04f639eeb`; the new descriptor correction separately passes all 17 free native Linux fault tests. Full typecheck, complete test and build evidence remains recorded below; original failed commands remain failed. Frozen Pi execution inputs remain equivalent to `0bd040093`; the explicit installer has three changed executable inputs. Prerequisite #14921 passes every test/build/typecheck check but its valid admission review blocks merge. The retained SDK and setup network findings receive scoped corrections with focused verification; their new heads require fresh CI and review. Production stays held for five remaining historical Product failures, fresh shipping-candidate qualification and prerequisite disposition. No merge or release. |
+| Runtime identity and admission | Exact runtime/profile/model; verified effective thinking; startup below the 60-second admission limit; unsupported configuration fails before a prompt | Shipping runtime `f5024863e` passes normal profile-15 admission on ARM Mac and native Linux. Completed live runs confirm the frozen model and native low. Fresh Intel admission for these shipping bytes remains required. Profile-14 and earlier profile-15 results below are historical. |
+| Live lifecycle | Pending native question survives controller restart in the original process; one creation and resolution; stale answer after provider death rejected; Stop retires owned processes; three warm turns keep process identity | Current Linux restart retains the same native question/run/turn/session/producer and the browser answer; the run succeeds, but its incomplete independent terminal evidence and failed canonical cleanup keep the case failed. Earlier `b012b3aeb` provider-death and native-question passes do not qualify `f5024863e`. |
+| Product workflows | All 26 explicit Pi Product E2E cells (13 local, 13 Daytona); screenshots, public state, independent artifacts, terminal and cleanup evidence | Not qualified at `f5024863e`. Current Mac memory fails exact saved bytes with cleanup passing. Current Linux restart fails terminal evidence and canonical cleanup; its owned resources are independently absent. Both original grades remain failed. Historical `0bd040093` has 21/26 passes, kept only as history. Fresh complete current-runtime coverage is required. |
+| Runner protocol | Pi roster passes through the native packaged runner and authenticated mock control plane; lifecycle/denial/control cases remain distinct from Product tests | Current-runtime Runner qualification remains required. Historical `0bd040093` has 7/7 passes at private definitions `7b112ffe3`, with unchanged graders and zero automatic retries. Those passes retain their original source labels. |
+| Installed distribution | Public CLI/server tars on ARM Mac, Intel Mac and Linux; normal Pi setup; exact Linux companion and immutable Daytona image imported without binary override | Normal ARM public install verifies 722 packages and 79,373 files at `f5024863e`. Normal native Linux install, companion import, Pi setup and admission pass at immutable candidate image `ghcr.io/paperclipai/paperclip-daytona-runner@sha256:20c7fffddeee4298830ead1ea3f0b70819f61e549279588b605440d1155f7260`. No binary override is used. This image is not release-qualified. Fresh Intel proof remains required; earlier three-platform proofs stay historical. |
+| Governance and spend | Company isolation, human-only permission, duplicate/stale answers, Stop and budget hard stop; pricing estimates never become claimed bills | Historical 58 focused invariants and live pending-permission Stop keep their source labels. Fresh shipping qualification remains required. The dedicated key retains a $5 lifetime cap, zero BYOK usage and the $100 campaign ceiling. Last read-only accounting observes $0.319832563 used and $4.680167437 remaining, with delayed settlement still possible. The key cap is not proof of Paperclip budget enforcement. |
+| Integration and rollout | Review each prerequisite; final-head typecheck, tests, build and CI pass; no unresolved review; exact artifacts; rollback recorded | Full build and recursive typecheck pass at shipping runtime `f5024863e`. At harness head `df748c997`, 53 CI checks pass with two skips. The evidence-only follow-up passes 207 affected tests and harness typecheck; its final head still needs CI and review. The full local workspace test command remains failed. Prerequisite #14921's valid production-admission finding remains open. Complete current-runtime qualification and prerequisite disposition remain required. No merge or release is authorized. |
 
 ## Bounded execution
 
@@ -1174,6 +1174,26 @@ Keep rollout held until every release gate is proven.
 
 ## Remaining work in order
 
+1. Isolate the two current failed cases using retained evidence and zero-model
+   checks. Memory omits the final LF despite intact prompt bytes; the frozen
+   parser/validator/write/read path preserves it. Restart lacks a complete
+   independent terminal receipt despite a successful original run. The new
+   capture order makes future failures inspectable but alone permits no paid
+   retry. Do not relax graders or replace a case with a passing surrogate.
+2. After a concrete correction, run the affected exact case once. Then complete
+   all 26 Product and seven Runner cases on the source-bound profile-15 runtime,
+   and fresh Intel public install/admission. Reuse only proven equivalent inputs
+   with exact recorded source and definition identities. Keep original failures,
+   zero automatic retries and the approved lifetime/campaign spending limits.
+3. Finish latest-head CI, full workspace verification, current review and the
+   prerequisite admission finding. Keep rollout held until every gate passes.
+   No merge or release is authorized.
+
+## Historical execution sequence
+
+The following command results and counts describe earlier source-bound snapshots.
+They are retained history, not the current remaining-case roster.
+
 1. Preserve the completed full native Linux typecheck, test and build evidence.
    Keep the original Mac command failures and the unclassified
    OAuth socket failure. The first Linux command compiles the Runner but fails
@@ -1244,7 +1264,9 @@ reviews pass. This goal does not publish, merge or deploy the candidate.
    paperclipai runtime setup pi
    ```
 
-3. For Daytona, select the qualified immutable image digest above. Obtain the
+3. For Daytona, select the exact image in the completed release qualification
+   record. The candidate image in the current gate table is not yet qualified.
+   Do not select a historical image from this plan. Obtain the
    matching Linux companion and its trusted `companion.json` SHA256 from the
    same release. The operator must supply both values below. Use the normal
    import path; retain its receipt. The importer validates the server build,
@@ -1255,7 +1277,7 @@ reviews pass. This goal does not publish, merge or deploy the candidate.
    paperclipai runtime import-remote "$PI_RELEASE_COMPANION" --sha256 "$PI_RELEASE_COMPANION_SHA256"
    ```
 
-4. Begin with one operator-owned Pi company using profile 14,
+4. Begin with one operator-owned Pi company using qualified profile 15,
    `openrouter/deepseek/deepseek-v4-flash-0731` and explicit low thinking.
    Check normal startup, one question and answer, Stop, three warm turns,
    terminal task state and usage visibility before expanding. Preserve the
