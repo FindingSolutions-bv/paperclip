@@ -15,6 +15,17 @@ failures remain retained. The Mac file-edit correction also passes.
 
 ### Latest boundary fixes — 2026-10-05
 
+The explicit version-12 Mac memory attempt at `867fa4711` still times out
+at the unchanged native-session limit; cleanup passes. Its valid fenced JSON
+arrives in a duplicated description: the Markdown paste capture inserts the
+parsed content, then Lexical inserts the same plain text. The editor now stops
+that handled paste before it reaches the inner editor. A regression fails on
+the old propagation, and all 51 editor tests pass after the fix, including an
+ordinary-text paste control. The token gates pass. This is a new shipping input;
+the previous image and live result remain bound to `867fa4711`, and neither
+is qualification of the corrected editor. No paid retry is justified until a
+zero-model browser check verifies one submitted prompt with intact JSON bytes.
+
 Normal public installs of runtime `b012b3aebe` admit profile 15 on Mac ARM,
 Mac Intel (through Rosetta), and native Linux. The native Linux image is
 `sha256:3279d92405a59b4654cb6af5de27bfacffee73a2c57311bf5f2d5ff9272b9b67`.
