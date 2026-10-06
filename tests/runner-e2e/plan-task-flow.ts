@@ -1,5 +1,5 @@
 import { expect, type Page } from "@playwright/test";
-import { mkdir, readFile } from "node:fs/promises";
+import { mkdir } from "node:fs/promises";
 import path from "node:path";
 import { pollUntil, type RunnerApi } from "./api.js";
 import { collectChatRunEvidence } from "./chat-flow.js";
@@ -7,8 +7,9 @@ import { FixtureRegistry } from "./fixture-registry.js";
 import type { LiveFixtureValues } from "./live-fixtures.js";
 import type { MatrixExecution } from "./types.js";
 import { createTaskThroughUi } from "./user-actions.js";
-import { PLAN_BASE_SHA, PLAN_BUDGET_CENTS, PLAN_MAX_RUNS, PLAN_SKILLS, parsePlanCase, planDefinitionDigest, planHash, planScenario } from "./plan-task-cases.js";
+import { PLAN_BASE_SHA, PLAN_BUDGET_CENTS, PLAN_MAX_RUNS, parsePlanCase, planDefinitionDigest, planScenario } from "./plan-task-cases.js";
 import { gradePlanTask, type PlanCheck, type PlanDocument, type PlanObservation, type PlanRow } from "./plan-task-scoring.js";
+import { preparePlanSkills, selectPlanSkills, verifyPlanSelection, verifyPlanSkills } from "./plan-task-skills.js";
 
 type Input = {
   page: Page; api: RunnerApi; fixtures: LiveFixtureValues; execution: MatrixExecution;
@@ -55,24 +56,7 @@ export async function runPlanTaskFlow(input: Input) {
     // Public fixture APIs and normal skill versioning only. No provider begins
     // until the served bytes and all three agents' selections are verified.
     await api.patch(`${company}/budgets`, { budgetMonthlyCents: PLAN_BUDGET_CENTS });
-    const catalog = await api.get<PlanRow[]>("/api/skills/catalog?kind=bundled&q=task-planning");
-    const planning = catalog.find(s => s.key === PLAN_SKILLS[1].key);
-    if (!planning) throw new Error("Bundled task-planning catalog entry is missing");
-    await api.post(`${company}/skills/install-catalog`, { catalogSkillId: planning.id });
-    const library = await api.get<PlanRow[]>(`${company}/skills`);
-    for (const skill of PLAN_SKILLS) {
-      const installed = library.find(s => s.key === skill.key);
-      if (!installed) throw new Error(`Missing production planning skill ${skill.key}`);
-      const relative = variant === "current" ? skill.current : skill.short;
-      const content = await readFile(new URL(`../../${relative}`, import.meta.url), "utf8");
-      if (variant !== "disabled") {
-        await api.patch(`${company}/skills/${installed.id}/files`, { path: "SKILL.md", content });
-        const served = await api.get<{ content: string }>(`${company}/skills/${installed.id}/files?path=SKILL.md`);
-        if (planHash(served.content) !== planHash(content)) throw new Error(`Served skill differs from selected source ${relative}`);
-      }
-      source.skills.push({ key: skill.key, id: installed.id, sourcePath: relative, sha256: planHash(content),
-        bytes: Buffer.byteLength(content), words: content.split(/\s+/).filter(Boolean).length, selected: variant !== "disabled" });
-    }
+    source.skills = await preparePlanSkills(api, f.company.id, variant);
     const registry = new FixtureRegistry();
     for (const [id, name, role, capabilities] of [
       ["alex", "Alex Metrics", "engineer", "Owns arithmetic verification, operational metrics, and signed order summaries."],
@@ -90,19 +74,11 @@ export async function runPlanTaskFlow(input: Input) {
     const team = await registry.setupAll();
     alexId = (team.values.get("alex") as PlanRow).id;
     rileyId = (team.values.get("riley") as PlanRow).id;
-    const selected = variant === "disabled" ? [] : PLAN_SKILLS.map(s => s.key);
     for (const id of [f.agent.id, alexId, rileyId]) {
       await api.patch(`/api/agents/${id}/permissions`, { canCreateAgents: false, canAssignTasks: id === f.agent.id });
       await api.patch(`/api/agents/${id}/budgets`, { budgetMonthlyCents: PLAN_BUDGET_CENTS });
-      await api.post(`/api/agents/${id}/skills/sync?companyId=${f.company.id}`, { desiredSkills: selected, mode: "replace" });
-      const skills = await api.get<PlanRow>(`/api/agents/${id}/skills?companyId=${f.company.id}`);
-      if (JSON.stringify([...(skills.desiredSkills ?? [])].sort()) !== JSON.stringify([...selected].sort())) throw new Error("Agent planning skill selection differs from selected variant");
+      const skills = await selectPlanSkills(api, f.company.id, id, source.skills);
       source.agents.push({ id, skills });
-    }
-    if (variant === "disabled") {
-      for (const skill of source.skills) await api.delete(`${company}/skills/${skill.id}`);
-      const after = await api.get<PlanRow[]>(`${company}/skills`);
-      if (after.some(s => PLAN_SKILLS.some(wanted => wanted.key === s.key))) throw new Error("Disabled planning skills remain in company library");
     }
     await input.evidence("plan-task-source.json", source);
     await api.patch("/api/instance/settings/experimental", { enableClassicTaskInterface: false });
@@ -121,21 +97,8 @@ export async function runPlanTaskFlow(input: Input) {
         return same >= 2;
       }, reject: o => o.runs.length > PLAN_MAX_RUNS ? "bounded run count exceeded" :
         o.runs.some(r => ["failed", "timed_out", "cancelled"].includes(r.status)) ? "actual run failed; retain original failure" : undefined });
-    const finalLibrary = await api.get<PlanRow[]>(`${company}/skills`);
-    for (const skill of source.skills) {
-      const found = finalLibrary.find(s => s.key === skill.key);
-      if (variant === "disabled") {
-        if (found) throw new Error("Disabled planning guidance was reinstalled; comparison is uncomparable");
-      } else {
-        if (!found) throw new Error("Selected planning guidance disappeared; comparison is uncomparable");
-        const served = await api.get<{ content: string }>(`${company}/skills/${found.id}/files?path=SKILL.md`);
-        if (planHash(served.content) !== skill.sha256) throw new Error("Planning guidance changed during execution; comparison is uncomparable");
-      }
-    }
-    for (const id of [f.agent.id, alexId, rileyId]) {
-      const skills = await api.get<PlanRow>(`/api/agents/${id}/skills?companyId=${f.company.id}`);
-      if (JSON.stringify([...(skills.desiredSkills ?? [])].sort()) !== JSON.stringify([...selected].sort())) throw new Error("Planning skill selection changed during execution; comparison is uncomparable");
-    }
+    await verifyPlanSkills(api, f.company.id, source.skills);
+    for (const id of [f.agent.id, alexId, rileyId]) await verifyPlanSelection(api, f.company.id, id, source.skills);
     checks = grade().checks;
     input.observe(parent, observed.runs, checks);
     await page.goto(`/${f.company.issuePrefix}/issues/${parent.identifier ?? parent.id}`, { waitUntil: "domcontentloaded" });

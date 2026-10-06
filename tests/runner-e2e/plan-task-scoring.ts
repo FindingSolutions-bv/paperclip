@@ -89,7 +89,9 @@ export function gradePlanTask(input: {
     try {
       const url = new URL(match[1]!, input.origin);
       const parts = url.pathname.split("/").filter(Boolean);
-      const id = parts[parts.indexOf("issues") + 1];
+      const issueIndex = parts.indexOf("issues");
+      if (issueIndex < 0) return false;
+      const id = parts[issueIndex + 1];
       return url.origin === new URL(input.origin).origin && url.hash === "#document-result" && [parent?.id, parent?.identifier].includes(id);
     } catch { return false; }
   })),

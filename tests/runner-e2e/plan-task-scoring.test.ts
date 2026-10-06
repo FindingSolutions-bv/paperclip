@@ -99,7 +99,7 @@ describe("planning guidance outcome calibration", () => {
     const recovery = valid("cohesive"); recovery.observation.issues[0]!.scheduledRetry = { reason: "retry" };
     expect(passed(recovery, "tasks-completed")).toBe(false);
   });
-  it.each(["/T/issues/other#document-result", "https://unrelated.example/T/issues/T-parent#document-result", "/T/issues/T-parent#document-other"])("rejects unrelated result link %s", url => {
+  it.each(["/T-parent#document-result", "/T/issues/other#document-result", "https://unrelated.example/T/issues/T-parent#document-result", "/T/issues/T-parent#document-other"])("rejects unrelated result link %s", url => {
     const input = valid("cohesive"); input.observation.comments[0]!.body = `[Result](${url})`;
     expect(passed(input, "visible-result-link")).toBe(false);
   });

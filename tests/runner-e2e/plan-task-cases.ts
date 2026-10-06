@@ -15,7 +15,7 @@ export const PLAN_SKILLS = [
 ] as const;
 export const planHash = (value: string | Buffer) => createHash("sha256").update(value).digest("hex");
 export const planDefinitionDigest = planHash([
-  "plan-task-cases.ts", "plan-task-flow.ts", "plan-task-scoring.ts",
+  "plan-task-cases.ts", "plan-task-flow.ts", "plan-task-scoring.ts", "plan-task-skills.ts",
   "fixtures/plan-task-guidance/current-conversion.md", "fixtures/plan-task-guidance/current-planning.md",
 ].map(file => readFileSync(new URL(file, import.meta.url), "utf8")).join("\0"));
 

@@ -16,9 +16,9 @@ its separate checklist remains untouched.
 
 Four ordinary execution scenarios: cohesive work; independent specialist outputs;
 a real prerequisite between specialists; an independent adverse review.
-Compare current, short, and disabled planning skills using public skill editing
+Compare current, short, and disabled planning skills using public company-copy creation
 and selection APIs in isolated companies. Archived current skill bytes come from
-the base above. The disabled variant is an availability ablation, not a production
+the base above. The disabled variant is an unassigned-selection ablation (the library remains discoverable), not a production
 removal or an accepted-plan continuation test. Other instructions, tools, models,
 permissions, fixtures, graders, budgets, and deadlines stay matched.
 
@@ -49,3 +49,19 @@ and continuation qualification before a deletion recommendation can be shipped.
 - Archived source hashes: conversion `08cb036df0e05b1d704dc0cd547c4e37b73078597c072a85ff982a2bb9b3a370`; planning `9c52a44a30ec8d306119da51bf298e9e3e6c382a9a9559ffd3054bf5e0c75f36`. Both match the named base Git blobs exactly.
 - Generated capability inventory and catalog are synchronized.
 - No provider call has started. Live outcomes remain unqualified.
+
+Source review found two fixture defects before provider execution: bundled and
+catalog skills cannot be edited, and deleted core skills are automatically
+restored. Campaign `37399550253` at `843238f43cb266f6ca0bc9d255881558ffd2eb71`
+was cancelled; its paid-cell step was skipped, with zero provider runs and no
+behavioral grade. Corrected setup creates editable, byte-identical company copies
+and varies their explicit selection. No bundled deletion or in-place edit occurs.
+
+Corrected fixture admission: all three current/short/unassigned variants pass real
+company-skill creation, content readback and native-agent selection APIs against
+a disposable PostgreSQL database. No heartbeat run rows were created. The
+evaluator's 35 positive/wrong/missing-evidence checks pass, including rejection
+of a bare issue-ID URL without the issues route. Product E2E typecheck passes.
+Initial local DB checks were skipped until the dependency's missing library
+symlinks were restored with its supplied postinstall script; skipped checks were
+not counted as passes.
