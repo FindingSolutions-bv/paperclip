@@ -49,6 +49,7 @@ import {
   stageCodexHomeForSync,
 } from "./codex-home.js";
 import { ADAPTER_AUTH_MISSING_CHECK_CODE } from "./auth-check.js";
+import { checkCodexCliVersionForModel } from "./cli-version.js";
 
 const moduleDir = path.dirname(fileURLToPath(import.meta.url));
 const packageRootDir = path.resolve(moduleDir, "../..");
@@ -644,6 +645,23 @@ export async function testCodexAcpEnvironment(
         hint: "Provide credentials for this adapter, or start login in the environment.",
       });
     }
+  }
+
+  if (targetIsRemote && commandResolvable) {
+    // The ACP server spawns the shared `codex` installed in the environment.
+    // Models with a verified CLI floor are checked against that executable so
+    // a stale sandbox image is named here, before a run fails on every turn
+    // with the backend's "not supported when using Codex with a ChatGPT
+    // account" rejection. Models without a floor skip the probe.
+    const versionCheck = await checkCodexCliVersionForModel({
+      runId: `codex-acp-envtest-${Date.now()}-${Math.random().toString(16).slice(2)}`,
+      model: asString(config.model, ""),
+      command: "codex",
+      target,
+      cwd: resolveAdapterExecutionTargetCwd(target, asString(config.cwd, ""), process.cwd()),
+      env: {},
+    });
+    if (versionCheck) checks.push(versionCheck.check);
   }
 
   const mode = firstNonEmptyString(config.mode, config.acpMode) ?? DEFAULT_ACP_ENGINE_MODE;
