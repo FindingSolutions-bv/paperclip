@@ -33,10 +33,49 @@ delivery gate. Separate prohibitions fix the fixture; a requested attachment
 still triggers that same gate. Copilot definitions advance to v9 and remain
 pending. No production delivery rule or qualification grader changes.
 
-Build and recursive typecheck pass at the shipping source. Its GitHub checks
-have 53 successes and two skips. The full local workspace test command remains
-live and must reach an authoritative terminal result. Fixture-only edits need
-fresh head CI and review; they do not change package or image build inputs.
+Build and recursive typecheck pass at the shipping source. Fixture head
+`6c09e4c87` has 53 successful GitHub checks, two skips, Greptile 5/5 and no
+unresolved review threads. The first full local workspace run retains 15,042
+passes, 87 skips and five plugin auto-build failures. Its launcher globally set
+`PAPERCLIP_DISABLE_PLUGIN_AUTOBUILD=1`. Removing that test-environment flag makes
+all 11 affected tests pass with unchanged source and assertions. The corrected
+full `pnpm test:run` child reaches terminal failure after its launcher was
+interrupted: 12,920 passes, 2,210 skips, four failed tests and 36 failed files.
+The terminal log and process retirement are retained separately from its stale
+launcher receipt. PostgreSQL startup failures account for many failed hooks;
+three other tests fail on timing/socket recovery. Read-only inspection finds all
+32 host shared-memory slots occupied. A separate owned bootstrap probe passes,
+so resource pressure is not an established cause of every failure. Host settings
+and unrelated services remain untouched. A separate native Linux full check
+starts only after Mac retirement, using the frozen image, exact private dependency
+lock and Rust 1.97.0. Its initial missing-header and header-permission failures
+remain retained. Installing all 2,810 matching official Node development headers
+in the owned test sandbox leaves Node bytes unchanged. The canonical build,
+typecheck and full tests now run there with unchanged source and assertions.
+Fixture-only edits do not change package or image build inputs.
+
+The fresh Linux controller passes installed CLI startup, health and browser
+checks. Its exact consumer graph checks 722 packages and 101,216 files; its plugin
+graph checks 191 packages and 16,365 files. Both have zero mismatches. The real
+observer calibration keeps the absent-parent and old inside-memory scratch
+controls failed. Seeded memory, native sync and corrected outside-memory fallback
+have complete terminal evidence and retired processes. All native memory writes
+retain 33 bytes and LF. The current browser POST has the same complete native
+argument object, public parent setup leaves the target absent, and owned cleanup
+passes. Fixture checks and collection of all 26 Product cases pass. The failed
+browser helper path and subsequent write-once log collision remain retained;
+the corrected free phase reuses its already passing graph and observer controls.
+
+Private Runner definitions are now `dc97fdcbef5de3ea061bc1f0a3b68af6e617f0bc`
+in draft [Evals PR #44](https://github.com/paperclipai/paperclip-evals/pull/44).
+They bind native profile 15 and its platform closure digests. All 76 admission,
+roster and campaign tests pass with supported Python. All seven requests pass the
+actual installed CLI checks before provider construction; profile 14 is still
+rejected there. The normal Runner tar matches all 1,330 compiled files in the
+frozen installed server. Case and roster hashes, scoring function bodies, model,
+low thinking and limits are unchanged. The final correction names the matching
+profile 15 pack in the run guide. Latest-head CI passes, Greptile gives 5/5 and
+the guide finding is resolved. These free checks do not qualify a model.
 No new paid attempts have run. Current qualified counts remain Product 0/26 and
 Runner 0/7. Keep rollout held for the live newline/restart proof, all 33 cases,
 complete checks and prerequisite review. Do not merge or release.
@@ -415,10 +454,10 @@ local tests and release review are still required.
 | Runtime identity and admission | Exact runtime/profile/model; verified effective thinking; startup below the 60-second admission limit; unsupported configuration fails before a prompt | The `0cff2b20b` packages/image are rebuilt. Fresh profile-15 normal admission passes on ARM Mac, Intel x64 under Rosetta and Linux. Live model/low and all 33 cases still require current-artifact proof. Earlier `f5024863e` proofs remain historical. |
 | Live lifecycle | Pending native question survives controller restart in the original process; one creation and resolution; stale answer after provider death rejected; Stop retires owned processes; three warm turns keep process identity | The new fallback-transfer regression passes without changing strict probes or graders. The original v13 restart remains failed: provider success, incomplete independent terminal evidence and failed canonical cleanup. Fresh lifecycle qualification on the new artifacts is required. |
 | Product workflows | All 26 explicit Pi Product E2E cells (13 local, 13 Daytona); screenshots, public state, independent artifacts, terminal and cleanup evidence | Current qualified count is 0/26. Missing LF remains unresolved. Original memory and restart failures, manifests and independently absent owned resources remain retained. V15 fixture controls and new source regressions do not qualify any live case. Run every explicit cell on the new frozen artifacts. |
-| Runner protocol | Pi roster passes through the native packaged runner and authenticated mock control plane; lifecycle/denial/control cases remain distinct from Product tests | Current qualified count is 0/7. The seven historical passes at private definitions `7b112ffe3` retain their original runtime labels. Fresh packaged-runner qualification is required. |
-| Installed distribution | Public CLI/server tars on ARM Mac, Intel Mac and Linux; normal Pi setup; exact Linux companion and immutable Daytona image imported without binary override | All 18 public package tars are repacked at `0cff2b20b`; its immutable Linux image passes anonymous import and normal installation. Normal lifecycle-enabled ARM Mac, Intel under Rosetta and Linux Pi setup/admission pass. The fresh E2E Linux controller and companion import remain required. Earlier proofs keep their original sources. |
+| Runner protocol | Pi roster passes through the native packaged runner and authenticated mock control plane; lifecycle/denial/control cases remain distinct from Product tests | Current qualified count is 0/7. Private definitions `dc97fdcb` bind profile 15, pass all 76 free tests and have green CI, Greptile 5/5 and the guide finding resolved. Seven historical passes at `7b112ffe3` retain their original runtime labels. Fresh packaged-runner qualification is required. |
+| Installed distribution | Public CLI/server tars on ARM Mac, Intel Mac and Linux; normal Pi setup; exact Linux companion and immutable Daytona image imported without binary override | All 18 public package tars are repacked at `0cff2b20b`; its immutable Linux image passes anonymous import and normal installation. Normal lifecycle-enabled ARM Mac, Intel under Rosetta and Linux Pi setup/admission pass. The fresh E2E Linux controller and companion import pass; exact consumer/plugin graphs, browser arguments, cleanup, observer controls and all 26 case collection pass. Physical Intel hardware is not verified. Earlier proofs keep their original sources. |
 | Governance and spend | Company isolation, human-only permission, duplicate/stale answers, Stop and budget hard stop; pricing estimates never become claimed bills | Historical 58 focused invariants and live pending-permission Stop keep their source labels. Fresh shipping qualification remains required. The dedicated key retains a $5 lifetime cap, zero BYOK usage and the $100 campaign ceiling. Final v14 read-only accounting observes $0.324966594 used and $4.675033406 remaining, with delayed settlement still possible. The key cap is not proof of Paperclip budget enforcement. |
-| Integration and rollout | Review each prerequisite; final-head typecheck, tests, build and CI pass; no unresolved review; exact artifacts; rollback recorded | 92 scoped memory/probe/cleanup tests, 146 transport tests, 12 lock tests, all 1,847 Product fixture tests and harness typecheck pass. Full build and recursive typecheck pass at `0cff2b20b`; its CI has 53 successes and two skips. Local full-workspace tests remain live. Fixture-head CI/review and the valid #14921 admission finding remain open. No merge or release is authorized. |
+| Integration and rollout | Review each prerequisite; final-head typecheck, tests, build and CI pass; no unresolved review; exact artifacts; rollback recorded | 92 scoped memory/probe/cleanup tests, 146 transport tests, 12 lock tests, all 1,847 Product fixture tests and harness typecheck pass. Full build and recursive typecheck pass at `0cff2b20b`. Fixture head `6c09e4c87` has 53 successful checks, two skips, Greptile 5/5 and zero open threads. Corrected Mac full tests fail; a separate native Linux full check is running. Every later docs head requires current CI/review. The valid #14921 premature-qualification finding remains open until live qualification passes. No merge or release is authorized. |
 
 ## Bounded execution
 
@@ -1454,6 +1493,10 @@ reviews pass. This goal does not publish, merge or deploy the candidate.
    terminal task state and usage visibility before expanding. Preserve the
    existing company permissions and budget hard stop. Record the installed
    package, runtime, companion and image identities with each canary run.
+   Verify an exact memory write with its final LF and read it in a fresh task.
+   Verify controller recovery while a native question is pending: answer the
+   original question once, retain the original run and producer identities, and
+   prove complete terminal evidence and cleanup. Stop expansion if either fails.
 
 On any failed qualification gate, keep admission held. On a rollout regression,
 stop new Pi dispatch and retire active work through the control-plane Stop path.
