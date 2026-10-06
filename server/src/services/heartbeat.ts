@@ -15448,7 +15448,7 @@ export function heartbeatService(
       maxAttempts: opts?.maxAttempts,
       delayMs: opts?.delayMs,
       now,
-      random: opts?.random,
+      random: opts?.random ?? Math.random,
     });
     const transientRecovery =
       isBoundedTransientRetryReason(retryReason)

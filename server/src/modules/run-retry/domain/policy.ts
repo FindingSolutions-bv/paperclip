@@ -63,8 +63,8 @@ export function decideHardRetryExclusion(
  */
 export function computeBoundedTransientHeartbeatRetrySchedule(
   attempt: number,
-  now = new Date(),
-  random: () => number = Math.random,
+  now: Date,
+  random: () => number,
 ) {
   if (!Number.isInteger(attempt) || attempt <= 0) return null;
   const baseDelayMs = BOUNDED_TRANSIENT_HEARTBEAT_RETRY_DELAYS_MS[attempt - 1];
@@ -96,7 +96,7 @@ export type BoundedRetryScheduleInput = {
   maxAttempts?: number;
   delayMs?: number;
   now: Date;
-  random?: () => number;
+  random: () => number;
 };
 
 export type BoundedRetryScheduleDecision = {
