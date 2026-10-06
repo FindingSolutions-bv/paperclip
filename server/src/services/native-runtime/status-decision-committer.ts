@@ -1999,10 +1999,16 @@ export async function commitNativeStatusDecision(input: {
       const parentIsDependent = parent
         ? dependents.some((dependent) => dependent.id === parent.id)
         : false;
+      // Ordinary children can finish new work after reopening. Key that wake to
+      // the committed decision; replaying the decision still shares its identity.
+      // Watchdog children retain their stable key to avoid feedback loops.
+      const childCompletionRevision = issue.originKind === "task_watchdog"
+        ? ""
+        : `:${decisionRow.id}`;
       for (const dependent of dependents) {
         const isCompletedChildParent = parent?.id === dependent.id;
         const idempotencyKey = isCompletedChildParent
-          ? `issue_children_completed:${dependent.id}:${input.issueId}`
+          ? `issue_children_completed:${dependent.id}:${input.issueId}${childCompletionRevision}`
           : buildIssueBlockersResolvedWakeIdempotencyKey({
               dependentIssueId: dependent.id,
               resolvedBlockerIssueId: input.issueId,
@@ -2053,7 +2059,7 @@ export async function commitNativeStatusDecision(input: {
           issueId: parent.id,
           agentId: parent.assigneeAgentId,
           reason: "issue_children_completed",
-          idempotencyKey: `issue_children_completed:${parent.id}:${input.issueId}`,
+          idempotencyKey: `issue_children_completed:${parent.id}:${input.issueId}${childCompletionRevision}`,
           payload: {
             completedChildIssueId: input.issueId,
             childIssueIds: parent.childIssueIds,
