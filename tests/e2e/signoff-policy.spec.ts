@@ -58,16 +58,47 @@ async function createAgentRequest(token: string): Promise<APIRequestContext> {
 }
 
 // The wait below follows the server's own deferral signal. It does not guess
-// a delay. The cap is a diagnostic backstop only, not the wait mechanism. It
-// stops the helper well inside the suite's 60_000 ms per-test timeout (see
-// tests/e2e/playwright.config.ts). A stuck wait then throws a named error,
-// not a generic Playwright timeout.
+// a delay. WAKEUP_WAIT_TOTAL_MS is a per-call ceiling, not a fixed wait: one
+// test can call invokeHeartbeat several times under the suite's 60_000 ms
+// per-test timeout (see tests/e2e/playwright.config.ts), so each call caps
+// itself to the test's own remaining time, minus a reserve left for the
+// assertions that still have to run after the call returns. A stuck wait
+// then throws a named error, not a generic Playwright timeout.
 // The server's rewake cooldown (ISSUE_REWAKE_BASE_COOLDOWN_MS, 120_000 ms in
 // server/src/services/issue-rewake-throttle.ts) can outlast one test's life.
 // When that happens, this helper still fails fast and states the reason.
 const WAKEUP_WAIT_TOTAL_MS = 45_000;
+const WAKEUP_WAIT_RESERVE_MS = 10_000;
 const WAKEUP_POLL_INTERVAL_MS = 100;
 const MAX_CONSECUTIVE_RUN_READ_FAILURES = 5;
+
+// First-seen start time for the current test, keyed by Playwright's own
+// TestInfo object. Playwright does not expose a test start timestamp, so
+// this helper records one the first time a test calls invokeHeartbeat.
+const testStartTimesMs = new WeakMap<ReturnType<typeof test.info>, number>();
+
+/**
+ * Return how long one invokeHeartbeat call may wait this time: the smaller
+ * of WAKEUP_WAIT_TOTAL_MS and the current test's remaining time, after
+ * WAKEUP_WAIT_RESERVE_MS is set aside for whatever the test still does once
+ * this call returns. Returns 0 when the test has no time left to spare, so
+ * the caller fails fast instead of starting a wait it cannot finish.
+ */
+function wakeupWaitBudgetMs(): number {
+  const info = test.info();
+  const testTimeoutMs = info.timeout;
+  if (testTimeoutMs <= 0) return WAKEUP_WAIT_TOTAL_MS; // no test timeout set
+
+  let startedAtMs = testStartTimesMs.get(info);
+  if (startedAtMs === undefined) {
+    startedAtMs = Date.now();
+    testStartTimesMs.set(info, startedAtMs);
+  }
+
+  const elapsedMs = Date.now() - startedAtMs;
+  const remainingMs = testTimeoutMs - elapsedMs - WAKEUP_WAIT_RESERVE_MS;
+  return Math.max(0, Math.min(WAKEUP_WAIT_TOTAL_MS, remainingMs));
+}
 
 /**
  * Fetch a candidate run and confirm it belongs to this agent and this issue.
@@ -119,7 +150,8 @@ async function invokeHeartbeat(
   const run = await res.json();
   if (typeof run.id === "string" && run.id.length > 0) return run.id;
 
-  const deadline = Date.now() + WAKEUP_WAIT_TOTAL_MS;
+  const waitBudgetMs = wakeupWaitBudgetMs();
+  const deadline = Date.now() + waitBudgetMs;
   const lastSeen = {
     reason: typeof run.reason === "string" ? run.reason : null,
     checkoutRunId: null as string | null,
@@ -216,7 +248,9 @@ async function invokeHeartbeat(
 
   throw new Error(
     `No verified heartbeat run became available for agent ${agentId} on issue ${issueId} ` +
-      `within ${WAKEUP_WAIT_TOTAL_MS}ms. Last skip reason: ${lastSeen.reason ?? "none"}. ` +
+      `within ${waitBudgetMs}ms` +
+      `${waitBudgetMs <= 0 ? " (the test's remaining time budget was already spent before this wait could start)" : ""}. ` +
+      `Last skip reason: ${lastSeen.reason ?? "none"}. ` +
       `Last checkoutRunId: ${lastSeen.checkoutRunId ?? "none"}. ` +
       `Last executionRunId: ${lastSeen.executionRunId ?? "none"}. ` +
       `Blocking run status: ${lastSeen.blockingRunStatus ?? "none"}` +
