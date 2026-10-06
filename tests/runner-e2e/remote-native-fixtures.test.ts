@@ -381,7 +381,7 @@ describe("actual generated observer state machine", () => {
     const handlers: Array<(socket: any) => void> = [], children: any[] = [];
     const missing = () => { throw Object.assign(new Error("missing"), { code: "ENOENT" }); };
     const fds = new Map<number, string>(); let nextFd = 50, runtimeInode = 4n;
-    const symbolicLinks = new Set<string>();
+    const symbolicLinks = new Set<string>(), directoryInodes = new Map<string, bigint>();
     const directories = new Set(["/tmp", "/workspace", "/workspace/.paperclip-runtime", "/workspace/.paperclip-runtime/paperclip-runner", "/workspace/.paperclip-runtime/paperclip-runner/sessions"]);
     if (!deferStartup) directories.add(config.root);
     const listeners = new Map<string, (socket: any) => void>();
@@ -405,10 +405,10 @@ describe("actual generated observer state machine", () => {
       lstatSync(path: string) {
         const directory = directories.has(path);
         if (!directory && !files.has(path) && !symbolicLinks.has(path)) return missing();
-        return { dev: 1n, ino: path === config.root ? 2n : path === "/workspace/.paperclip-runtime/paperclip-runner" ? runtimeInode : 3n, mtimeNs: 4n, ctimeNs: 5n, isDirectory: () => directory, isFile: () => !directory, isSymbolicLink: () => symbolicLinks.has(path), size: files.get(path)?.length ?? 0 };
+        return { dev: 1n, ino: directoryInodes.get(path) ?? (path === config.root ? 2n : path === "/workspace/.paperclip-runtime/paperclip-runner" ? runtimeInode : 3n), mtimeNs: 4n, ctimeNs: 5n, isDirectory: () => directory, isFile: () => !directory, isSymbolicLink: () => symbolicLinks.has(path), size: files.get(path)?.length ?? 0 };
       },
       realpathSync: (path: string) => path,
-      readdirSync(path: string) { if (path === "/proc") return [...proc.keys()].map(String); if (path === "/workspace") return [".paperclip-runtime", ...[...files.keys(), ...symbolicLinks].filter(p => p.startsWith("/workspace/") && !p.slice(11).includes("/")).map(p => p.slice(11))]; if (path === "/workspace/.paperclip-runtime") return ["reusable-sandbox-lease.json", "paperclip-runner", ...[...files.keys()].filter(p => p.startsWith(path + "/") && !p.slice(path.length + 1).includes("/") && !p.endsWith("reusable-sandbox-lease.json")).map(p => p.slice(path.length + 1))]; if (path.startsWith("/workspace/.paperclip-runtime/paperclip-runner")) throw new Error("excluded runtime must not be traversed"); return []; },
+      readdirSync(path: string) { if (path === "/proc") return [...proc.keys()].map(String); if (path.startsWith("/workspace/.paperclip-runtime/paperclip-runner")) throw new Error("excluded runtime must not be traversed"); return [...new Set([...files.keys(), ...directories, ...symbolicLinks].filter(p => p.startsWith(path + "/") && !p.slice(path.length + 1).includes("/")).map(p => p.slice(path.length + 1)))]; },
       watch(path: string, options: unknown, callback?: (_kind: string, name: string | null) => void) {
         const entry = { path, callback: (callback ?? options) as (_kind: string, name: string | null) => void, closed: false }; watches.push(entry);
         return Object.assign(new EventEmitter(), { close: () => { entry.closed = true; } });
@@ -449,8 +449,36 @@ describe("actual generated observer state machine", () => {
       const replies: any[] = [], socket = Object.assign(new EventEmitter(), { end: (value: string) => replies.push(JSON.parse(value)), destroy: vi.fn() });
       handlers[0]!(socket); socket.emit("data", Buffer.from(JSON.stringify({ op, nonce: config.nonce, ...args }) + "\n")); return replies;
     }
-    return { request, proc, files, watches, fs, intervals, timers, config, handlers, children, faultSpawn, symbolicLinks, context, server, directories, listeners, install: h.calls.find(c => c.request.op === "install")!, replaceRuntimeRoot() { runtimeInode = 999n; } };
+    return { request, proc, files, watches, fs, intervals, timers, config, handlers, children, faultSpawn, symbolicLinks, directoryInodes, context, server, directories, listeners, install: h.calls.find(c => c.request.op === "install")!, replaceRuntimeRoot() { runtimeInode = 999n; } };
   }
+  it("keeps existing watched directory notifications complete without losing nested mutations", async () => {
+    const o = await observerHarness(true);
+    o.directories.add(o.config.root); o.files.set(`${o.config.root}/observer.cjs`, Buffer.from(o.install.request.source));
+    o.directories.add("/workspace/existing");
+    new Script(o.install.request.source).runInNewContext(o.context);
+    // Linux emits a parent notification when chmod changes a child's directory
+    // attributes. Its inode and registered recursive watch remain unchanged.
+    for (const w of o.watches) if (w.path === "/workspace") w.callback("change", "existing");
+    expect(o.request("snapshot")[0].result.complete).toBe(true);
+    o.fs.writeFileSync("/workspace/existing/transient.txt", "changed", { flag: "wx" });
+    o.files.delete("/workspace/existing/transient.txt");
+    o.watches.find(w => w.path === "/workspace/existing")!.callback("rename", "transient.txt");
+    const final = o.request("snapshot")[0].result;
+    expect(final.complete).toBe(true); expect(final.watcher.workspaceMutationCount).toBe(3);
+    expect(final.workspace["existing/transient.txt"]).toBeUndefined();
+  });
+  it.each(["new", "replacement", "symlink", "unknown"])("rejects %s directory notifications", async variant => {
+    const o = await observerHarness(true);
+    o.directories.add(o.config.root); o.files.set(`${o.config.root}/observer.cjs`, Buffer.from(o.install.request.source));
+    if (variant !== "new") o.directories.add("/workspace/existing");
+    new Script(o.install.request.source).runInNewContext(o.context);
+    if (variant === "new") o.directories.add("/workspace/existing");
+    if (variant === "replacement") o.directoryInodes.set("/workspace/existing", 999n);
+    if (variant === "symlink") o.symbolicLinks.add("/workspace/existing");
+    for (const w of o.watches) if (w.path === "/workspace") w.callback("change", variant === "unknown" ? null : "existing");
+    const reply = o.request("snapshot")[0];
+    expect(reply.ok && reply.result.complete).toBe(false);
+  });
   it("executes the actual observer fault phase once with a closed environment and exact identity", async () => {
     for (const published of [false, true]) {
       const rejected = await observerHarness();

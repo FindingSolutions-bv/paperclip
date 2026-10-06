@@ -1,10 +1,21 @@
 import { describe, expect, it } from "vitest";
-import { gradePiNativeAnswers, hasFailedPiWrite, hasPiCrossRootDenial, piNativeTasks } from "./pi-native-cases.js";
+import { gradePiNativeAnswers, hasFailedPiWrite, hasPiCrossRootDenial, piNativeMemoryPrompt, piNativeTasks } from "./pi-native-cases.js";
 import { runnerMatrix, runnerSuites } from "./catalog.js";
 import { buildRunnerE2EProcessEnvironment } from "./harness-env.js";
 import { parseRunnerSelectors, selectRunnerExecutions } from "./selectors.js";
 
 describe("Pi native Product qualification", () => {
+  it("gives memory content one authoritative JSON representation with its final LF", () => {
+    const nonce = "0123456789abcdef0123456789abcdef";
+    const prompt = piNativeMemoryPrompt(nonce, "/unassigned/denied.txt");
+    expect(prompt.split(nonce)).toHaveLength(2);
+    const encoded = /```json\n(.*?)\n```/s.exec(prompt)![1]!;
+    const content = JSON.parse(encoded).content;
+    expect(content).toBe(`${nonce}\n`);
+    expect(Buffer.byteLength(content)).toBe(33);
+    expect(Buffer.from(content).at(-1)).toBe(10);
+    expect(prompt).toContain("Do not trim or repeat the memory write");
+  });
   it("selects five local and five remote Pi cases without changing the basic extended matrix", () => {
     const suite = runnerSuites.find(row => row.id === "pi-native")!;
     expect(suite.manualOnly).toBe(true); expect(suite.expectedMatrixSize).toBe(10);

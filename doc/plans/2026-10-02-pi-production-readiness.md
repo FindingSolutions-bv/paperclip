@@ -15,6 +15,27 @@ failures remain retained. The Mac file-edit correction also passes.
 
 ### Latest boundary fixes — 2026-10-05
 
+The next fixture correction preserves the same `f5024863e` shipping inputs.
+The observer now accepts a directory notification only for the same device/inode
+with an already registered recursive watch; every event still counts. An actual
+generated-observer regression fails before the correction and passes afterward,
+including nested transient writes. New directories, replacement inodes, symlinks,
+unknown notifications, and recycled process identities remain failures.
+This reproduces a fixture defect, but does not identify the missing original
+restart terminal snapshot's exact cause. A corrected live result is still needed.
+
+Pi native definition v13 removes the competing bare nonce from the memory
+instructions. Its sole JSON content specification still decodes to 33 bytes with
+one final LF. Frozen native parser/validator/write/read preserve those bytes
+without provider calls. The failed run's native input contained 33 bytes while
+its native read returned 32; original managed content was not captured. No byte
+conversion was found in the wrapper or public file API. The prompt correction
+addresses a copying ambiguity; it does not establish a product byte-loss cause.
+The missing-LF negative control and exact saved/readback assertions stay in place.
+All 207 focused fixture regressions and the harness typecheck pass. One unrelated
+Copilot bootstrap prompt assertion remains a preserved failure in the broader
+support run. The affected live cases remain pending until their new receipts close.
+
 Current shipping artifacts are bound to `f5024863e9ed014e2661e6d7f23fc0e6b32e0911`
 and profile 15. The normal public ARM graph verifies 722 packages and 79,373
 files with zero mismatches. Full build and recursive typecheck pass. Normal

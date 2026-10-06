@@ -1595,6 +1595,13 @@ as unverified metadata; the remote process is bound through the exact sandbox,
 run ID, lifecycle, process group and executable digest. Same-UID observer isolation
 is not an adversarial operating-system sandbox test.
 
+Directory notifications remain counted. A notification for an existing directory
+preserves completeness only when its device/inode still match an already
+registered recursive watch. Newly created directories, replacements, symlinks,
+and unknown notifications remain incomplete. Pi native definition v13 also gives
+memory content a single JSON representation, including the required final LF;
+the exact managed bytes and fresh-task readback assertions remain unchanged.
+
 `--suite rich-acp-warm-continuity` adds six explicit cells: all three providers on
 local and Daytona. Three browser-driven turns must preserve native session,
 provider session, runner instance, PID/start identity and project workspace.
