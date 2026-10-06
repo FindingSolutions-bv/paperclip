@@ -10,7 +10,7 @@ import { afterEach, describe, expect, it, vi } from "vitest";
 import { withDirectoryMergeLock, WORKSPACE_RESTORE_LOCK_TIMEOUT_CODE } from "./workspace-restore-merge.js";
 
 describe("directory merge lock process lifetime", () => {
-  const loader = fileURLToPath(new URL("../../../cli/node_modules/tsx/dist/cli.mjs", import.meta.url));
+  const loader = fileURLToPath(new URL("../../../cli/node_modules/tsx/dist/loader.mjs", import.meta.url));
   const module = fileURLToPath(new URL("./workspace-restore-merge.ts", import.meta.url));
   const directories: string[] = [];
   const children: ChildProcess[] = [];
@@ -38,7 +38,9 @@ describe("directory merge lock process lifetime", () => {
   }
 
   async function holder(target: string, env: NodeJS.ProcessEnv) {
-    const child = spawn(process.execPath, [loader, "--eval", `
+    // Import the loader into the holder itself. The tsx CLI starts another
+    // process, so killing that launcher need not retire the SQLite lock holder.
+    const child = spawn(process.execPath, ["--import", loader, "--input-type=module", "--eval", `
       import { withDirectoryMergeLock } from ${JSON.stringify(module)};
       withDirectoryMergeLock(${JSON.stringify(target)}, async () => {
         process.send?.("locked");
@@ -115,7 +117,7 @@ describe("directory merge lock process lifetime", () => {
       } finally { clock.mockRestore(); }
       // A same-process test alone cannot prove that the OS lock survived: on
       // POSIX, closing an unmanaged descriptor can drop process-wide locks.
-      const result = await promisify(execFile)(process.execPath, [loader, "--eval", `
+      const result = await promisify(execFile)(process.execPath, ["--import", loader, "--input-type=module", "--eval", `
         import { withDirectoryMergeLock, WORKSPACE_RESTORE_LOCK_TIMEOUT_CODE } from ${JSON.stringify(module)};
         const now = Date.now();
         let calls = 0;

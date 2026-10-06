@@ -44,7 +44,11 @@ full checks and prerequisite reviews pass. No merge or release is authorized.
 All 92 memory/probe/cleanup tests and 146 sandbox transport controls pass.
 Adapter-utils and server typechecks pass. Broad transport discovery also ran
 stale compiled tests from `dist/`; its failures remain retained. The canonical
-stable runner excludes `**/dist/**`; current source-only validation is pending.
+stable runner excludes `**/dist/**`. The source-only run has 1,421 passes,
+11 skips and one crash-helper failure. Its helper launched the holder through
+the `tsx` CLI. Direct Node with an imported loader binds SIGKILL and exit to
+the actual holder; all 12 lock controls then pass. The original broad failures
+remain retained. A complete rerun on the final source is still required.
 New-head CI, full build/typecheck/tests and new distribution proof remain open.
 
 ## Case corrections — 2026-10-05
