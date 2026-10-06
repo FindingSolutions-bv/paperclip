@@ -1559,11 +1559,13 @@ type GitHubLauncherLocation = {
   runId: string; target: AdapterExecutionTarget | null | undefined;
 };
 
-function githubOperationLauncherDirectory(input: GitHubLauncherLocation): string {
+/** Keep sandbox housekeeping within the producer-owned Runner runtime. */
+export function githubOperationLauncherDirectory(input: GitHubLauncherLocation): string {
   // Only controller-generated run IDs may name a removable directory.
   if (!/^[a-zA-Z0-9_-]+$/.test(input.runId)) throw new Error("Invalid GitHub launcher run ID");
   return input.target?.kind === "remote"
-    ? path.posix.join(input.target.remoteCwd, ".paperclip-runtime", "github", input.runId)
+    ? path.posix.join(input.target.remoteCwd, ".paperclip-runtime",
+        ...(input.target.transport === "sandbox" ? ["paperclip-runner"] : []), "github", input.runId)
     : path.join(os.tmpdir(), "paperclip-github-runtime", input.runId);
 }
 

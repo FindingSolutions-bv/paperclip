@@ -1583,7 +1583,10 @@ The observer watches registered targets (including transient create/delete), use
 workspace changes and the exact runner process plus descendants. The single
 controller-owned `.paperclip-runtime/paperclip-runner` subtree is excluded from
 user-file inventory and mutation counts: it holds the binary, provider pack,
-context and active runtime state. Its location and identity remain checked, and
+context, active runtime state, and sandbox GitHub launchers, upload locks and
+per-command configuration. Launcher restaging after controller recovery uses
+that same runtime path. SSH and local launcher locations remain separate.
+Its location and identity remain checked, and
 test targets cannot use it. This exclusion is recorded in evidence; it does not
 claim that runtime-internal writes are covered by the user-file oracle.
 

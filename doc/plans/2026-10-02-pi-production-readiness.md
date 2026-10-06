@@ -5,7 +5,58 @@ set of release gates. Pi remains a candidate until every required gate passes.
 Do not expand this work to additional models, widgets, images, Cursor or Copilot
 qualification. The existing draft stack must be reviewed in dependency order.
 
-## Rebuilt candidate and exact write arguments — 2026-10-06
+## Sandbox GitHub housekeeping correction — 2026-10-06
+
+The next shipping correction moves sandbox GitHub launchers, upload locks and
+per-command configuration below `.paperclip-runtime/paperclip-runner/github`.
+One shared path now binds staging, the native callback bridge and cleanup.
+Local and SSH locations keep their existing behavior. The native watcher,
+excluded subtree, exact byte grades, timeouts and lifecycle assertions do not
+change. Shipping inputs change, so rebuild and freeze packages and the Linux
+image before any further paid qualification. The new set starts at Product
+0/26 and Runner 0/7; do not carry passes across changed shipping inputs.
+
+The retained `0cff2b20b` set has Product 1/26 and Runner 3/7 passes. Its corrected
+memory case writes exactly 33 bytes with LF, durably saves them and reads them
+from a fresh task after server restart. Runner context, context-before-action
+and document creation pass. The finish-task case applies exactly one successful
+task mutation but never reaches a terminal turn before its unchanged 120-second
+deadline. Its cause remains unproven. The corrected Linux restart retains its
+pending request and accepts the exact browser answer, but still fails terminal
+evidence and canonical cleanup. Its new closed diagnostic is
+`unwatched_directory`; all observed runner processes have retired. Independent
+cleanup proves the child sandbox, controller process and temporary root absent.
+Neither failure is regraded or retried unchanged.
+
+Two zero-model Linux controls identify a concrete housekeeping defect. Restaging
+the same launcher bytes creates temporary upload locks outside the excluded
+runtime and reproduces `unwatched_directory` with 22 workspace mutations. A Git
+command creates the same failure with five mutations. Both processes retire.
+With the correction, the unchanged actual Linux observer returns complete
+terminal evidence for both controls; launcher bytes and user files stay intact.
+All 35 affected Linux lifecycle and launcher tests pass, including the real
+watcher regression and its outside-runtime negative control. All 60 affected
+Mac launcher, credential and native-session lifecycle tests pass; the Linux
+inotify regression is platform-specific. Shared and adapter-utils compile.
+This proves the correction, not the cause of an unrecorded path in an older
+failure. A fresh live restart measurement is still required after the rebuild.
+
+The old-set Linux build and recursive typecheck pass. Its full test command
+retains 15,076 passes, 57 skips and one disk-reserve failure. Removing only the
+unused owned pnpm download store restores space without changing installed
+files, source or assertions. The failed test then passes, and the canonical
+full test command runs again with its unchanged 90-minute deadline. The owned
+sandbox retention covers that command; host settings and unrelated services
+remain untouched. Latest-head checks and the complete commands must also pass
+for the newly committed source. Keep all old results as historical evidence.
+
+No paid attempt runs during this correction. The last provisional dedicated-key
+accounting is $0.34323782 used of its $5 lifetime cap. The signed-in default
+workspace still has 72 unconfigured BYOK providers. Keep the approved $100
+campaign cap, frozen model, low thinking and zero automatic paid retries.
+Rollout remains held. Do not merge or release.
+
+## Historical rebuilt candidate and exact write arguments — 2026-10-06
 
 Shipping source is now `0cff2b20b5ea785880ad119dde59e6f011a3f9e1`.
 All 18 public workspace tarballs are freshly packed from that source. The Linux
@@ -1384,17 +1435,16 @@ Keep rollout held until every release gate is proven.
 
 ## Remaining work in order
 
-1. Isolate the two current failed cases using retained evidence and zero-model
-   checks. Memory omits the final LF despite intact prompt bytes; the frozen
-   parser/validator/write/read path preserves it. Restart lacks a complete
-   independent terminal receipt despite a successful original run. The new
-   capture order makes future failures inspectable but alone permits no paid
-   retry. Do not relax graders or replace a case with a passing surrogate.
-2. After a concrete correction, run the affected exact case once. Then complete
-   all 26 Product and seven Runner cases on the source-bound profile-15 runtime,
-   and fresh Intel public install/admission. Reuse only proven equivalent inputs
-   with exact recorded source and definition identities. Keep original failures,
-   zero automatic retries and the approved lifetime/campaign spending limits.
+1. Build and freeze the corrected sandbox GitHub runtime packages and image.
+   Complete the normal platform installations and zero-model admission. Preserve
+   the old-set memory pass and restart/finish-task failures. Identify a concrete
+   correction for the finish-task terminal timeout before another paid attempt
+   of that failed case. Do not relax graders or use a passing surrogate.
+2. Run the corrected exact restart case once, then complete all 26 Product and
+   seven Runner cases on one new frozen source-bound profile-15 set. Require the
+   exact LF and fresh-task memory proof again on that set. Verify the Intel
+   package path and distinguish Rosetta from physical Intel hardware evidence.
+   Keep original failures, zero automatic retries and the approved spending caps.
 3. Finish latest-head CI, full workspace verification, current review and the
    prerequisite admission finding. Keep rollout held until every gate passes.
    No merge or release is authorized.
