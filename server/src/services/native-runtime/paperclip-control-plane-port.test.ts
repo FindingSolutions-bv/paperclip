@@ -1542,6 +1542,108 @@ describe("PaperclipControlPlanePort conformance", () => {
     });
   });
 
+  it("serializes a concurrent child notification with the parent's completion check", async () => {
+    const identity = CONTROL_PLANE_CONFORMANCE_OPEN.identity;
+    async function preparedRun(parentId: string | null) {
+      const agentId = randomUUID();
+      await db.insert(agents).values({ id: agentId, companyId: identity.companyId,
+        name: parentId ? "Child worker" : "Parent lead", adapterType: "codex_local", status: "running" });
+      const issueId = randomUUID();
+      const runId = randomUUID();
+      const localContractId = randomUUID();
+      const runnerInstanceId = randomUUID();
+      await db.insert(issues).values({ id: issueId, companyId: identity.companyId, parentId,
+        title: parentId ? "Revised child" : "Deliver revised child result", status: "in_progress",
+        assigneeAgentId: agentId, workMode: "standard" });
+      await db.insert(completionContracts).values({ id: localContractId, companyId: identity.companyId,
+        issueId, revision: 1, schemaVersion: "paperclip.completion-contract.v1", policyVersion: "phase6-v3",
+        risk: "low", completionAuthority: "agent_claim_policy", incompleteCriteriaPolicy: "preserve_non_terminal",
+        contractJson: { revision: "handoff-race-v1", objective: "Deliver the requested result",
+          criteria: [{ id: "objective", requirement: "Complete the requested work" }] },
+        canonicalSha256: localContractId, createdByActorType: "system", createdByActorId: "test" });
+      await db.insert(heartbeatRuns).values({ id: runId, companyId: identity.companyId, agentId,
+        status: "succeeded", runtimeMode: "native", nativeIssueId: issueId, nativeSessionId: identity.sessionId,
+        runnerInstanceId, completionContractId: localContractId, completionContractSha256: localContractId,
+        contextSnapshot: { issueId } });
+      const port = new PaperclipControlPlanePort(db, { ...identity, agentId, issueId, runId,
+        completionContractId: localContractId, completionContractSha256: localContractId,
+        sourceInstanceId: runnerInstanceId, controlPlaneSourceInstanceId: "handoff-race" });
+      await port.openRun({ identity: { ...identity, agentId, issueId, runId }, backendKind: "mock", sourceInstanceId: runnerInstanceId });
+      await port.completeRun({ result: { ...structuredClone(CONTROL_PLANE_CONFORMANCE_RESULT),
+        summary: parentId ? "Revised result is ready." : "The result is delivered.",
+        completionClaim: { contractRevision: "handoff-race-v1", objectiveSatisfied: true,
+          criteria: [{ criterionId: "objective", status: "satisfied", evidenceRefs: [] }], remainingWork: [] },
+        evidence: [], verification: [{ commandOrCheck: "node --test", status: "passed" }], attentionRequests: [],
+      }, terminal: CONTROL_PLANE_CONFORMANCE_TERMINAL, callerResultId: "handoff-race-result" });
+      return { issueId, runId };
+    }
+    const parent = await preparedRun(null);
+    const child = await preparedRun(parent.issueId);
+    const suffix = randomUUID().replace(/-/g, "");
+    const trigger = `handoff_barrier_${suffix}`;
+    const lockKey = Number.parseInt(suffix.slice(0, 7), 16);
+    // A test-only database barrier pauses the real child transaction after it
+    // reads the parent and immediately before it inserts the completion wake.
+    await db.execute(sql.raw(`create function ${trigger}() returns trigger language plpgsql as $$
+      begin
+        if NEW.requested_by_actor_id = 'native-status-committer'
+          and NEW.payload->>'issueId' = '${parent.issueId}' then
+          perform pg_advisory_xact_lock(${lockKey}, 1);
+        end if;
+        return NEW;
+      end $$`));
+    await db.execute(sql.raw(`create trigger ${trigger} before insert on agent_wakeup_requests
+      for each row execute function ${trigger}()`));
+    let childCompletion: Promise<unknown> | undefined;
+    let parentCompletion: Promise<unknown> | undefined;
+    let parentSettled = false;
+    async function waitUntil(check: () => Promise<boolean>) {
+      for (let attempt = 0; attempt < 500; attempt++) {
+        if (await check()) return true;
+        await new Promise(resolve => setTimeout(resolve, 10));
+      }
+      return false;
+    }
+    try {
+      await db.transaction(async (tx) => {
+        await tx.execute(sql`select pg_advisory_xact_lock(${lockKey}::integer, 1)`);
+        const [controller] = await tx.execute(sql`select pg_backend_pid() as pid`) as unknown as Array<{ pid: number }>;
+        childCompletion = finalizeNativeRun({ db, runId: child.runId, workspaceFinalizeStatus: "succeeded" })
+          .then(() => null, (error: unknown) => error);
+        let childPid: number | null = null;
+        expect(await waitUntil(async () => {
+          const [blocked] = await db.execute(sql`select pid from pg_stat_activity
+            where ${controller.pid} = any(pg_blocking_pids(pid)) limit 1`) as unknown as Array<{ pid: number }>;
+          childPid = blocked?.pid ?? null;
+          return childPid !== null;
+        })).toBe(true);
+        parentCompletion = finalizeNativeRun({ db, runId: parent.runId, workspaceFinalizeStatus: "succeeded" })
+          .then(() => { parentSettled = true; return null; }, (error: unknown) => { parentSettled = true; return error; });
+        let parentWaiting = false;
+        expect(await waitUntil(async () => {
+          const [state] = await db.execute(sql`select exists (select 1 from pg_stat_activity
+            where ${childPid}::integer = any(pg_blocking_pids(pid))) as waiting`) as unknown as Array<{ waiting: boolean }>;
+          parentWaiting = state.waiting;
+          return parentWaiting || parentSettled;
+        })).toBe(true);
+        expect(parentSettled).toBe(false);
+        expect(parentWaiting).toBe(true);
+      });
+      expect(await childCompletion).toBeNull();
+      expect(await parentCompletion).toBeNull();
+      expect((await db.select().from(issues).where(eq(issues.id, child.issueId)))[0]!.status).toBe("done");
+      expect((await db.select().from(issues).where(eq(issues.id, parent.issueId)))[0]!.status).toBe("in_progress");
+      expect(await db.select().from(statusDecisions).where(eq(statusDecisions.issueId, parent.issueId)))
+        .toEqual([expect.objectContaining({ reasonCode: "native_child_completion_pending" })]);
+      const wakes = await db.select().from(agentWakeupRequests).where(eq(agentWakeupRequests.companyId, identity.companyId));
+      expect(wakes.filter(wake => wake.payload?.issueId === parent.issueId)).toHaveLength(1);
+    } finally {
+      await Promise.all([childCompletion, parentCompletion]);
+      await db.execute(sql.raw(`drop trigger ${trigger} on agent_wakeup_requests`));
+      await db.execute(sql.raw(`drop function ${trigger}()`));
+    }
+  }, 30_000);
+
   it.each(["child_dependency", "child"].flatMap((relationship) =>
     ["manual", "task_watchdog", "task_watchdog_product_bug"].map((originKind) => ({ relationship, originKind })),
   ))("preserves completion wake identity across reopen ($relationship, $originKind)", async ({ relationship, originKind }) => {

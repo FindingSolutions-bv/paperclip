@@ -1910,6 +1910,16 @@ export async function commitNativeStatusDecision(input: {
       );
     }
 
+    if (input.decision.statusAction === "done" && issue.status !== "done" &&
+        issue.parentId && issue.originKind !== "task_watchdog") {
+      // Serialize child notification creation with the parent's final pending-
+      // result check. Lock before child writes can acquire an implicit parent
+      // foreign-key lock, so concurrent siblings never upgrade shared locks.
+      await tx.select({ id: issues.id }).from(issues).where(and(
+        eq(issues.id, issue.parentId), eq(issues.companyId, input.companyId),
+      )).for("update");
+    }
+
     const materialized: NativeMaterializedStatusEffect[] = [];
     const preMaterializedEffects = new Map(
       (input.preMaterializedEffects ?? []).map((effect) => [

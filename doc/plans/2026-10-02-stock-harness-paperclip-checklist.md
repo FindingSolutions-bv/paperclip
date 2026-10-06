@@ -665,3 +665,8 @@ review hold is resolved for this summary. The original comparison remains unchan
 - [x] Provider-free verification: 67 focused scheduler/native-conformance/authority tests and repository typecheck pass. The scheduler regression holds the parent open, dispatches/replays the child result, then verifies exactly one sequential continuation with the latest summary. Pending, consumed and current-run delivery identities have native finalization coverage.
 - [ ] Freeze and measure the corrected source in the same two original live cases, one attempt each. Do not reroll the original baseline or regrade the failed candidate.
 - [ ] Verify the latest source head in CI/review and inspect final parent artifact delivery before claiming readiness. Keep draft until these gates pass.
+
+- [x] Preserve intermediate campaign `37518652522` as two cancelled, ungraded attempts on `3c1cf68`; provider activity/charges and cleanup are unverified because only invocation policies survived. These are separate from the original 17 actual runs.
+- [x] Audit the concurrency review finding with a real database barrier and distinct agents. Existing implicit locking serializes this tested ordering; make the parent lock explicit before child status writes. Do not claim a newly reproduced live defect.
+- [ ] Finish fresh source checks/review, then qualify the corrected source against the frozen baseline and inspect latest-artifact delivery.
+- [x] Explicit-lock revision: 68 focused tests and full repository typecheck pass. Fresh build, CI/review and live checks remain pending.

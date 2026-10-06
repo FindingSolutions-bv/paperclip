@@ -95,3 +95,30 @@ The original baseline remains frozen. Measure only the corrected candidate in
 the same two cases, one attempt each, under the existing bounds and oracle. Keep
 all previous runs and inspect final artifact delivery separately from machine
 pass totals. Live qualification and fresh CI/review remain pending; keep draft.
+
+
+### Concurrency review and cancelled intermediate campaign
+
+Fresh review of `3c1cf6830ce9db4123b834ffb99c594c383a8986` raised an
+outbox-insertion versus parent-completion race. A controlled PostgreSQL barrier
+uses distinct parent and child agents and pauses the real child transaction at
+wake insertion. The parent must wait, then preserve the pending result. The
+previous source also passes that ordering because child writes acquire an
+implicit parent foreign-key lock. This is not a reproduced additional failure.
+The correction makes parent serialization explicit before child writes, avoiding
+shared-lock upgrades between siblings. The original four failing regressions
+remain the before/after evidence for the active-parent fix.
+
+Intermediate campaign `37518652522` was cancelled once that review required
+source changes. Both paid-cell steps started and both tasks were created before
+cancellation completed. Each retained artifact contains only its invocation
+policy. No original grade, API run inventory, final ledger or cleanup receipt
+survived. Provider-run count and charges are unknown; record two incomplete
+attempts, not passes or zero-provider setup failures. Preserve these separately
+from the original 17 actual runs. The next candidate must pass fresh review
+before its bounded live attempts. Original baseline, prompts and oracle stay
+frozen.
+
+The final lock revision passes all 68 focused scheduler, conformance and arbiter
+tests plus repository typecheck. Build, fresh CI/review and live qualification
+remain pending.
