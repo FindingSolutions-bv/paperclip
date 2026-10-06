@@ -15,6 +15,17 @@ failures remain retained. The Mac file-edit correction also passes.
 
 ### Latest boundary fixes — 2026-10-05
 
+The next explicit Mac attempt at `f5024863e` confirms that the description is
+no longer duplicated, but still times out with cleanup passing. Its runtime
+context advertises `/tmp/.../live`, while the native Pi grant binds the physical
+`/private/tmp/.../live` directory. The fixture now canonicalizes its owned temp
+root before configuring the instance and validates cleanup against that same
+physical parent. A symlink-ancestor regression fails before the change. The
+normal installed Pi policy rejects the old advertised alias, accepts the
+corrected physical root, and continues to deny an unrelated root, with zero
+model calls. The byte and timeout assertions remain unchanged. This correction
+only changes the harness; shipping runtime artifacts remain `f5024863e`.
+
 The explicit version-12 Mac memory attempt at `867fa4711` still times out
 at the unchanged native-session limit; cleanup passes. Its valid fenced JSON
 arrives in a duplicated description: the Markdown paste capture inserts the

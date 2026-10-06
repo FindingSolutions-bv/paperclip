@@ -2,6 +2,7 @@ import { runnerE2EPlaywrightInvocation } from "./web-server-command.js";
 import { verifyInstalledDaytonaPlugin } from "./installed-daytona-plugin.js";
 import { assertInstalledCliSelection, assertInstalledStartupOnly, verifyInstalledCli } from "./installed-cli.js";
 import { createProcessTreeOwner, stopOwnedProcessTree } from "./process-tree-owner.js";
+import { createRunnerE2ETemporaryRoot } from "./server-config.js";
 import { randomBytes } from "node:crypto";
 import { prepareCodexCiSandbox, requiresCodexCiSandbox } from "./codex-ci-sandbox.js";
 import { spawn } from "node:child_process";
@@ -15,8 +16,8 @@ import {
   cp,
   lstat,
   mkdir,
-  mkdtemp,
   readFile,
+  realpath,
   readdir,
   rm,
   symlink,
@@ -479,9 +480,8 @@ async function runAttempt(input: {
   const installedPlugin = await verifyInstalledDaytonaPlugin(process.env, executions);
   const startedAtMs = Date.now();
   const sharedMemoryBaseline = snapshotDarwinSharedMemory();
-  const temporaryRoot = await mkdtemp(
-    path.join(os.tmpdir(), "paperclip-runner-e2e-"),
-  );
+  const temporaryParent = await realpath(os.tmpdir());
+  const temporaryRoot = await createRunnerE2ETemporaryRoot(temporaryParent);
   const publishedResults: RunnerE2EResult[] = [];
   const publishedResultPaths = new Map<string, string>();
   let attemptSecrets: string[] = [];
@@ -818,7 +818,7 @@ async function runAttempt(input: {
     if (processCleanupFailed) {
       cleanupError = new Error(`Preserving temporary state after incomplete process cleanup: ${temporaryRoot}`);
     } else if (
-      temporaryRoot.startsWith(`${os.tmpdir()}${path.sep}paperclip-runner-e2e-`)
+      temporaryRoot.startsWith(`${temporaryParent}${path.sep}paperclip-runner-e2e-`)
     ) {
       for (let cleanupAttempt = 1; cleanupAttempt <= 3; cleanupAttempt += 1) {
         try {
