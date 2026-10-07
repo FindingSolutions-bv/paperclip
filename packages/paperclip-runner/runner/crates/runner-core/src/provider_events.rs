@@ -1761,18 +1761,24 @@ mod tests {
             ("item/updated", "tool.execution.progressed", "running"),
             ("item/completed", "tool.execution.completed", "failed"),
         ] {
-            let events = normalize_codex_notification(method, &json!({
-                "threadId": "session-1", "turnId": "turn-1", "item": {
-                    "id": "part-invalid", "type": "builtinToolCall", "tool": "invalid",
-                    "status": status, "output": "Tool not found: fixture_missing; token=top-secret",
-                }
-            }));
+            let events = normalize_codex_notification(
+                method,
+                &json!({
+                    "threadId": "session-1", "turnId": "turn-1", "item": {
+                        "id": "part-invalid", "type": "builtinToolCall", "tool": "invalid",
+                        "status": status, "output": "Tool not found: fixture_missing; token=top-secret",
+                    }
+                }),
+            );
             assert_eq!(events[0].event_type, event_type);
             assert_eq!(events[0].payload["executionId"], "part-invalid");
             assert_eq!(events[0].payload["transport"], "builtin");
             assert_eq!(events[0].payload["name"], "invalid");
             assert_eq!(events[0].payload["status"], status);
-            assert!(events[0].payload["output"].as_str().unwrap().contains("fixture_missing"));
+            assert!(events[0].payload["output"]
+                .as_str()
+                .unwrap()
+                .contains("fixture_missing"));
             assert!(!events[0].payload.to_string().contains("top-secret"));
             assert!(events[0].payload.get("callId").is_none());
         }
