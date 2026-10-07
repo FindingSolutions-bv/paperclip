@@ -885,22 +885,21 @@ fn bootstrap_success(
         "turn.cancel" => {
             json!({"cancelled":mode != "turns-wrong-cancel", "sessionClosed":matches!(mode, "turns-retired" | "turns-retired-terminal-first")})
         }
-        "session.snapshot" => json!({
-            "identity": {
-                "kind":"acpx", "normalizedSessionId":"session-1",
-                "acpxRecordId":if mode == "resolutions-snapshot-wrong-session" {"other-record"} else {"record-1"},
-                "backendSessionId":"backend-1", "agentSessionId":"agent-1",
-                "profileDigest":profile_digest, "workspaceDigest":format!("sha256:{}", "2".repeat(64)),
-                "requestedModel":"gpt-5.6-sol", "effectiveModel":"gpt-5.6-sol",
-                "permissionMode":"approve-reads", "providerLifetimeFenceCandidates":lifetime_fence_candidates
-            },
-            "runId":"run-1",
-            "turnId":if mode == "resolutions-snapshot-wrong-turn" {"other-turn"} else {"turn-1"},
-            "pendingRuntimeRequests":if mode == "resolutions-snapshot-missing-callbacks" {Value::Null} else {
-                json!([{"requestId":if mode == "resolutions-projected-id" {PROJECTED_INPUT_PROVIDER_ID} else {"input-1"},
-                    "type":"input","turnId":"turn-1"}])
+        "session.snapshot" => {
+            let mut identity = session_identity.clone();
+            if mode == "resolutions-snapshot-wrong-session" {
+                identity["acpxRecordId"] = json!("other-record");
             }
-        }),
+            json!({
+                "identity": identity,
+                "runId":"run-1",
+                "turnId":if mode == "resolutions-snapshot-wrong-turn" {"other-turn"} else {"turn-1"},
+                "pendingRuntimeRequests":if mode == "resolutions-snapshot-missing-callbacks" {Value::Null} else {
+                    json!([{"requestId":if mode == "resolutions-projected-id" {PROJECTED_INPUT_PROVIDER_ID} else {"input-1"},
+                        "type":"input","turnId":"turn-1"}])
+                }
+            })
+        }
         "session.suspend" => {
             let mut identity = session_identity.clone();
             if mode == "suspend-missing-identity" {

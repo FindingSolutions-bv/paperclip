@@ -58,43 +58,16 @@ describe("redaction", () => {
     expect(redactEventPayload(redactEventPayload(input))).toEqual(input);
   });
 
-  it.each([1, 2] as const)("preserves only validated v%s receipt schema literals", version => {
+  it.each([1, 2] as const)("preserves public v%s receipt identifiers as text", version => {
     const notice = receiptNotice(version);
     expect(redactEventPayload(notice)).toEqual(notice);
-    for (const outcome of ["returned", "error"]) {
-      notice.details.find((d: any) => d.name === "outcome").value = outcome;
-      if (version === 2) notice.details.find((d: any) => d.name === "normalizedInputSha256").value = "null";
-      expect(redactEventPayload(notice)).toEqual(notice);
-    }
+    // Master's JWT detector recognizes encoded headers, so a dotted public
+    // identifier needs no receipt-shaped exemption to survive redaction.
     expect(redactEventPayload({ value: `paperclip.semantic_tool_receipt.v${version}` }))
-      .toEqual({ value: REDACTED_EVENT_VALUE });
+      .toEqual({ value: `paperclip.semantic_tool_receipt.v${version}` });
   });
 
-  it.each([
-    ["wrong category", (n: Record<string, any>) => { n.category = "copilot_tool_evidence_v1"; }],
-    ["wrong schema", (n: Record<string, any>) => { n.schema = "paperclip.provider.native.v1"; }],
-    ["wrong scope", (n: Record<string, any>) => { n.scope = "session"; }],
-    ["wrong provenance", (n: Record<string, any>) => { n.provenance.method = "session/update"; }],
-    ["missing provenance", (n: Record<string, any>) => { delete n.provenance.turnId; }],
-    ["unknown provenance field", (n: Record<string, any>) => { n.provenance.extra = "safe"; }],
-    ["oversized identity", (n: Record<string, any>) => { n.provenance.sessionId = "x".repeat(241); }],
-    ["wrong stage", (n: Record<string, any>) => { n.details[0].value = "tool"; }],
-    ["unknown receipt schema", (n: Record<string, any>) => { n.details[1].value = "paperclip.semantic_tool_receipt.v99"; }],
-    ["version mismatch", (n: Record<string, any>) => { n.details[1].value = "paperclip.semantic_tool_receipt.v2"; }],
-    ["duplicate detail", (n: Record<string, any>) => { n.details[2] = { ...n.details[1] }; }],
-    ["unknown detail", (n: Record<string, any>) => { n.details[2].name = "unknown"; }],
-    ["extra detail", (n: Record<string, any>) => { n.details.push({ name: "extra", value: "safe" }); }],
-    ["extra detail property", (n: Record<string, any>) => { n.details[1].extra = "safe"; }],
-    ["nonstring hash", (n: Record<string, any>) => { n.details[3].value = 123; }],
-    ["malformed hash", (n: Record<string, any>) => { n.details[3].value = "bad"; }],
-    ["malformed operation", (n: Record<string, any>) => { n.details[2].value = "bad operation"; }],
-    ["unknown outcome", (n: Record<string, any>) => { n.details[6].value = "accepted"; }],
-  ] as const)("does not exempt receipt schema in %s context", (_label, mutate) => {
-    const notice = receiptNotice(); mutate(notice);
-    expect(receiptSchemaValue(redactEventPayload(notice)!)).toBe(REDACTED_EVENT_VALUE);
-  });
-
-  it("does not restore JWTs or adjacent secrets through receipt-shaped data", () => {
+  it("redacts credentials in receipt-shaped data and every adjacent field", () => {
     const jwt = "eyJhbGciOiJIUzI1NiJ9.eyJzdWIiOiIxMjM0NTY3ODkwIn0.signature12345678";
     const notice = receiptNotice();
     notice.details.find((d: any) => d.name === "operationId").value = jwt;
@@ -105,28 +78,11 @@ describe("redaction", () => {
     expect(redacted.provenance.sessionId).toBe(REDACTED_EVENT_VALUE);
     expect(redactEventPayload({ notice, password: "canary", arbitrary: jwt }))
       .toMatchObject({ password: REDACTED_EVENT_VALUE, arbitrary: REDACTED_EVENT_VALUE });
-    const hostile = receiptNotice(); hostile.details[1].value = jwt;
-    expect(receiptSchemaValue(redactEventPayload(hostile)!)).toBe(REDACTED_EVENT_VALUE);
-    const adjacent = receiptNotice(); adjacent.summary = "Authorization: Bearer canary-token";
-    expect(JSON.stringify(redactEventPayload(adjacent))).not.toContain("canary-token");
-    expect(receiptSchemaValue(redactEventPayload(adjacent)!)).toBe(REDACTED_EVENT_VALUE);
-  });
-
-  it("bounds the notice ordinal to the actual producer's 2048-entry limit", () => {
-    const notice = receiptNotice();
-    notice.noticeId = `copilot-evidence-${"a".repeat(24)}-2048`;
-    expect(redactEventPayload(notice)).toEqual(notice);
-    for (const ordinal of ["0", "01", "2049", "9999"]) {
-      notice.noticeId = `copilot-evidence-${"a".repeat(24)}-${ordinal}`;
-      expect(receiptSchemaValue(redactEventPayload(notice)!)).toBe(REDACTED_EVENT_VALUE);
-    }
-  });
-
-  it("rejects malformed v2 normalized hashes without changing historical v1", () => {
-    const notice = receiptNotice(2);
-    notice.details.find((d: any) => d.name === "normalizedInputSha256").value = "bad";
-    expect(receiptSchemaValue(redactEventPayload(notice)!)).toBe(REDACTED_EVENT_VALUE);
-    expect(redactEventPayload(receiptNotice(1))).toEqual(receiptNotice(1));
+    notice.details.find((d: any) => d.name === "schema").value = jwt;
+    notice.summary = "Authorization: Bearer canary-token";
+    const hostile = redactEventPayload(notice)!;
+    expect(receiptSchemaValue(hostile)).toBe(REDACTED_EVENT_VALUE);
+    expect(JSON.stringify(hostile)).not.toContain("canary-token");
   });
 
   it("keeps the discriminator allowlist in exact PRP v1 schema parity", () => {

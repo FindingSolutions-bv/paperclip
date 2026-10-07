@@ -5,6 +5,35 @@ set of release gates. Pi remains a candidate until every required gate passes.
 Keep behavioral qualification on the accepted fixtures. Do not expand it to
 widgets, images, Cursor or Copilot qualification. The existing draft stack must be reviewed in dependency order.
 
+## Master safety restoration — 2026-10-07
+
+The earlier merge retained obsolete accounting code and removed master budget
+reservations, usage receipts, fractional billed amounts and cancellation policy
+fences. Restore those implementations and their database/shared/API/UI contracts
+from master. Reconcile the heartbeat and native executor with a three-way merge
+so Pi warm instruction copies, thinking identity and remote companion selection
+coexist with current accounting. Restore the native accounting regression tests
+and the usage completeness marker that durable replay requires.
+
+Remove the obsolete Cursor-only plan receipt implementation. Recovery fixtures
+now use master's provider-owned plan receipt path while preserving historical
+Cursor6 authority. Local PostgreSQL integration verification is held because
+this host exhausts System V shared memory during database bootstrap. No changes
+to global host limits or other running databases are part of this task.
+
+Free checks pass 91 source-only server boundary tests, 78 native usage/accounting
+tests, 11 Rust callback-resolution tests, and both public setup boundary tests.
+The Linux canary exposed a separate setup bug: the provisioner wrote Pi assets
+at the server root while discovery requires its vendored Runner directory. The
+provisioner now publishes to that same fixed directory. Its packaged-layout
+regression verifies corrupt installed bytes fail before any download or child.
+A fresh Linux public install is still required.
+
+Qualification will use a fixed master integration at
+`b67db12d90c1bd191f99975e35cc5c84137858e4`. No paid calls were made for these
+repairs. Current-source Linux installation, exact-head CI/review and all 33 live
+cases remain release gates; prior live evidence does not transfer.
+
 ## Startup and merge repairs — 2026-10-07
 
 The real sidecar process now accepts all four explicit Pi thinking levels in
