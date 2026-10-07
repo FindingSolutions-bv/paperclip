@@ -1,3 +1,6 @@
+import { chatSlackRegistrations, toolOauthStates } from "@paperclipai/db";
+import { buildSlackAppManifest } from "@paperclipai/shared";
+import { toolAccessService } from "../services/tool-access.js";
 import { toolActionRequests, toolInvocations } from "@paperclipai/db";
 import { GitHubPublicationLeaseLost, withGitHubPublicationLease } from "../services/chat-github-publication-lease.js";
 import { githubChatManagementService } from "../services/chat-github-management.js";
@@ -3976,6 +3979,246 @@ describeEmbeddedPostgres("chat channel control-plane integration", () => {
     expect((await service.get(createResponse.body.id)).setup.command).toBe(
       createdCommand,
     );
+  });
+
+  describe("automatic Slack registration", () => {
+    const actor = { userId: "owner-user", sessionId: null, bypassPermissionCheck: false };
+    const appDetails = { appName: "Maya Test", botName: "maya-test", command: "/maya" };
+    const configToken = "configuration-token-canary";
+    const signingSecret = "signing-secret-canary";
+    const clientSecret = "client-secret-canary";
+    async function fixture() {
+      await instanceSettingsService(db).updateExperimental({ enableChatConnectors: true });
+      const company = await seedCompany();
+      const id = randomUUID().replaceAll("-", "").toUpperCase();
+      const botId = `U${id}`;
+      const appId = `A${id}`;
+      const token = `xoxb-bot-token-canary-${id}`;
+      const scopes = buildSlackAppManifest({ app: appDetails, agentName: "Maya", webhookUrl: "https://paperclip.example/hook" }).oauth_config.scopes.bot;
+      const state = {
+        failCreate: false, failValidate: false, failInventory: false, failAuth: false, failExchange: false,
+        beforeAuth: null as null | (() => Promise<void>),
+        oauth: { ok: true, app_id: appId, token_type: "bot", access_token: token, team: { id: "TAUTO" }, bot_user_id: botId, scope: scopes.join(",") },
+      };
+      const fallback = fakeSlackFetch(botId);
+      const provider = vi.fn(async (input: string | URL | Request, init?: RequestInit) => {
+        const url = String(input);
+        if (url.endsWith("apps.manifest.validate")) return Response.json(state.failValidate ? { ok: false, error: "invalid_auth", detail: configToken } : { ok: true });
+        if (url.endsWith("apps.manifest.create")) {
+          if (state.failCreate) throw new Error(`Timeout ${configToken} ${clientSecret}`);
+          return Response.json({ ok: true, app_id: appId, credentials: { client_id: "123.456", client_secret: clientSecret, signing_secret: signingSecret } });
+        }
+        if (url.endsWith("oauth.v2.access")) {
+          if (state.failExchange) throw new Error(`Timeout ${clientSecret} ${token}`);
+          return Response.json(state.oauth);
+        }
+        if (url.endsWith("auth.test")) {
+          await state.beforeAuth?.();
+          if (state.failAuth) throw new Error(`Temporary failure ${token}`);
+          return Response.json({ ok: true, team_id: "TAUTO", user_id: botId, user: `maya-${id}`, team: "Test workspace" }, { headers: { "x-oauth-scopes": scopes.join(",") } });
+        }
+        if (url.includes("conversations.list") && state.failInventory) throw new Error(`Inventory failed ${token}`);
+        return fallback(input, init);
+      });
+      const { service } = createService(new FakeChatSdkRuntime(), provider);
+      const endpoint = await service.create(company.companyId, { provider: "slack", assignedAgentId: company.assignedAgentId }, actor.userId);
+      await service.update(endpoint.id, { slackApp: appDetails }, actor.userId);
+      const app = routesApp(db, company.companyId, service);
+      const createInput = { requestId: randomUUID(), credentials: { configurationToken: configToken } };
+      const create = (input = createInput) => service.slackRegistration.create(endpoint.id, actor, input);
+      const install = async () => new URL((await service.slackRegistration.install(endpoint.id, actor)).authorizationUrl).searchParams.get("state")!;
+      return { ...company, endpoint, service, app, state, provider, create, install, createInput, token, appId, botId };
+    }
+    it("creates once under concurrent submissions and resumes after restart without exposing credentials", async () => {
+      const f = await fixture();
+      await Promise.all([f.create(), f.create()]);
+      expect(f.provider.mock.calls.filter(([url]) => String(url).endsWith("apps.manifest.create"))).toHaveLength(1);
+      const saved = await f.service.get(f.endpoint.id);
+      expect(saved.setup).toMatchObject({ slackSetupMethod: "automatic", slackRegistration: { status: "install", appId: f.appId } });
+      const { service: restarted } = createService(new FakeChatSdkRuntime(), f.provider);
+      await restarted.slackRegistration.create(f.endpoint.id, actor, { ...f.createInput, requestId: randomUUID() });
+      expect(f.provider.mock.calls.filter(([url]) => String(url).endsWith("apps.manifest.create"))).toHaveLength(1);
+      const [row] = await db.select().from(chatSlackRegistrations).where(eq(chatSlackRegistrations.endpointId, f.endpoint.id));
+      expect(Object.keys(row.secretIds).sort()).toEqual(["clientSecret", "signingSecret"]);
+      const publicState = JSON.stringify({ saved, row, activities: await db.select().from(activityLog).where(eq(activityLog.companyId, f.companyId)) });
+      for (const canary of [configToken, signingSecret, clientSecret, f.token]) expect(publicState).not.toContain(canary);
+      await request(f.app).patch(`/api/chat-endpoints/${f.endpoint.id}`).send({ slackApp: appDetails }).expect(409);
+    });
+    it("installs, requires signed URL verification, reauthorizes the same app, and never links the installing user", async () => {
+      const f = await fixture();
+      await f.create();
+      const state = await f.install();
+      const first = await request(f.app).get(`/api/chat-slack/oauth/callback?state=${state}&code=oauth-code-canary`).set("Accept", "text/html").set("Sec-Fetch-Site", "cross-site").set("Sec-Fetch-Mode", "navigate").expect(200);
+      expect(first.headers["cache-control"]).toBe("no-store");
+      expect(first.text).not.toContain("oauth-code-canary");
+      expect(f.provider.mock.calls.filter(([url]) => String(url).endsWith("oauth.v2.access"))).toHaveLength(0);
+      const completed = await request(f.app).get(`/api/chat-slack/oauth/callback?state=${state}&code=oauth-code-canary`).set("Sec-Fetch-Site", "same-origin").expect(303);
+      expect(completed.headers.location).toContain(`resume=${f.endpoint.id}`);
+      const saved = await f.service.get(f.endpoint.id);
+      expect(saved.setup.slackRegistration?.status).toBe("configured");
+      expect(saved.setup.step).toBe("provider_setup");
+      expect(saved.setup.webhookVerifiedAt).toBeNull();
+      expect(saved.providerAccountId).toBe("TAUTO");
+      expect(await f.service.listPrincipals(f.endpoint.id)).toEqual([]);
+      const [row] = await db.select().from(chatSlackRegistrations).where(eq(chatSlackRegistrations.endpointId, f.endpoint.id));
+      expect(Object.keys(row.secretIds)).toEqual(["clientSecret"]);
+      const body = JSON.stringify({ type: "url_verification", challenge: "auto-challenge" });
+      await f.service.handleWebhook(saved.publicId, "slack", signedSlackWebhookRequest({ url: saved.setup.webhookUrl!, body, contentType: "application/json", signingSecret }));
+      expect((await f.service.get(f.endpoint.id)).setup.webhookVerifiedAt).toBeTruthy();
+      await f.service.slackRegistration.complete(await f.install(), "new-code", null, actor);
+      expect((await f.service.get(f.endpoint.id)).setup.slackRegistration?.status).toBe("configured");
+      expect(f.provider.mock.calls.filter(([url]) => String(url).endsWith("apps.manifest.create"))).toHaveLength(1);
+      const activities = await db.select().from(activityLog).where(eq(activityLog.companyId, f.companyId));
+      for (const canary of [configToken, signingSecret, clientSecret, f.token, "oauth-code-canary"]) expect(JSON.stringify({ saved, activities, response: completed.text })).not.toContain(canary);
+    });
+    it.each(["failAuth", "failInventory"] as const)("vaults the bot token before %s and resumes without code exchange", async failure => {
+      const f = await fixture();
+      await f.create();
+      f.state[failure] = true;
+      await f.service.slackRegistration.complete(await f.install(), "code", null, actor);
+      expect((await f.service.get(f.endpoint.id)).setup.slackRegistration).toMatchObject({ status: "credentials_saved", errorCode: "slack_configuration_incomplete" });
+      const [row] = await db.select().from(chatSlackRegistrations).where(eq(chatSlackRegistrations.endpointId, f.endpoint.id));
+      expect(row.secretIds.botToken).toBeTruthy();
+      f.state[failure] = false;
+      await f.service.slackRegistration.resume(f.endpoint.id, actor);
+      expect((await f.service.get(f.endpoint.id)).setup.slackRegistration?.status).toBe("configured");
+      expect(f.provider.mock.calls.filter(([url]) => String(url).endsWith("oauth.v2.access"))).toHaveLength(1);
+    });
+    it("does not repeat uncertain creation until the operator explicitly confirms no app exists", async () => {
+      const f = await fixture();
+      f.state.failCreate = true;
+      await f.create();
+      expect((await f.service.get(f.endpoint.id)).setup.slackRegistration).toMatchObject({ status: "uncertain", errorCode: "slack_creation_uncertain" });
+      await f.create({ ...f.createInput, requestId: randomUUID() });
+      expect(f.provider.mock.calls.filter(([url]) => String(url).endsWith("apps.manifest.create"))).toHaveLength(1);
+      f.state.failCreate = false;
+      await f.service.slackRegistration.create(f.endpoint.id, actor, { ...f.createInput, requestId: randomUUID(), confirmedNoAppCreated: true });
+      expect((await f.service.get(f.endpoint.id)).setup.slackRegistration?.status).toBe("install");
+      expect(f.provider.mock.calls.filter(([url]) => String(url).endsWith("apps.manifest.create"))).toHaveLength(2);
+    });
+    it("shows interrupted creation as uncertain after restart and supports manual recovery on the same draft", async () => {
+      const f = await fixture();
+      f.state.failCreate = true;
+      await f.create();
+      await db.update(chatSlackRegistrations).set({ status: "creating", updatedAt: new Date(Date.now() - 120_000) }).where(eq(chatSlackRegistrations.endpointId, f.endpoint.id));
+      expect((await f.service.get(f.endpoint.id)).setup.slackRegistration?.status).toBe("uncertain");
+      await f.service.update(f.endpoint.id, { slackSetupMethod: "manual" }, actor.userId);
+      expect((await f.service.get(f.endpoint.id)).setup.slackSetupMethod).toBe("manual");
+      await expect(f.service.slackRegistration.install(f.endpoint.id, actor)).rejects.toThrow();
+      expect(f.provider.mock.calls.filter(([url]) => String(url).endsWith("apps.manifest.create"))).toHaveLength(1);
+    });
+    it("maps invalid token and validation echoes without persisting or exposing the supplied token", async () => {
+      const f = await fixture();
+      f.state.failValidate = true;
+      const result = await request(f.app).post(`/api/chat-endpoints/${f.endpoint.id}/slack/registration`).send(f.createInput).expect(422);
+      expect(result.body.error).toContain("Generate a new configuration token");
+      expect(result.text).not.toContain(configToken);
+      expect(await f.service.slackRegistration.registration(f.endpoint.id)).toBeUndefined();
+      const malformed = await request(f.app).post(`/api/chat-endpoints/${f.endpoint.id}/slack/registration`).send({ ...f.createInput, credentials: { configurationToken: { nested: configToken } } }).expect(400);
+      expect(malformed.text).not.toContain(configToken);
+      f.state.failValidate = false;
+      await f.create();
+      expect((await f.service.get(f.endpoint.id)).setup.slackRegistration?.status).toBe("install");
+    });
+    it.each(["app", "workspace", "bot", "type", "scope"])("rejects an OAuth %s mismatch without binding runtime credentials", async mismatch => {
+      const f = await fixture();
+      await f.create();
+      if (mismatch === "app") f.state.oauth.app_id = "AWRONG";
+      if (mismatch === "workspace") f.state.oauth.team.id = "";
+      if (mismatch === "bot") f.state.oauth.bot_user_id = "invalid";
+      if (mismatch === "type") f.state.oauth.token_type = "user";
+      if (mismatch === "scope") f.state.oauth.scope = "chat:write";
+      await f.service.slackRegistration.complete(await f.install(), "code", null, actor);
+      const saved = await f.service.get(f.endpoint.id);
+      expect(saved.providerAccountId).toBeNull();
+      expect(saved.setup.slackRegistration?.errorCode).toBe(mismatch === "scope" ? "slack_install_scopes_missing" : "slack_install_identity_mismatch");
+    });
+    it("claims callbacks once, keeps denied installation resumable, and does not replay ambiguous exchange", async () => {
+      const f = await fixture();
+      await f.create();
+      await f.service.slackRegistration.complete(await f.install(), null, "access_denied", actor);
+      expect((await f.service.get(f.endpoint.id)).setup.slackRegistration?.errorCode).toBe("slack_install_declined");
+      f.state.failExchange = true;
+      const state = await f.install();
+      const results = await Promise.allSettled([f.service.slackRegistration.complete(state, "code", null, actor), f.service.slackRegistration.complete(state, "code", null, actor)]);
+      expect(results.filter(result => result.status === "fulfilled")).toHaveLength(1);
+      expect(f.provider.mock.calls.filter(([url]) => String(url).endsWith("oauth.v2.access"))).toHaveLength(1);
+      await expect(f.service.slackRegistration.complete(state, "code", null, actor)).rejects.toThrow();
+      f.state.failExchange = false;
+      await f.service.slackRegistration.complete(await f.install(), "new-code", null, actor);
+      expect((await f.service.get(f.endpoint.id)).setup.slackRegistration?.status).toBe("configured");
+    });
+    it("rejects expiry, wrong actor/session/company, permission revocation, and origin drift before exchange", async () => {
+      const f = await fixture();
+      await f.create();
+      const state = await f.install();
+      await expect(f.service.slackRegistration.complete(state, "code", null, { ...actor, userId: "other-user" })).rejects.toThrow();
+      await expect(f.service.slackRegistration.complete(state, "code", null, { ...actor, sessionId: "other-session" })).rejects.toThrow();
+      const other = await seedCompany();
+      await db.update(toolOauthStates).set({ companyId: other.companyId }).where(eq(toolOauthStates.state, state));
+      await expect(f.service.slackRegistration.complete(state, "code", null, actor)).rejects.toThrow();
+      await db.update(toolOauthStates).set({ companyId: f.companyId, expiresAt: new Date(0) }).where(eq(toolOauthStates.state, state));
+      await expect(f.service.slackRegistration.complete(state, "code", null, actor)).rejects.toThrow();
+      const fresh = await f.install();
+      const changed = createService(new FakeChatSdkRuntime(), f.provider, { webhookPublicBaseUrl: "https://changed.example" }).service;
+      await expect(changed.slackRegistration.complete(fresh, "code", null, actor)).rejects.toThrow(/webhook address changed/);
+      const changedBrowser = createService(new FakeChatSdkRuntime(), f.provider, { publicBaseUrl: "https://changed.example" }).service;
+      await expect(changedBrowser.slackRegistration.complete(fresh, "code", null, actor)).rejects.toThrow();
+      await db.delete(principalPermissionGrants).where(eq(principalPermissionGrants.companyId, f.companyId));
+      await expect(f.service.slackRegistration.complete(fresh, "code", null, actor)).rejects.toThrow();
+      expect(f.provider.mock.calls.filter(([url]) => String(url).endsWith("oauth.v2.access"))).toHaveLength(0);
+    });
+    it("returns expired authorization to the saved wizard without exchanging its code", async () => {
+      const f = await fixture();
+      await f.create();
+      const state = await f.install();
+      await db.update(toolOauthStates).set({ expiresAt: new Date(0) }).where(eq(toolOauthStates.state, state));
+      expect(await f.service.slackRegistration.expiredReturn(state, { ...actor, sessionId: "wrong-session" })).toBeNull();
+      const result = await request(f.app).get(`/api/chat-slack/oauth/callback?state=${state}&code=expired-code-canary`).expect(303);
+      expect(result.headers.location).toContain(`resume=${f.endpoint.id}`);
+      expect(result.text).not.toContain("expired-code-canary");
+      expect((await f.service.get(f.endpoint.id)).setup.slackRegistration).toMatchObject({ status: "install", errorCode: "slack_install_expired" });
+      expect(await db.select().from(toolOauthStates).where(eq(toolOauthStates.state, state))).toEqual([]);
+      expect(f.provider.mock.calls.some(([url]) => String(url).endsWith("oauth.v2.access"))).toBe(false);
+    });
+    it("does not bind runtime credentials when management access is revoked during provider checks", async () => {
+      const f = await fixture();
+      await f.create();
+      f.state.beforeAuth = async () => { await db.delete(principalPermissionGrants).where(eq(principalPermissionGrants.companyId, f.companyId)); };
+      await f.service.slackRegistration.complete(await f.install(), "code", null, actor);
+      const saved = await f.service.get(f.endpoint.id);
+      expect(saved.providerAccountId).toBeNull();
+      expect(saved.botExternalId).toBeNull();
+      expect(saved.setup.slackRegistration?.status).toBe("credentials_saved");
+      const [connection] = await db.select().from(toolConnections).where(eq(toolConnections.id, f.endpoint.connectionId));
+      expect(connection.credentialSecretRefs).toEqual([]);
+      await expect(f.service.slackRegistration.resume(f.endpoint.id, actor)).rejects.toThrow();
+    });
+    it.each(["workspace", "bot"])("rejects changing an established %s during reauthorization", async mismatch => {
+      const f = await fixture();
+      await f.create();
+      await f.service.slackRegistration.complete(await f.install(), "first-code", null, actor);
+      if (mismatch === "workspace") f.state.oauth.team.id = "TDIFFERENT";
+      else f.state.oauth.bot_user_id = "UDIFFERENT";
+      await f.service.slackRegistration.complete(await f.install(), "second-code", null, actor);
+      const saved = await f.service.get(f.endpoint.id);
+      expect(saved).toMatchObject({ providerAccountId: "TAUTO", botExternalId: f.botId });
+      expect(saved.setup.slackRegistration?.errorCode).toBe("slack_install_identity_mismatch");
+    });
+    it.each(["chat", "connection"])("removes registration secrets and prevents late callbacks after %s removal", async path => {
+      const f = await fixture();
+      await f.create();
+      const state = await f.install();
+      const row = (await f.service.slackRegistration.registration(f.endpoint.id))!;
+      if (path === "chat") await f.service.configure(f.endpoint.id, { action: "remove" }, actor.userId);
+      else await toolAccessService(db).archiveConnection(f.endpoint.connectionId, f.companyId);
+      expect((await f.service.slackRegistration.registration(f.endpoint.id))?.secretIds).toEqual({});
+      await expect(f.service.slackRegistration.complete(state, "late-code", null, actor)).rejects.toThrow();
+      const secrets = await db.select().from(companySecrets).where(inArray(companySecrets.id, Object.values(row.secretIds)));
+      expect(secrets.every(secret => secret.status === "deleted")).toBe(true);
+      expect((await f.service.get(f.endpoint.id)).setup.slackRegistration?.managementUrl).toContain(f.appId);
+      expect(f.provider.mock.calls.some(([url]) => String(url).includes("apps.manifest.delete"))).toBe(false);
+    });
   });
 
   it("persists Slack manifest draft details and the registered command, then locks them once connected", async () => {

@@ -252,9 +252,7 @@ describe("chat setup and identity-link clipboard actions", () => {
     expect(document.querySelector("[role=dialog]")).not.toBeNull();
     expect(document.querySelector("textarea")!.readOnly).toBe(true);
     const manifest = document.querySelector("textarea")!.value;
-    expect(manifest).toContain(`name: ${JSON.stringify(edited.appName)}`);
-    expect(manifest).toContain(`display_name: "research-ops"`);
-    expect(manifest).toContain(`command: "/research"`);
+    expect(JSON.parse(manifest)).toMatchObject({ display_information: { name: edited.appName }, features: { bot_user: { display_name: "research-ops" }, slash_commands: [{ command: "/research" }] } });
     await click("Copy manifest");
     expect(copied).toEqual([manifest]);
     await click("Close");
@@ -266,7 +264,7 @@ describe("chat setup and identity-link clipboard actions", () => {
     const url = new URL(open.mock.calls[0][0] as string);
     expect(url.origin + url.pathname).toBe("https://api.slack.com/apps");
     expect(url.searchParams.get("new_app")).toBe("1");
-    expect(url.searchParams.get("manifest_yaml")).toBe(manifest);
+    expect(url.searchParams.get("manifest_json")).toBe(manifest);
     expect(open.mock.calls[0].slice(1)).toEqual(["_blank", "noopener,noreferrer"]);
     expect(container.querySelector("h1")?.textContent).toBe("Create a Slack app");
     expect(createButton.disabled).toBe(true);

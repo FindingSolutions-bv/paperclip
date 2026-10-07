@@ -1313,6 +1313,14 @@ function Activity({
               {` ${providerNames[endpoint.provider]}`}. Existing Paperclip tasks
               remain available.{" "}
               {providerLifecycleGuidance[endpoint.provider].remove}
+              {endpoint.provider === "slack" && (
+                <> <a
+                  href={endpoint.setup?.slackRegistration?.managementUrl ?? "https://api.slack.com/apps"}
+                  target="_blank"
+                  rel="noopener noreferrer"
+                  className="underline underline-offset-4"
+                >Open Slack app settings</a> to manage or delete the Slack app.</>
+              )}
             </AlertDialogDescription>
           </AlertDialogHeader>
           <AlertDialogFooter>

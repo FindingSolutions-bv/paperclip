@@ -1,3 +1,7 @@
+import { chatCredentialMutationLease, CREDENTIAL_MUTATION_LEASE_TTL_MS, type CredentialMutationLeaseGuard } from "./chat-credential-mutation-lease.js";
+import { slackChatRegistrationService, slackRegistrationProjection } from "./chat-slack-registration.js";
+import { chatSlackRegistrations } from "@paperclipai/db";
+import { SLACK_CHAT_BOT_SCOPES } from "@paperclipai/shared";
 import { withSlackBoardLease } from "./slack-board-lease.js";
 import { mirrorSlackBoardComment, slackBoardReplyBindings } from "./slack-board-messages.js";
 import { authorizeSlackBoardPublication } from "./slack-board-authority.js";
@@ -762,25 +766,7 @@ const REQUIRED_CREDENTIALS: Record<
   telegram: ["botToken"],
 };
 
-const REQUIRED_SLACK_BOT_SCOPES = [
-  "app_mentions:read",
-  "assistant:write",
-  "channels:history",
-  "channels:read",
-  "chat:write",
-  "commands",
-  "files:read",
-  "files:write",
-  "groups:history",
-  "groups:read",
-  "im:history",
-  "im:read",
-  "mpim:history",
-  "mpim:read",
-  "reactions:read",
-  "reactions:write",
-  "users:read",
-] as const;
+const REQUIRED_SLACK_BOT_SCOPES = SLACK_CHAT_BOT_SCOPES;
 
 const REQUIRED_GITHUB_EVENTS = [
   "issue_comment",
@@ -849,10 +835,7 @@ const SLACK_FILE_RECEIPT_MAX_ATTEMPTS = 12;
 const SLACK_FILE_RECEIPT_STALE_MS = 60_000;
 const ORPHAN_FOLLOW_UP_GRACE_MS = 5_000;
 const ORPHAN_FOLLOW_UP_MAX_ATTEMPTS = 12;
-const CREDENTIAL_MUTATION_LEASE_TTL_MS = 90_000;
 const PUBLICATION_ENDPOINT_CONCURRENCY = 4;
-const CREDENTIAL_MUTATION_LEASE_WAIT_MS = 10_000;
-const CREDENTIAL_MUTATION_LEASE_POLL_MS = 25;
 const DISCORD_GATEWAY_LEASE_KEY = "discord_gateway_runtime";
 function leasedChatProvider(provider: string): boolean { return provider === "discord" || provider === "imessage-photon"; }
 const DISCORD_GATEWAY_LEASE_TTL_MS = 15_000;
@@ -1539,18 +1522,6 @@ export interface ChatChannelServiceOptions {
     claimId: string;
   }) => Promise<void>;
   storage?: StorageService;
-}
-
-interface CredentialMutationLeaseGuard {
-  assertOwned(database?: DbOrTransaction): Promise<void>;
-}
-
-interface CredentialMutationLeaseCompletion<T> {
-  beforeFinalOwnershipCheck?: () => Promise<void>;
-  recoverCommittedResultAfterLeaseLoss?: (
-    result: T,
-    error: Error,
-  ) => Promise<boolean>;
 }
 
 type DiscordGatewayOwnership = {
@@ -2706,6 +2677,7 @@ function providerSetupState(
           (surface) => surface.status === "stale",
         ),
         slackApp: endpoint.setup.slackApp,
+        slackSetupMethod: endpoint.setup.slackSetupMethod,
         // Slack registers the slash command in the provider configuration.
         // Keep that identity immutable when the assigned agent is renamed;
         // deriving it remains only a compatibility path for older rows.
@@ -5933,7 +5905,14 @@ export function chatChannelService(db: Db, options: ChatChannelServiceOptions) {
   }
 
   async function get(endpointId: string) {
-    return serializeEndpoint(await endpointRecord(endpointId));
+    const result = serializeEndpoint(await endpointRecord(endpointId));
+    if (result.provider === "slack") {
+      const [registration] = await db.select().from(chatSlackRegistrations).where(eq(chatSlackRegistrations.endpointId, endpointId));
+      result.setup.slackRegistration = registration ? slackRegistrationProjection(registration) : undefined;
+      const publicOrigin = getPublicBaseUrl();
+      result.setup.slackOAuthCallbackUri = publicOrigin ? `${publicOrigin}/api/chat-slack/oauth/callback` : null;
+    }
+    return result;
   }
 
   async function create(
@@ -6051,7 +6030,7 @@ export function chatChannelService(db: Db, options: ChatChannelServiceOptions) {
         setup: {
           step: "provider_setup",
           ...(input.provider === "slack"
-            ? { command: slackCommandForAgent(agent.name, publicId) }
+            ? { command: slackCommandForAgent(agent.name, publicId), slackSetupMethod: "automatic" }
             : {}),
         },
       });
@@ -6097,6 +6076,19 @@ export function chatChannelService(db: Db, options: ChatChannelServiceOptions) {
           }
           values.communicationInstructions = input.communicationInstructions;
         }
+        if (input.slackApp || input.slackSetupMethod) {
+          const [registration] = await db.select().from(chatSlackRegistrations).where(eq(chatSlackRegistrations.endpointId, endpointId));
+          if (registration && registration.status !== "failed") {
+            if (input.slackApp || input.slackSetupMethod === "automatic") throw conflict("Slack app details are locked after creation starts");
+            // Manual recovery fences pending authorization under the same credential lease.
+            await slackRegistration.cleanup(endpointId, credentialLease);
+          }
+        }
+        if (input.slackSetupMethod) {
+          if (existing.endpoint.provider !== "slack" || existing.endpoint.botExternalId || existing.endpoint.status !== "draft")
+            throw conflict("Setup method can only change before connecting the app");
+          values.setup = { ...existing.endpoint.setup, slackSetupMethod: input.slackSetupMethod };
+        }
         if (input.slackApp) {
           if (existing.endpoint.provider !== "slack") {
             throw unprocessable("Slack app details only apply to Slack connections");
@@ -6105,7 +6097,7 @@ export function chatChannelService(db: Db, options: ChatChannelServiceOptions) {
             throw conflict("Slack app details can only be edited before connecting the app");
           }
           values.setup = {
-            ...existing.endpoint.setup,
+            ...(values.setup ?? existing.endpoint.setup),
             slackApp: input.slackApp,
             command: input.slackApp.command,
           };
@@ -6759,174 +6751,7 @@ export function chatChannelService(db: Db, options: ChatChannelServiceOptions) {
     return values;
   }
 
-  async function acquireCredentialMutationLease(endpoint: EndpointRow) {
-    const token = randomUUID();
-    const leaseKey = "credentials";
-    const deadline = Date.now() + CREDENTIAL_MUTATION_LEASE_WAIT_MS;
-    while (true) {
-      const now = new Date();
-      const expiresAt = new Date(
-        now.getTime() + CREDENTIAL_MUTATION_LEASE_TTL_MS,
-      );
-      const inserted = await db
-        .insert(chatEndpointLeases)
-        .values({
-          companyId: endpoint.companyId,
-          endpointId: endpoint.id,
-          leaseKey,
-          token,
-          expiresAt,
-        })
-        .onConflictDoNothing()
-        .returning({ id: chatEndpointLeases.id });
-      if (inserted.length > 0) return { leaseKey, token };
-      const reclaimed = await db
-        .update(chatEndpointLeases)
-        .set({ token, expiresAt, updatedAt: now })
-        .where(
-          and(
-            eq(chatEndpointLeases.companyId, endpoint.companyId),
-            eq(chatEndpointLeases.endpointId, endpoint.id),
-            eq(chatEndpointLeases.leaseKey, leaseKey),
-            lte(chatEndpointLeases.expiresAt, now),
-          ),
-        )
-        .returning({ id: chatEndpointLeases.id });
-      if (reclaimed.length > 0) return { leaseKey, token };
-      if (Date.now() >= deadline) {
-        throw conflict(
-          "Another credential update is still in progress; try again",
-          {
-            code: "chat_endpoint_credentials_busy",
-          },
-        );
-      }
-      await new Promise((resolve) =>
-        setTimeout(resolve, CREDENTIAL_MUTATION_LEASE_POLL_MS),
-      );
-    }
-  }
-
-  async function withCredentialMutationLease<T>(
-    endpoint: EndpointRow,
-    mutation: (lease: CredentialMutationLeaseGuard) => Promise<T>,
-    completion?: CredentialMutationLeaseCompletion<T>,
-  ): Promise<T> {
-    const lease = await acquireCredentialMutationLease(endpoint);
-    let leaseLoss: Error | null = null;
-    const lostLeaseError = (cause?: unknown) =>
-      Object.assign(
-        new Error(
-          "Chat credential mutation lease ownership was lost before the operation completed",
-          cause === undefined ? undefined : { cause },
-        ),
-        { code: "CHAT_CREDENTIAL_LEASE_LOST" },
-      );
-    const assertOwned: CredentialMutationLeaseGuard["assertOwned"] = async (
-      database = db,
-    ) => {
-      if (leaseLoss) throw leaseLoss;
-      const now = new Date();
-      const expiresAt = new Date(
-        now.getTime() + CREDENTIAL_MUTATION_LEASE_TTL_MS,
-      );
-      try {
-        const owned = options.renewCredentialMutationLease
-          ? await options.renewCredentialMutationLease({
-              companyId: endpoint.companyId,
-              endpointId: endpoint.id,
-              expiresAt,
-              leaseKey: lease.leaseKey,
-              token: lease.token,
-            })
-          : (
-              await database
-                .update(chatEndpointLeases)
-                .set({ expiresAt, updatedAt: now })
-                .where(
-                  and(
-                    eq(chatEndpointLeases.companyId, endpoint.companyId),
-                    eq(chatEndpointLeases.endpointId, endpoint.id),
-                    eq(chatEndpointLeases.leaseKey, lease.leaseKey),
-                    eq(chatEndpointLeases.token, lease.token),
-                  ),
-                )
-                .returning({ id: chatEndpointLeases.id })
-            ).length > 0;
-        if (!owned) {
-          leaseLoss = lostLeaseError();
-          throw leaseLoss;
-        }
-      } catch (error) {
-        if (leaseLoss) throw leaseLoss;
-        leaseLoss = lostLeaseError(error);
-        throw leaseLoss;
-      }
-    };
-    const guard: CredentialMutationLeaseGuard = { assertOwned };
-    let renewal: Promise<void> | null = null;
-    const renewTimer = setInterval(
-      () => {
-        if (renewal) return;
-        renewal = assertOwned()
-          .catch((error) => {
-            logger.warn(
-              { endpointId: endpoint.id, error: redactError(error) },
-              "lost chat credential mutation lease ownership",
-            );
-          })
-          .finally(() => {
-            renewal = null;
-          });
-      },
-      options.credentialMutationLeaseRenewalIntervalMs ??
-        CREDENTIAL_MUTATION_LEASE_TTL_MS / 3,
-    );
-    renewTimer.unref?.();
-    try {
-      const result = await mutation(guard);
-      await completion?.beforeFinalOwnershipCheck?.();
-      try {
-        await assertOwned();
-      } catch (error) {
-        const recovered = completion?.recoverCommittedResultAfterLeaseLoss
-          ? await completion
-              .recoverCommittedResultAfterLeaseLoss(result, error as Error)
-              .catch((recoveryError) => {
-                logger.warn(
-                  {
-                    endpointId: endpoint.id,
-                    error: redactError(recoveryError),
-                  },
-                  "could not verify a committed chat credential mutation after lease loss",
-                );
-                return false;
-              })
-          : false;
-        if (!recovered) throw error;
-      }
-      return result;
-    } finally {
-      clearInterval(renewTimer);
-      await renewal;
-      await db
-        .delete(chatEndpointLeases)
-        .where(
-          and(
-            eq(chatEndpointLeases.companyId, endpoint.companyId),
-            eq(chatEndpointLeases.endpointId, endpoint.id),
-            eq(chatEndpointLeases.leaseKey, lease.leaseKey),
-            eq(chatEndpointLeases.token, lease.token),
-          ),
-        )
-        .catch((error) => {
-          logger.warn(
-            { endpointId: endpoint.id, error: redactError(error) },
-            "could not release chat credential mutation lease",
-          );
-        });
-    }
-  }
+  const withCredentialMutationLease = chatCredentialMutationLease(db, options);
 
   async function generateSetupSecret(
     endpointId: string,
@@ -9419,6 +9244,7 @@ export function chatChannelService(db: Db, options: ChatChannelServiceOptions) {
     }
     if (input.action === "remove") {
       if (endpoint.status === "archived") {
+        if (endpoint.provider === "slack") await slackRegistration.cleanup(endpoint.id, credentialLease);
         // Archival is the durable ingress fence and intentionally commits
         // before secret-store cleanup. If that cleanup failed, a repeated
         // remove is the recovery operation; once refs are empty, retain the
@@ -9504,6 +9330,7 @@ export function chatChannelService(db: Db, options: ChatChannelServiceOptions) {
         }
         await credentialLease.assertOwned(tx);
       });
+      if (endpoint.provider === "slack") await slackRegistration.cleanup(endpoint.id, credentialLease);
       await invalidateRuntime(endpoint.id).catch(() => undefined);
       if (endpoint.provider === "telegram") {
         await credentialLease.assertOwned();
@@ -38247,6 +38074,27 @@ export function chatChannelService(db: Db, options: ChatChannelServiceOptions) {
     return get(endpointId);
   }
 
+  const slackRegistration = slackChatRegistrationService(db, {
+    publicOrigin: getPublicBaseUrl, webhookOrigin: getWebhookPublicBaseUrl, fetch: fetchImpl,
+    withLock: async (endpointId, work) => {
+      const record = await endpointRecord(endpointId);
+      if (!record) throw notFound("Chat endpoint not found");
+      return withCredentialMutationLease(record.endpoint, work);
+    },
+    runtimeSigningSecret: async endpointId => {
+      const record = await endpointRecord(endpointId);
+      if (!record) throw notFound("Chat endpoint not found");
+      return (await resolveCredentials(record.endpoint)).signingSecret;
+    },
+    configure: async (endpointId, credentials, actor, lease) => {
+      const record = await endpointRecord(endpointId);
+      if (!record) throw notFound("Chat endpoint not found");
+      return configureWithCredentialLease(endpointId, {
+        action: record.endpoint.botExternalId ? "reconnect" : "configure", credentials,
+      }, lease, actor.userId);
+    },
+  });
+
   const githubRegistration = githubChatRegistrationService(db, {
     publicOrigin: () => getPublicBaseUrl(), webhookOrigin: () => getWebhookPublicBaseUrl(), fetch: fetchImpl,
     storeApp: async (endpointId, userId, app) => { await storeGitHubApp(endpointId, userId, { appId: app.appId, privateKey: app.privateKey, webhookSecret: app.webhookSecret }); },
@@ -38371,6 +38219,7 @@ export function chatChannelService(db: Db, options: ChatChannelServiceOptions) {
   });
 
   return {
+    slackRegistration,
     saveGitHubSetupProgress: async (endpointId: string, stage: NonNullable<ChatEndpointSetupState["github"]>["stage"]) => {
       const record = await endpointRecord(endpointId);
       if (!record || record.endpoint.provider !== "github") throw notFound("GitHub bot not found");

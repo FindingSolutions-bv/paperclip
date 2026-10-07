@@ -617,3 +617,28 @@ reads and server startup do not provision them. Normal backups preserve identity
 rows and need the matching secrets master key for recovery. Both development seed
 modes omit identity rows, including with live-work preservation, so copied agents
 get fresh identities. See [Agent cryptographic identity](AGENT-IDENTITY.md).
+
+### Slack app registration
+
+`chat_slack_registrations` stores one company-scoped app registration per chat
+endpoint. A composite foreign key binds `(company_id, endpoint_id)` to the
+endpoint's company. It contains the creation request ID, immutable manifest
+snapshot/hash, OAuth callback URI, app/client IDs, vault references, installation
+identity, status, safe failure code, creator, and timestamps. It contains no
+plaintext configuration token, OAuth code, signing/client secret, or bot token.
+
+Creation records `creating` before dispatch. An interrupted attempt becomes
+`uncertain`; a new request needs explicit confirmation that no app exists.
+`install` means the app exists. `credentials_saved` means the OAuth bot token is
+vaulted and connection checks can resume. `configured` means runtime credentials
+are durably bound; staged duplicates are cleaned and the client secret remains
+available for reauthorization. `removed` invalidates registration and keeps the
+safe app management link for provider-side cleanup.
+
+Slack install attempts use `tool_oauth_states` with the `slack-install.` namespace.
+They expire after ten minutes, bind the company/connection/endpoint, registration
+request ID, app ID, initiating actor/session, callback URI, and requested scopes,
+and are atomically deleted before code exchange. The `code_verifier` column holds
+this non-secret binding for this namespace; Slack bot installation does not use
+PKCE. Removal and manual recovery invalidate outstanding attempts under the same
+credential-mutation lease used by configuration.

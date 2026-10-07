@@ -566,7 +566,7 @@ describe("openapi routes", () => {
         setup: { type: "object", additionalProperties: false },
       },
     });
-    expect(JSON.stringify(endpointResponse)).not.toContain("credentials");
+    expect(JSON.stringify(endpointResponse)).not.toContain('"credentials":');
     expect(JSON.stringify(endpointResponse)).not.toContain("privateKey");
     expect(JSON.stringify(endpointResponse)).not.toContain("signingSecret");
     expect(

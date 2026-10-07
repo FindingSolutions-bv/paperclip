@@ -1,3 +1,4 @@
+import { oauthCallbackInterstitialHtml } from "../../server/src/lib/oauth-browser-return";
 import { readFile } from "node:fs/promises";
 import { expect, test, type Page } from "@playwright/test";
 
@@ -120,6 +121,82 @@ test.describe.serial("native chat adapter UI", () => {
 
   test.beforeAll(async ({ request }) => {
     seed = await seedCompanyAndAgent(request);
+  });
+
+  test("Slack: automatic creation survives refresh, consent, and verification without copying durable secrets", async ({ page }) => {
+    const slack = PROVIDERS.find(provider => provider.provider === "slack")!;
+    const mock = await installChatControlPlaneMock(page, slack, seed, { enableChatConnectors: true, automaticSlack: true });
+    const rootUrl = new URL(`/${seed.prefix}/apps/chat/connect?provider=slack&purpose=chat&resume=endpoint-slack`, test.info().project.use.baseURL).href;
+    const callbackUrl = new URL("/api/chat-slack/oauth/callback?state=fixture-state&code=fixture-code", rootUrl).href;
+    const callbackSites: string[] = [];
+    await page.route("**/api/chat-slack/oauth/callback?**", async route => {
+      const site = route.request().headers()["sec-fetch-site"];
+      callbackSites.push(site);
+      if (site === "cross-site") {
+        const body = oauthCallbackInterstitialHtml();
+        expect(body).not.toContain("fixture-code");
+        await route.fulfill({ contentType: "text/html", body });
+      } else {
+        mock.setSlackInstalled();
+        await route.fulfill({ status: 303, headers: { location: rootUrl } });
+      }
+    });
+    await page.route("https://slack.test/**", async route => {
+      if (route.request().url().endsWith("/approve")) {
+        await route.fulfill({ status: 302, headers: { location: callbackUrl } });
+      } else await route.fulfill({ contentType: "text/html", body: '<h1>Fixture Slack consent</h1><a href="https://slack.test/approve">Approve installation</a>' });
+    });
+    await page.goto(`/${seed.prefix}/apps/chat/connect?provider=slack&purpose=chat&agentId=${seed.agentId}`);
+    await page.getByRole("button", { name: "Continue", exact: true }).click();
+    await page.getByLabel("App configuration token", { exact: true }).fill("fixture-config-token");
+    await page.getByRole("button", { name: "Create Slack app", exact: true }).click();
+    await expect(page.getByRole("heading", { name: "Install Slack app", exact: true })).toBeVisible();
+    expect(mock.slackCreations).toBe(1);
+    await expect(page.getByLabel("Bot User OAuth Token", { exact: true })).toHaveCount(0);
+    await expect(page.getByLabel("Signing Secret", { exact: true })).toHaveCount(0);
+    await page.reload();
+    await expect(page.getByRole("heading", { name: "Install Slack app", exact: true })).toBeVisible();
+    await page.getByRole("button", { name: "Save & exit", exact: true }).click();
+    await page.goto(rootUrl);
+    await page.getByRole("button", { name: "Install in Slack", exact: true }).click();
+    await expect(page.getByRole("heading", { name: "Fixture Slack consent" })).toBeVisible();
+    await page.getByRole("link", { name: "Approve installation" }).click();
+    await expect(page.getByRole("heading", { name: "Verify Slack connection", exact: true })).toBeVisible();
+    await expect(page.getByRole("link", { name: "Open Slack app Settings" })).toHaveAttribute("href", "https://api.slack.com/apps/AE2E/event-subscriptions");
+    mock.setWebhookVerified();
+    await expect(page.getByRole("heading", { name: "Give Maya a face in Slack", exact: true })).toBeVisible();
+    await page.getByRole("button", { name: "Skip for now", exact: true }).click();
+    await expect(page.getByRole("heading", { name: "Connect your Slack account", exact: true })).toBeVisible();
+    await page.getByRole("button", { name: /Link .* to my Paperclip account/ }).click();
+    await expect(page.getByText("Linked to you", { exact: true })).toBeVisible();
+    await page.getByRole("button", { name: "Continue to message test", exact: true }).click();
+    await expect(page.getByRole("heading", { name: "Try Maya in Slack", exact: true })).toBeVisible();
+    expect(mock.slackCreations).toBe(1); expect(mock.slackInstallations).toBe(1);
+    expect(callbackSites).toEqual(["cross-site", "same-origin"]);
+    await page.screenshot({ path: test.info().outputPath("automatic-slack-identity-linked.png"), fullPage: true });
+    await page.getByRole("button", { name: "Skip test and finish", exact: true }).click();
+    await expect(page).toHaveURL(/\/apps\/chat\/endpoint-slack\/settings$/);
+    const stored = await page.evaluate(() => JSON.stringify({ local: { ...localStorage }, session: { ...sessionStorage } }));
+    expect(stored).not.toContain("fixture-config-token");
+  });
+
+  test("Slack: uncertain creation locks fields and offers manual recovery on mobile", async ({ page }) => {
+    await page.setViewportSize({ width: 390, height: 844 });
+    const slack = PROVIDERS.find(provider => provider.provider === "slack")!;
+    const mock = await installChatControlPlaneMock(page, slack, seed, { enableChatConnectors: true, automaticSlack: true });
+    mock.setSlackUncertain();
+    await page.goto(`/${seed.prefix}/apps/chat/connect?provider=slack&purpose=chat&resume=endpoint-slack`);
+    await expect(page.getByRole("alert")).toContainText("Slack may have created the app");
+    await expect(page.getByLabel("Slack app name", { exact: true })).toHaveAttribute("readonly", "");
+    await expect(page.getByLabel("App configuration token", { exact: true })).toHaveCount(0);
+    const save = await page.getByRole("button", { name: "Save & exit", exact: true }).boundingBox();
+    const create = await page.getByRole("button", { name: "Create Slack app", exact: true }).boundingBox();
+    expect(Math.abs(save!.y - create!.y)).toBeLessThan(4);
+    await page.getByRole("button", { name: "Use an existing app", exact: true }).click();
+    await expect(page.getByRole("heading", { name: "Add Slack credentials", exact: true })).toBeVisible();
+    await page.reload();
+    await expect(page.getByRole("heading", { name: "Add Slack credentials", exact: true })).toBeVisible();
+    expect(mock.slackCreations).toBe(0);
   });
 
   test("GitHub: the default-off gate keeps direct tool setup and fences chat routes", async ({

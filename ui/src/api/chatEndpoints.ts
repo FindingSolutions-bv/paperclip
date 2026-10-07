@@ -1,6 +1,9 @@
 import { api } from "./client";
 import type {
   SlackAppConfiguration,
+  SlackRegistrationInput,
+  SlackRegistrationState,
+  SlackInstallAuthorization,
   UpdateChatEndpointInput,
   PhotonProjectInspection,
   PhotonChannelConfiguration,
@@ -133,6 +136,9 @@ export interface ChatEndpoint {
     messagingEndpoint?: string | null;
     command?: string | null;
     slackApp?: SlackAppConfiguration;
+    slackSetupMethod?: "automatic" | "manual";
+    slackRegistration?: SlackRegistrationState;
+    slackOAuthCallbackUri?: string | null;
     webhookVerifiedAt?: string | null;
     webhookSecretConfigured?: boolean;
     callbackSurfaces?: {
@@ -204,6 +210,12 @@ export const chatEndpointsApi = {
       photon?: PhotonChannelConfiguration;
     },
   ) => api.post<ChatEndpoint>(`/chat-endpoints/${endpointId}/setup`, input),
+  createSlackApp: (endpointId: string, input: SlackRegistrationInput) =>
+    api.post<ChatEndpoint>(`/chat-endpoints/${endpointId}/slack/registration`, input),
+  installSlackApp: (endpointId: string) =>
+    api.post<SlackInstallAuthorization>(`/chat-endpoints/${endpointId}/slack/install`, {}),
+  resumeSlackInstallation: (endpointId: string) =>
+    api.post<ChatEndpoint>(`/chat-endpoints/${endpointId}/slack/resume`, {}),
   inspectPhoton: (endpointId: string, input: { projectId: string; projectSecret: string }) =>
     api.post<PhotonProjectInspection>(`/chat-endpoints/${endpointId}/photon/inspect`, input),
   generateSetupSecret: (endpointId: string) =>
