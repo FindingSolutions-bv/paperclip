@@ -54,6 +54,16 @@ describe("neutral decline evidence", () => {
       expect(passes({ ...valid, caseId, decisions: [{ ...valid.decisions[0], kind, status: "rejected" }] })).toBe(true);
     }
   });
+  it("recognizes unavailable-connection contractions without accepting positive or unrelated claims", () => {
+    for (const body of [
+      "HubSpot isn't connected because you chose None for now.",
+      "HubSpot isn’t connected after the provider decision.",
+      "The pages aren't retrievable after the connection decision.",
+    ]) expect(passes({ ...valid, replies: [{ ...valid.replies[0], body }] })).toBe(true);
+    for (const body of ["HubSpot is connected.", "HubSpot isn't disconnected.", "HubSpot isn't slow.", "Contacts are available."]) {
+      expect(passes({ ...valid, replies: [{ ...valid.replies[0], body }] })).toBe(false);
+    }
+  });
   it("rejects missing, stale, unattributed, wrong-agent, or unsuccessful explanations", () => {
     for (const input of [
       { ...valid, replies: [] },

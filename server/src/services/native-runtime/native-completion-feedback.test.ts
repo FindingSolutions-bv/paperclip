@@ -54,6 +54,26 @@ describe("native final-response feedback", () => {
     await db.update(issueThreadInteractions).set({ sourceRunId: null }).where(eq(issueThreadInteractions.id, interactionId));
     await expect(nativeCompletionFeedback(db, value.runId, waiting)).resolves.toContain("Completion report accepted");
   });
+  it.each(["accepted", "rejected"] as const)("allows a new question after a %s tool approval cited as completed evidence", async (status) => {
+    const value = await fixture(), interactionId = randomUUID(), questionId = randomUUID();
+    await db.insert(issueThreadInteractions).values({ id: interactionId, companyId: value.companyId, issueId: value.issueId,
+      sourceRunId: value.runId, createdByAgentId: value.agentId, kind: "request_confirmation", status,
+      continuationPolicy: "wake_assignee", payload: { version: 1, prompt: "Approve service read", toolAction: { version: 1, actionRequestId: randomUUID(), invocationId: randomUUID(), toolName: "pages.read", toolDisplayName: "Read pages", connectionId: null, applicationId: null, appDisplayName: null, risk: "read", previewMarkdown: "Read pages", argumentsSummaryJson: "{}", argumentsHash: "test-hash", expiresAt: "2026-10-07T12:00:00Z" } },
+    });
+    await db.insert(issueThreadInteractions).values({ id: questionId, companyId: value.companyId, issueId: value.issueId,
+      sourceRunId: value.runId, createdByAgentId: value.agentId, kind: "ask_user_questions", status: "pending",
+      continuationPolicy: "wake_assignee", payload: { version: 1, questions: [{ id: "format", prompt: "Which report format?", selectionMode: "single", required: true, allowOther: true, options: [] }] },
+    });
+    const waiting: PrpStructuredRunResult = { ...done, reportedWorkDisposition: "yielded",
+      completionClaim: { ...done.completionClaim, objectiveSatisfied: false, remainingWork: [{ description: "Need the report format", blocksCompletion: true }] },
+      evidence: [{ ref: `interaction:${interactionId}` }], continuation: { kind: "response_wake", idempotencyKey: "format-wait", summary: "Await the format question" }, attentionRequests: [],
+    };
+    await expect(nativeCompletionFeedback(db, value.runId, waiting)).resolves.toContain(`Pending request: ${questionId}`);
+    await expect(nativeCompletionFeedback(db, value.runId, { ...waiting, attentionRequests: [{ kind: "approval", ownerClass: "human", summary: "Review the separately requested format" }] })).resolves.toContain(`Pending request: ${questionId}`);
+    // The completed-action evidence alone is not permission to wait indefinitely.
+    await db.update(issueThreadInteractions).set({ status: "answered" }).where(eq(issueThreadInteractions.id, questionId));
+    await expect(nativeCompletionFeedback(db, value.runId, waiting)).rejects.toThrow("without a pending wait condition");
+  });
   it("returns a concrete final-answer link without treating the document title as instructions", async () => {
     const value = await fixture();
     const feedback = await nativeCompletionFeedback(db, value.runId, done);
