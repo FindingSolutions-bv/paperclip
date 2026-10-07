@@ -7,7 +7,9 @@ widgets, images, Cursor or Copilot qualification. The existing draft stack must 
 
 ## Master integration and model selection — 2026-10-06
 
-This branch merges `origin/master` at `a6306ba606eb87c89b9ef0344e9fe8e0025580f9`.
+This branch merges `origin/master` through `a9a20fb5c6c080884ced7ee0a4e3b04f9cbf3a6e`.
+The original integration point was `a6306ba606eb87c89b9ef0344e9fe8e0025580f9`;
+two additional master commits are included in the final merge.
 Pi accepts the operator's explicit provider/model ID without a Paperclip model
 allowlist. Catalog discovery does not gate selection. Exact native model
 acknowledgment remains required before prompting. API credentials for built-in
@@ -26,8 +28,8 @@ node_modules links belong to a different checkout. Recursive typecheck, full
 build, generated-profile parity and UI token gates pass. The complete Runner
 suite passes 3,363 tests and reports five stale transport fixture expectations;
 those fixtures are corrected and all 11 selected transport regressions pass.
-All 2,465 offline Product harness tests pass; the changed catalog and manifest
-tests pass again after the final source attestations. The final focused Pi model,
+All 2,473 offline Product harness tests pass after the final master merge.
+The two new server test files pass 10 tests with one skip. The final focused Pi model,
 credential, installation and session suite passes 280 tests, with one skip.
 The repo-wide test command did not complete: its pre-fix run was stopped after
 24 minutes. Targeted directory and session-identity regressions pass on the
