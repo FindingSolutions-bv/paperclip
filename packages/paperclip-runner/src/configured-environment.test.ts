@@ -57,6 +57,13 @@ describe('controller-configured environment across native runner boundaries', ()
 
 
 describe("configured environment authority", () => {
+  it("keeps selected bootstrap values in the environment rather than argv", () => {
+    const environment = { PATH: "/bin", ...configuredEnvironmentProjection({ LANG: "configured-language-value" }) };
+    const args = createIsolatedCodexAppServerArgs(environment);
+    expect(args.join("\n")).not.toContain("configured-language-value");
+    expect(args.find(arg => arg.startsWith("shell_environment_policy.include_only="))).toContain("LANG");
+  });
+
   it("projects ordinary task credentials only when explicitly selected", () => {
     const projected = configuredEnvironmentProjection({ DATABASE_URL: "task-db", CUSTOM_FLAG: "on", NODE_OPTIONS: "unsafe", PAPERCLIP_API_KEY: "controller" });
     expect(createSanitizedCodexEnvironment(projected)).toMatchObject({ DATABASE_URL: "task-db", CUSTOM_FLAG: "on" });
