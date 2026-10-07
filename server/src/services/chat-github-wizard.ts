@@ -640,9 +640,12 @@ export function githubChatWizardService(
             eq(toolConnections.companyId, bot.companyId),
           ),
         );
+      const requiredCredentialKeys = session.handoff.manifestClaimId
+        ? ["appId", "privateKey", "webhookSecret", "clientId", "clientSecret"]
+        : ["appId", "privateKey", "webhookSecret"];
       let hasAppCredentials =
         !!bot.botExternalId &&
-        ["appId", "privateKey", "webhookSecret"].every((key) =>
+        requiredCredentialKeys.every((key) =>
           connection?.refs.some(
             (ref) => ref.configPath === `credentials.${key}`,
           ),
@@ -669,7 +672,7 @@ export function githubChatWizardService(
               eq(toolConnections.companyId, bot.companyId),
             ),
           );
-        hasAppCredentials = ["appId", "privateKey", "webhookSecret"].every(
+        hasAppCredentials = requiredCredentialKeys.every(
           (key) =>
             savedConnection?.refs.some(
               (ref) => ref.configPath === `credentials.${key}`,

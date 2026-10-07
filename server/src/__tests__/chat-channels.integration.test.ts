@@ -2370,6 +2370,78 @@ describeEmbeddedPostgres("chat channel control-plane integration", () => {
         .where(eq(chatGitHubRegistrations.endpointId, bot.id));
       expect(session.status).toBe("failed");
     });
+    it("wizard retains recovery when a manifest vault write saved App credentials but lost OAuth credentials", async () => {
+      const f = await reviewBotFixture();
+      const [connection] = await db
+        .select()
+        .from(toolConnections)
+        .where(eq(toolConnections.id, f.endpoint.connectionId));
+      expect(connection.credentialSecretRefs.map((ref) => ref.configPath)).toEqual(
+        expect.arrayContaining([
+          "credentials.appId",
+          "credentials.privateKey",
+          "credentials.webhookSecret",
+        ]),
+      );
+      await db
+        .update(toolConnections)
+        .set({
+          credentialSecretRefs: connection.credentialSecretRefs.filter(
+            (ref) => ref.configPath !== "credentials.clientSecret",
+          ),
+        })
+        .where(eq(toolConnections.id, connection.id));
+      await db
+        .update(chatEndpoints)
+        .set({ status: "attention" })
+        .where(eq(chatEndpoints.id, f.endpoint.id));
+      await db
+        .insert(chatGitHubRegistrations)
+        .values({
+          companyId: f.companyId,
+          endpointId: f.endpoint.id,
+          userId: "owner-user",
+          stateHash: createHash("sha256").update("bound").digest("hex"),
+          trustedOrigin: "http://127.0.0.1:3104",
+          status: "failed",
+          expiresAt: new Date(Date.now() + 60000),
+          handoff: {
+            cloudId: "partial-oauth",
+            returnState: "bound",
+            redemptionId: "receipt",
+            manifestClaimId: "claim",
+          },
+        });
+      const claimGitHubApp = vi.fn();
+      const finish = vi.fn();
+      const wizard = githubChatWizardService(db, {
+        origin: () => "http://127.0.0.1:3104",
+        fetch: f.providerFetch,
+        connector: () =>
+          ({
+            githubApp: async () => ({ id: "partial-oauth" }),
+            claimGitHubApp,
+          }) as unknown as PaperclipCloudConnector,
+        startDirect: f.service.startGitHubRegistration,
+        storeApp: f.service.storeGitHubApp,
+        storeCredentials: async () => {},
+        refreshRepositories: f.service.refreshGitHubRepositories,
+        resources: f.service.listResources,
+        replaceResources: f.service.replaceResources,
+        configure: async () => {},
+        finish,
+      });
+      expect(await wizard.advance(f.endpoint.id, "owner-user")).toMatchObject({
+        state: "recovery",
+      });
+      expect(claimGitHubApp).not.toHaveBeenCalled();
+      expect(finish).not.toHaveBeenCalled();
+      const [session] = await db
+        .select()
+        .from(chatGitHubRegistrations)
+        .where(eq(chatGitHubRegistrations.endpointId, f.endpoint.id));
+      expect(session.status).toBe("failed");
+    });
     it("wizard recovers a renamed enrolled origin only after checking bound state and Cloud authority", async () => {
       const f = await seedCompany();
       const { service } = createService();
