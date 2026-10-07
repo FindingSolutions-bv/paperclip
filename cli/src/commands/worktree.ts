@@ -16,7 +16,7 @@ import {
 import os from "node:os";
 import path from "node:path";
 import { execFileSync } from "node:child_process";
-import { randomUUID } from "node:crypto";
+import { randomBytes, randomUUID } from "node:crypto";
 import { createServer } from "node:net";
 import { Readable } from "node:stream";
 import * as p from "@clack/prompts";
@@ -118,6 +118,7 @@ type WorktreeInitOptions = {
   serverPort?: number;
   dbPort?: number;
   seed?: boolean;
+  empty?: boolean;
   seedMode?: string;
   preserveLiveWork?: boolean;
   force?: boolean;
@@ -2434,6 +2435,7 @@ async function runWorktreeInit(opts: WorktreeInitOptions): Promise<void> {
     rmSync(paths.configPath, { force: true });
     rmSync(paths.envPath, { force: true });
     const seedMarkers = resolveWorktreeSeedMarkerPaths(paths.configPath);
+    rmSync(seedMarkers.manifest, { force: true });
     rmSync(seedMarkers.pending, { force: true });
     rmSync(seedMarkers.complete, { force: true });
     rmSync(paths.instanceRoot, { recursive: true, force: true });
@@ -2481,18 +2483,20 @@ async function runWorktreeInit(opts: WorktreeInitOptions): Promise<void> {
       };
     },
   );
-  markWorktreeSeedPending({
-    configPath: paths.configPath,
-    sourceConfigPath,
-    targetInstanceId: instanceId,
-    seedMode,
-  });
+  if (!opts.empty) {
+    markWorktreeSeedPending({
+      configPath: paths.configPath,
+      sourceConfigPath,
+      targetInstanceId: instanceId,
+      seedMode,
+    });
+  }
   const sourceEnvEntries = readPaperclipEnvEntries(resolvePaperclipEnvFile(sourceConfigPath));
   const existingAgentJwtSecret =
-    nonEmpty(sourceEnvEntries.PAPERCLIP_AGENT_JWT_SECRET) ??
+    opts.empty ? randomBytes(32).toString("base64url") : nonEmpty(sourceEnvEntries.PAPERCLIP_AGENT_JWT_SECRET) ??
     nonEmpty(process.env.PAPERCLIP_AGENT_JWT_SECRET);
   const existingToolActionSigningSecret =
-    nonEmpty(sourceEnvEntries.PAPERCLIP_TOOL_ACTION_SIGNING_SECRET) ??
+    opts.empty ? randomBytes(32).toString("base64url") : nonEmpty(sourceEnvEntries.PAPERCLIP_TOOL_ACTION_SIGNING_SECRET) ??
     nonEmpty(process.env.PAPERCLIP_TOOL_ACTION_SIGNING_SECRET);
   mergePaperclipEnvEntries(
     {
@@ -2511,7 +2515,7 @@ async function runWorktreeInit(opts: WorktreeInitOptions): Promise<void> {
   let seedExecutionQuarantineSummary: SeededWorktreeExecutionQuarantineSummary | null = null;
   let pausedScheduledRoutineCount: number | null = null;
   let reboundWorkspaceSummary: SeedWorktreeDatabaseResult["reboundWorkspaces"] = [];
-  if (opts.seed !== false) {
+  if (!opts.empty && opts.seed !== false) {
     if (!sourceConfig) {
       throw new Error(
         `Cannot seed worktree database because source config was not found at ${sourceConfigPath}. Use --no-seed or provide --from-config.`,
@@ -4456,6 +4460,7 @@ export function registerWorktreeCommands(program: Command): void {
     .option("--seed-mode <mode>", "Seed profile: minimal or full (default: minimal)", "minimal")
     .option("--preserve-live-work", "Do not quarantine copied agent work or workspace runtime services in the seeded worktree", false)
     .option("--no-seed", "Skip database seeding from the source instance")
+    .option("--empty", "Create an empty instance without immediate or deferred database copying", false)
     .option("--force", "Replace existing repo-local config and isolated instance data", false)
     .action(worktreeMakeCommand);
 
@@ -4473,6 +4478,7 @@ export function registerWorktreeCommands(program: Command): void {
     .option("--seed-mode <mode>", "Seed profile: minimal or full (default: minimal)", "minimal")
     .option("--preserve-live-work", "Do not quarantine copied agent work or workspace runtime services in the seeded worktree", false)
     .option("--no-seed", "Skip database seeding from the source instance")
+    .option("--empty", "Create an empty instance without immediate or deferred database copying", false)
     .option("--force", "Replace existing repo-local config and isolated instance data", false)
     .action(worktreeInitCommand);
 
