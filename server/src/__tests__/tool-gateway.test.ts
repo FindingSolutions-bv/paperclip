@@ -4413,6 +4413,82 @@ rl.on("line", (line) => {
     });
   }
 
+  it("keeps a remote MCP connection healthy and starts a fresh MCP session after an oversized response", async () => {
+    const company = await createCompany(db);
+    const agent = await createAgent(db, company.id);
+    const { run } = await createIssueAndRun(db, company.id, agent.id);
+    let initializeCount = 0;
+    let toolCallCount = 0;
+    const fake = await startFakeRemoteMcpServer((request) => {
+      if (request.body?.method === "initialize") {
+        initializeCount += 1;
+        return {
+          headers: { "mcp-session-id": `session-${initializeCount}` },
+          body: {
+            jsonrpc: "2.0",
+            id: request.body.id,
+            result: { protocolVersion: "2025-06-18", capabilities: { tools: {} }, serverInfo: { name: "big", version: "1" } },
+          },
+        };
+      }
+      if (request.body?.method === "notifications/initialized") return { status: 202, rawBody: "" };
+      toolCallCount += 1;
+      if (toolCallCount === 1) {
+        return { headers: { "content-type": "application/json" }, rawBody: "x".repeat(1_200_000) };
+      }
+      return { body: { jsonrpc: "2.0", id: request.body?.id, result: { content: [{ type: "text", text: "small page" }] } } };
+    });
+    try {
+      const { connection } = await createRemoteMcpTool(db, company.id, {
+        applicationKey: "oversized-response",
+        toolName: "kv_get",
+        url: fake.url,
+        connectionConfig: { mcpSessionRequired: true },
+      });
+      await allowAllToolsForAgent(db, company.id, agent.id);
+      const gateway = createTestToolGatewayService(db);
+      const session = await gateway.createSession({ companyId: company.id, agentId: agent.id, runId: run.id });
+      const connectedTool = (await gateway.listToolsForSession(session.token))
+        .find((tool) => tool.providerType === "mcp_remote_http");
+      expect(connectedTool).toBeTruthy();
+
+      await gateway.executeTool({
+        sessionToken: session.token,
+        tool: connectedTool!.name,
+        parameters: { key: "everything" },
+      }).then(
+        () => {
+          throw new Error("Expected oversized remote MCP response to fail");
+        },
+        (error) => {
+          expectGatewayError(error, 502, "mcp_remote_response_too_large");
+          expect((error as ToolGatewayHttpError).message).toContain("smaller page size");
+        },
+      );
+
+      await expect(db.select({ healthStatus: toolConnections.healthStatus }).from(toolConnections).where(
+        eq(toolConnections.id, connection.id),
+      )).resolves.toEqual([{ healthStatus: "ok" }]);
+
+      const nextSession = await gateway.createSession({ companyId: company.id, agentId: agent.id, runId: run.id });
+      await expect(gateway.listToolsForSession(nextSession.token)).resolves.toEqual(
+        expect.arrayContaining([expect.objectContaining({ name: connectedTool!.name })]),
+      );
+      await expect(gateway.executeTool({
+        sessionToken: nextSession.token,
+        tool: connectedTool!.name,
+        parameters: { key: "page-1" },
+      })).resolves.toMatchObject({ status: "completed" });
+
+      const toolCallSessionIds = fake.requests
+        .filter((request) => request.body?.method === "tools/call")
+        .map((request) => request.headers["mcp-session-id"]);
+      expect(toolCallSessionIds).toEqual(["session-1", "session-2"]);
+    } finally {
+      await fake.close();
+    }
+  });
+
   it("persists hashed sessions and accepts them across gateway service instances", async () => {
     const company = await createCompany(db);
     const agent = await createAgent(db, company.id);
