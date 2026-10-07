@@ -197,17 +197,42 @@ function createBroker(db: Db) {
       const b = await principalBinding(principal);
       if (!z.uuid().safeParse(requestId).success) throw fail("Use a stable UUID requestId.");
       if (!enabled() || !(await this.bindingForAgent(b.companyId, b.agentId))?.subscriptionVerified) throw fail("Dot admission is unavailable.");
+      const key = `dot-work:${b.id}:${b.generation}:${requestId}`;
+      const receipt = async () => (await db.select().from(agentWakeupRequests).where(and(eq(agentWakeupRequests.companyId, b.companyId), eq(agentWakeupRequests.agentId, b.agentId), eq(agentWakeupRequests.idempotencyKey, key))).limit(1))[0];
+      const replay = (row: typeof agentWakeupRequests.$inferSelect) => {
+        if (row.payload?.issueId !== issueId) throw fail("requestId was reused for another task.");
+        return { status: "requested", runId: row.runId, message: "Normal admission determines when this task can run. Read the mailbox after its event." };
+      };
+      // A retry is a receipt read, including after the task yielded or finished.
+      const old = await receipt();
+      if (old) return replay(old);
       const [issue] = await db.select().from(issues).where(and(eq(issues.companyId, b.companyId), eq(issues.id, issueId), eq(issues.assigneeAgentId, b.agentId)));
       if (!issue || !["todo", "in_progress"].includes(issue.status)) throw fail("Request work only for an eligible task assigned to this agent.");
-      const key = `dot-work:${b.id}:${b.generation}:${requestId}`;
-      const [old] = await db.select().from(agentWakeupRequests).where(and(eq(agentWakeupRequests.companyId, b.companyId), eq(agentWakeupRequests.agentId, b.agentId), eq(agentWakeupRequests.idempotencyKey, key)));
-      if (old && old.payload?.issueId !== issueId) throw fail("requestId was reused for another task.");
+      // The receipt PK reserves this request in the same transaction as its run.
+      // Different issue locks cannot admit the same request concurrently.
+      const hex = hash(key);
+      const receiptId = `${hex.slice(0, 8)}-${hex.slice(8, 12)}-8${hex.slice(13, 16)}-${((parseInt(hex[16]!, 16) & 3) | 8).toString(16)}${hex.slice(17, 20)}-${hex.slice(20, 32)}`;
       const { heartbeatService } = await import("./heartbeat.js");
-      const run = await heartbeatService(db).wakeup(b.agentId, { source: "assignment", triggerDetail: "system", reason: "issue_assigned",
-        payload: { issueId, dotRequestId: requestId }, contextSnapshot: { issueId }, idempotencyKey: key, requestedByActorType: "agent", requestedByActorId: b.agentId });
-      const [reserved] = await db.select().from(agentWakeupRequests).where(and(eq(agentWakeupRequests.companyId, b.companyId), eq(agentWakeupRequests.agentId, b.agentId), eq(agentWakeupRequests.idempotencyKey, key)));
-      if (reserved && reserved.payload?.issueId !== issueId) throw fail("requestId was reused for another task.");
-      return { status: "requested", runId: run?.id ?? null, message: "Normal admission determines when this task can run. Read the mailbox after its event." };
+      try {
+        const run = await heartbeatService(db).wakeup(b.agentId, { source: "assignment", triggerDetail: "system", reason: "issue_assigned",
+          payload: { issueId, dotRequestId: requestId }, contextSnapshot: { issueId }, idempotencyKey: key, requestedByActorType: "agent", requestedByActorId: b.agentId,
+          allowRunCoalescing: false, durableDotRequest: { id: receiptId, companyId: b.companyId, agentId: b.agentId, issueId, requestId, idempotencyKey: key, requestedAt: new Date() } });
+        const reserved = await receipt();
+        return reserved ? replay(reserved) : { status: "requested", runId: run?.id ?? null, message: "Normal admission determines when this task can run. Read the mailbox after its event." };
+      } catch (error) {
+        // A concurrent reservation can lose the PK race on a different task.
+        // Replay only that durable receipt; do not mask unrelated failures.
+        let cause: unknown = error;
+        for (let depth = 0; depth < 5 && cause && typeof cause === "object"; depth++) {
+          if ((cause as { code?: string }).code === "23505") {
+            const reserved = await receipt();
+            if (reserved?.id === receiptId) return replay(reserved);
+            break;
+          }
+          cause = (cause as { cause?: unknown }).cause;
+        }
+        throw error;
+      }
     },
     async operationStatus(principal: McpPrincipal, assignmentId: string, requestId: string) {
       await authorizeAssignment(principal, assignmentId, true);

@@ -75,3 +75,18 @@ it("keeps a revoked binding cleared when the follow-up connection read fails", a
   expect(client.getQueryData(["dot-binding", "company", "agent"])).toMatchObject({ binding: null });
   expect(Array.from(container.querySelectorAll("button")).some(button => button.textContent === "Revoke connection")).toBe(false);
 });
+
+it("shows event testing when a connected Dot subscribes without a manual refresh", async () => {
+  api.get.mockResolvedValue({ enabled: true, resourceUrl: "https://paperclip.example/mcp/runner", binding: { ...binding, subscriptionVerified: false } });
+  vi.useFakeTimers();
+  try {
+    await act(async () => root.render(<QueryClientProvider client={client}><Form /></QueryClientProvider>));
+    await act(async () => { await vi.advanceTimersByTimeAsync(20); });
+    expect(container.textContent).toContain("Event subscription: required");
+    expect(container.textContent).not.toContain("Test event delivery");
+    api.get.mockResolvedValue({ enabled: true, resourceUrl: "https://paperclip.example/mcp/runner", binding });
+    await act(async () => { await vi.advanceTimersByTimeAsync(5020); });
+    expect(container.textContent).toContain("Test event delivery");
+    expect(container.textContent).toContain("Event subscription: verified");
+  } finally { vi.useRealTimers(); }
+});
