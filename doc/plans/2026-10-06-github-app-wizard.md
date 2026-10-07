@@ -153,7 +153,13 @@ After slots became available, disposable Cloud Postgres qualification passed all
 seven tests, including independent-pool quota races and lease/acknowledgment.
 The focused stack cases also execute again; the added recovery case requires all
 manifest credentials, including OAuth client credentials, after a partial vault
-write. Full-suite local failures remain separately reported rather than treated
+write. Explicit existing-App recovery switches to the supported personal-connection
+identity path only after the same App's credentials are vaulted; it still repairs
+the webhook locally and requires fresh signed delivery. Member account-only
+linking avoids manager setup APIs and retains personal-connection onboarding.
+The final focused wizard/recovery/member-linking tests pass (26), as do server
+and UI typecheck/build and token gates. Full-suite local failures remain separately
+reported rather than treated
 as a green run. The current PR heads require fresh CI and review. No real
 provider calls or deployments were used for this revision.
 
