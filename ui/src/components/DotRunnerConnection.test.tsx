@@ -61,3 +61,17 @@ it("does not restore a stale binding while revocation refreshes the connection",
   expect(onBinding).toHaveBeenLastCalledWith("");
   expect(Array.from(container.querySelectorAll("button")).some(button => button.textContent === "Pair Dot")).toBe(true);
 });
+
+it("keeps a revoked binding cleared when the follow-up connection read fails", async () => {
+  api.get.mockResolvedValue({ enabled: true, resourceUrl: "https://paperclip.example/mcp/runner", binding });
+  api.delete.mockImplementation(async () => { api.get.mockRejectedValue(new Error("Connection refresh failed")); });
+  await render();
+  expect(container.querySelector("output")?.textContent).toBe(binding.id);
+  await act(async () => Array.from(container.querySelectorAll("button")).find(button => button.textContent === "Revoke connection")!.click());
+  await flush();
+  expect(container.querySelector("output")?.textContent).toBe("");
+  expect(onBinding).toHaveBeenLastCalledWith("");
+  expect(container.querySelector("[role=alert]")?.textContent).toBe("Connection refresh failed");
+  expect(client.getQueryData(["dot-binding", "company", "agent"])).toMatchObject({ binding: null });
+  expect(Array.from(container.querySelectorAll("button")).some(button => button.textContent === "Revoke connection")).toBe(false);
+});

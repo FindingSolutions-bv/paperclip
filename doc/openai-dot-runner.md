@@ -147,3 +147,11 @@ After those fixes, full workspace typecheck and token gates passed again.
 Focused verification passed 89 gateway, Dot, OpenAPI, connection-instruction
 and pairing UI tests, 40 protocol/runtime compatibility tests, and the real
 Runner protocol-upgrade/replacement test.
+
+PR CI exposed a clean-shutdown race: Rust could exit after the durable shutdown
+receipt was acknowledged but before the Dot SDK's next poll. The adapter now
+recognizes that confirmed clean exit and still requires reconciliation after
+an unexpected exit. A real Rust regression reproduces the failing order and
+passes with the fix. Four driver tests and 11 integration/pairing tests passed,
+including a failed connection refresh after successful revocation. Revocation
+clears the cached binding before refetch so that failure cannot restore it.

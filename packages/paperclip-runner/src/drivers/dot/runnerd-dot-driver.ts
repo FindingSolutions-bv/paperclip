@@ -132,7 +132,18 @@ class RunnerdDotSession implements HarnessSession {
       const pid = this.#process.child.pid;
       if (pid) await o.onSpawn?.({ pid, processGroupId: this.#process.processGroupId ?? null,
         startedAt: this.#process.startedAt ?? new Date().toISOString() });
-      void this.#process.completion.then(() => { if (!this.#closed) { this.#failure = new Error("dot_runner_process_exited_recovery_required"); this.#wake(); } });
+      void this.#process.completion.then(result => {
+        if (this.#closed) return;
+        // Rust exits after the authenticated shutdown receipt is committed and
+        // ACKed. That exit can precede the SDK's next command poll.
+        if (result.code === 0 && core.getCommand("dot_shutdown")?.status === "completed") return;
+        this.#failure ??= new Error(`dot_runner_process_exited_recovery_required: code=${result.code} signal=${result.signal}`);
+        this.#wake();
+      }, () => {
+        if (this.#closed) return;
+        this.#failure ??= new Error("dot_runner_process_exited_recovery_required");
+        this.#wake();
+      });
     } else if (!await o.adoptExistingRunner.isAlive()) { throw new Error("dot_runner_adoption_failed"); }
     await registration?.activate?.();
     await registration?.ready?.();

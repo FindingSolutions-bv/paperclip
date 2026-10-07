@@ -26,7 +26,12 @@ export function DotRunnerConnection({ companyId, agentId, bindingId, onBinding }
   const test = useMutation({ mutationFn: () => api.post(path + "/event-test", {}),
     onSuccess: () => { void client.invalidateQueries({ queryKey: key }); } });
   const revoke = useMutation({ mutationFn: () => api.delete(path),
-    onSuccess: async () => { await client.invalidateQueries({ queryKey: key }); setPairing(null); onBinding(""); } });
+    onSuccess: async () => {
+      await client.cancelQueries({ queryKey: key });
+      client.setQueryData<Connection>(key, previous => previous ? { ...previous, binding: null } : previous);
+      setPairing(null); onBinding("");
+      await client.invalidateQueries({ queryKey: key });
+    } });
   const existingBindingId = state.data?.binding?.id;
   useEffect(() => {
     if (existingBindingId && existingBindingId !== bindingId && !revoke.isPending) onBinding(existingBindingId);

@@ -4,6 +4,7 @@ import { tmpdir } from "node:os";
 import { join, resolve } from "node:path";
 import { expect, it, vi } from "vitest";
 import { RunnerdDotDriver, type RunnerdDotDriverOptions } from "./runnerd-dot-driver.js";
+import * as controlPlane from "../../control-plane/durable-prp-control-plane.js";
 import { externalOperationDigest, type ExternalProviderOperation } from "../../contracts/external-provider.js";
 import { buildNativeModelEnvelope, parseNativeExecutionInput, type NativeExecutionInputV6 } from "../../contracts/native-execution.js";
 import { NATIVE_RUNTIME_ASSET_SCHEMA, PAPERCLIP_EXECUTION_PROMPT, PAPERCLIP_EXECUTION_PROMPT_REVISION,
@@ -46,6 +47,54 @@ it("v6 closes Dot identity, workspace, model and credential fields", () => {
     { ...input, session: { ...input.session, lifecyclePolicy: { mode: "warm", idleTimeoutMs: 60000 } } },
   ]) expect(() => parseNativeExecutionInput(changed)).toThrow();
 });
+
+it.each(["shutdown", "unexpected exit"] as const)("classifies a real Rust %s before the next command poll", async kind => {
+  const root = await mkdtemp(join(tmpdir(), "dot-driver-exit-"));
+  await writeFile(join(root, "AGENTS.md"), "Use only the synthetic counter.");
+  const input = execution(root);
+  let handle: controlPlane.RunnerProcessHandle | undefined;
+  let exited = false;
+  const spawn = controlPlane.spawnRunner;
+  const spawnSpy = vi.spyOn(controlPlane, "spawnRunner").mockImplementation(options => {
+    handle = spawn(options);
+    void handle.completion.then(() => { exited = true; });
+    return handle;
+  });
+  const getCommand = controlPlane.DurablePrpControlPlane.prototype.getCommand;
+  const commandSpy = vi.spyOn(controlPlane.DurablePrpControlPlane.prototype, "getCommand").mockImplementation(function (id) {
+    const command = getCommand.call(this, id);
+    // Hold the SDK poll until the real process has exited. The authenticated
+    // shutdown receipt and its ACK remain committed in the transport journal.
+    if (id === "dot_shutdown" && command?.status === "completed" && !exited) return { ...command, status: "pending" };
+    return command;
+  });
+  const driver = new RunnerdDotDriver({
+    execution: input, stateDirectory: join(root, "state"),
+    identity: { runnerInstanceId: randomUUID(), environmentLeaseId: randomUUID(), runId: input.binding.runId,
+      normalizedSessionId: input.session.normalizedSessionId!, turnId: "turn-" + input.binding.runId, itemId: "item-" + input.binding.runId },
+    runnerBinary: resolve("runner/target/debug/paperclip-runnerd"),
+    port: { dispatch: async () => {}, settle: async () => {}, attach: async () => async () => {} },
+  });
+  let session: Awaited<ReturnType<typeof driver.openSession>> | undefined;
+  try {
+    session = await driver.openSession({ runId: input.binding.runId, normalizedSessionId: input.session.normalizedSessionId! });
+    if (kind === "shutdown") {
+      await expect(session.close({ reason: "Test complete" })).resolves.toBeUndefined();
+      expect(exited).toBe(true);
+      expect((await handle!.completion).code).toBe(0);
+    } else {
+      handle!.child.kill("SIGTERM");
+      await handle!.completion;
+      await expect(session.read!()).rejects.toThrow("dot_runner_process_exited_recovery_required");
+    }
+  } finally {
+    commandSpy.mockRestore(); spawnSpy.mockRestore();
+    await session?.detachControllerForRestart?.();
+    if (!exited) handle?.child.kill("SIGTERM");
+    await handle?.completion;
+    await rm(root, { recursive: true, force: true });
+  }
+}, 45000);
 
 it("reattaches the same Rust bridge without duplicating a settled operation and refuses a lost checkpoint", async () => {
   const root = await mkdtemp(join(tmpdir(), "dot-driver-recovery-"));
