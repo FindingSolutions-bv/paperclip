@@ -8,14 +8,14 @@ const state = vi.hoisted(() => ({ plugin: {} as any }));
 vi.mock("../services/plugin-registry.js", () => ({ pluginRegistryService: () => ({ getById: vi.fn(async () => state.plugin) }) }));
 const leaseId = "10000000-0000-4000-8000-000000000001";
 const row = () => ({
-  lease: { id: leaseId, companyId: "company", environmentId: "environment", providerLeaseId: "attempt-1", heartbeatRunId: "run", issueId: "issue", status: "active", expiresAt: null,
+  lease: { id: leaseId, companyId: "company", environmentId: "environment", providerLeaseId: "attempt-1", heartbeatRunId: "run", issueId: "issue", status: "active", expiresAt: null as Date | null,
     metadata: { driver: "plugin", pluginId: "original", driverKey: "tasks" } },
-  environment: { id: "environment", config: { pluginKey: "test.provider", driverKey: "tasks", driverConfig: {} } },
-  run: { id: "run", agentId: "agent", status: "running" },
+  environment: { id: "environment", config: { pluginKey: "test.provider", driverKey: "tasks", driverConfig: {} } } as { id: string; config: Record<string, unknown> } | null,
+  run: { id: "run", agentId: "agent", status: "running" } as { id: string; agentId: string; status: string } | null,
 });
 function database(value: ReturnType<typeof row> | null = row()) {
   const results = [value ? [value] : [], [{ projectId: "project" }]];
-  const query: any = { from: () => query, innerJoin: () => query, where: vi.fn(() => query), limit: () => Promise.resolve(results.shift()) };
+  const query: any = { from: () => query, leftJoin: () => query, where: vi.fn(() => query), limit: () => Promise.resolve(results.shift()) };
   return { db: { select: () => query } as unknown as Db, query };
 }
 function worker(result: unknown = { kind: "accepted", taskId: "attempt-1" }) {
@@ -51,10 +51,51 @@ describe("typed environment task admission", () => {
     expect(workers.call).not.toHaveBeenCalled();
   });
   it("uses the pinned provider for cleanup after environment edits", async () => {
-    const value = row(); value.lease.status = "released"; value.environment.config.pluginKey = "replacement";
+    const value = row(); value.lease.status = "released"; value.environment!.config.pluginKey = "replacement";
     const workers = worker();
     await executeEnvironmentTask(database(value).db, workers as never, { companyId: "company", leaseId, operation: { kind: "stop" } });
     expect(workers.call).toHaveBeenCalledWith("original", "environmentTask", expect.objectContaining({ config: {}, operation: { kind: "stop" } }), 15_000);
+  });
+  it("keeps cleanup available after environment, run, and issue deletion", async () => {
+    const value = row(); value.environment = null; value.run = null;
+    for (const kind of ["stop", "complete", "status"] as const) {
+      const workers = worker(kind === "status" ? { kind: "status", taskId: "attempt-1", phase: "cancelled" } : undefined);
+      await executeEnvironmentTask(database(value).db, workers as never, { companyId: "company", leaseId, operation: { kind } });
+      expect(workers.call).toHaveBeenCalledWith("original", "environmentTask", expect.objectContaining({
+        config: {}, environmentId: null, runId: null, agentId: null, projectId: null,
+      }), 15_000);
+    }
+    await expect(executeEnvironmentTask(database(value).db, worker() as never, { companyId: "company", leaseId, operation: submit })).rejects.toThrow("not active");
+  });
+  it("preserves opaque provider IDs in requests and receipts", async () => {
+    const value = row(); value.lease.providerLeaseId = `provider:attempt.${"x".repeat(120)}`;
+    const workers = worker({ kind: "accepted", taskId: value.lease.providerLeaseId });
+    await expect(executeEnvironmentTask(database(value).db, workers as never, { companyId: "company", leaseId, operation: { kind: "stop" } })).resolves.toMatchObject({ taskId: value.lease.providerLeaseId });
+  });
+  it("returns a validated connection only while the lease and run are active", async () => {
+    const connection = { kind: "connection", taskId: "attempt-1", endpoint: {
+      kind: "authenticated_websocket", websocketUrl: "wss://runner.example.test/connect", generation: "attempt-1",
+      secretHeaders: [{ name: "Authorization", value: "Bearer fixture" }],
+    } };
+    const input = { companyId: "company", leaseId, operation: { kind: "connection" as const } };
+    await expect(executeEnvironmentTask(database().db, worker(connection) as never, input)).resolves.toEqual(connection);
+    for (const state of ["expired", "finished", "deleted"] as const) {
+      const value = row();
+      if (state === "expired") value.lease.expiresAt = new Date(0);
+      if (state === "finished") value.run!.status = "succeeded";
+      if (state === "deleted") value.environment = null;
+      const workers = worker(connection);
+      await expect(executeEnvironmentTask(database(value).db, workers as never, input)).rejects.toThrow("not active");
+      expect(workers.call).not.toHaveBeenCalled();
+    }
+    for (const endpoint of [
+      { ...connection.endpoint, websocketUrl: "ws://runner.example.test/connect" },
+      { ...connection.endpoint, websocketUrl: "wss://runner.example.test/connect?token=fixture" },
+      { ...connection.endpoint, secretHeaders: [{ name: "Authorization", value: "fixture\r\nInjected: true" }] },
+      { ...connection.endpoint, secretHeaders: [{ name: "Invalid Header", value: "fixture" }] },
+    ]) {
+      await expect(executeEnvironmentTask(database().db, worker({ ...connection, endpoint }) as never, input)).rejects.toThrow("reconcile the same task");
+    }
   });
   it.each(["manifest", "worker"])("requires live %s support", async kind => {
     const workers = worker();

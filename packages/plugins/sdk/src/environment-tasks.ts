@@ -1,6 +1,8 @@
 import { z } from "zod";
 import type { PluginEnvironmentDriverBaseParams, PluginEnvironmentLease } from "./protocol.js";
 
+// Provider IDs are opaque; providers validate their own addressing constraints.
+const providerId = z.string().min(1);
 const identifier = z.string().regex(/^[a-zA-Z0-9][a-zA-Z0-9_-]{0,95}$/);
 const secureUrl = z.string().url().refine(value => {
   const url = new URL(value);
@@ -27,19 +29,19 @@ export const environmentTaskOperationSchema = z.discriminatedUnion("kind", [
 ]);
 
 export const environmentTaskResultSchema = z.discriminatedUnion("kind", [
-  z.object({ kind: z.literal("accepted"), taskId: identifier }).strict(),
+  z.object({ kind: z.literal("accepted"), taskId: providerId }).strict(),
   z.object({
-    kind: z.literal("status"), taskId: identifier,
+    kind: z.literal("status"), taskId: providerId,
     phase: z.enum(["preparing", "running", "completed", "failed", "cancelled", "interrupted"]),
     exitCode: z.number().int().optional(),
     /** Provider observed the task and all descendants stopped; terminal phase alone is insufficient. */
     executionStopped: z.boolean().optional(),
   }).strict(),
   z.object({
-    kind: z.literal("connection"), taskId: identifier,
+    kind: z.literal("connection"), taskId: providerId,
     endpoint: z.object({
       kind: z.literal("authenticated_websocket"), websocketUrl: secureUrl,
-      generation: identifier,
+      generation: providerId,
       secretHeaders: z.array(z.object({
         name: z.string().regex(/^[!#$%&'*+.^_`|~0-9A-Za-z-]+$/),
         value: z.string().min(1).max(65_536).regex(/^[^\r\n]+$/),
@@ -51,12 +53,15 @@ export const environmentTaskResultSchema = z.discriminatedUnion("kind", [
 export type PluginEnvironmentTaskOperation = z.infer<typeof environmentTaskOperationSchema>;
 export type PluginEnvironmentTaskResult = z.infer<typeof environmentTaskResultSchema>;
 
-export interface PluginEnvironmentTaskParams extends PluginEnvironmentDriverBaseParams {
+export interface PluginEnvironmentTaskParams extends Omit<PluginEnvironmentDriverBaseParams, "environmentId"> {
+  /** Null during cleanup after the environment is deleted. */
+  environmentId: string | null;
   lease: PluginEnvironmentLease;
   /** Provider-issued task identifier persisted in the lease, stable across ambiguous submission retries. */
   taskId: string;
-  runId: string;
-  agentId: string;
+  /** Null during cleanup after the associated run is deleted. */
+  runId: string | null;
+  agentId: string | null;
   projectId: string | null;
   operation: PluginEnvironmentTaskOperation;
 }

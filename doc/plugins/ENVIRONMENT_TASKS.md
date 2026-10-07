@@ -22,7 +22,8 @@ separate. No browser endpoint or automatic provider selection is added.
 
 Acquire the environment lease before submitting a task. The provider lease ID is
 the task's durable attempt ID. Save it before a remote call. Do not use a persistent
-machine ID as this task ID. Multiple attempts can use the same underlying resource.
+machine ID as this task ID. Multiple attempts can use the same underlying resource. Provider task IDs are
+opaque strings; each provider owns its addressing constraints.
 
 - `submit`: supplies typed Runner identity, source revision, harness, optional
   outbound WSS URL, and a transient bootstrap ticket. The Runner run and lease IDs
@@ -59,3 +60,9 @@ identity and artifact verification.
 Providers own resource-specific credential lookup, mounts, task status, and cleanup.
 Task lease cleanup must never destroy a longer-lived resource as an implicit
 fallback. Unsupported operations and unavailable providers fail closed.
+
+Cleanup operations (`status`, `complete`, `stop`) remain available when an
+environment or run has been deleted. The corresponding `environmentId`, `runId`,
+and `agentId` can be null. Providers must use their persisted lease binding for
+cleanup; they must not need a current project or environment configuration.
+Submission and connection require the environment and running run to still exist.

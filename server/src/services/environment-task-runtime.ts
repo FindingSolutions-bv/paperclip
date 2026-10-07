@@ -16,16 +16,16 @@ export async function executeEnvironmentTask(db: Db, workers: PluginWorkerManage
   const operation = environmentTaskOperationSchema.parse(input.operation);
   const [row] = await db.select({ lease: environmentLeases, environment: environments, run: heartbeatRuns })
     .from(environmentLeases)
-    .innerJoin(environments, eq(environments.id, environmentLeases.environmentId))
-    .innerJoin(heartbeatRuns, and(eq(heartbeatRuns.id, environmentLeases.heartbeatRunId), eq(heartbeatRuns.companyId, environmentLeases.companyId)))
+    .leftJoin(environments, eq(environments.id, environmentLeases.environmentId))
+    .leftJoin(heartbeatRuns, and(eq(heartbeatRuns.id, environmentLeases.heartbeatRunId), eq(heartbeatRuns.companyId, environmentLeases.companyId)))
     .where(and(eq(environmentLeases.id, input.leaseId), eq(environmentLeases.companyId, input.companyId))).limit(1);
   if (!row || !row.lease.providerLeaseId) throw new Error("Environment task lease unavailable");
   const { lease, environment, run } = row;
   const taskId = row.lease.providerLeaseId;
   if ((operation.kind === "submit" || operation.kind === "connection") &&
-      (lease.status !== "active" || (lease.expiresAt && lease.expiresAt.getTime() <= Date.now()) ||
+      (!environment || !run || lease.status !== "active" || (lease.expiresAt && lease.expiresAt.getTime() <= Date.now()) ||
        run.status !== "running")) throw new Error("Environment task lease is not active");
-  if (operation.kind === "submit" && (operation.runner.runId !== run.id || operation.runner.leaseId !== lease.id)) {
+  if (operation.kind === "submit" && (operation.runner.runId !== run?.id || operation.runner.leaseId !== lease.id)) {
     throw new Error("Environment task runner identity mismatch");
   }
   const metadata = lease.metadata ?? {};
@@ -39,19 +39,19 @@ export async function executeEnvironmentTask(db: Db, workers: PluginWorkerManage
       !workers.getWorker(plugin.id)?.supportedMethods.includes("environmentTask")) {
     throw new Error("Environment task provider unavailable");
   }
-  const project = lease.issueId ? await db.select({ projectId: issues.projectId }).from(issues)
+  const project = operation.kind === "submit" && lease.issueId ? await db.select({ projectId: issues.projectId }).from(issues)
     .where(and(eq(issues.id, lease.issueId), eq(issues.companyId, input.companyId))).limit(1).then(rows => rows[0]) : null;
-  if (lease.issueId && !project) throw new Error("Environment task issue unavailable");
+  if (operation.kind === "submit" && lease.issueId && !project) throw new Error("Environment task issue unavailable");
   // Provider identity comes from the lease. Editing the environment must never
   // redirect status or cleanup to a replacement plugin.
-  const config = environment.config as Record<string, unknown>;
+  const config = (environment?.config ?? {}) as Record<string, unknown>;
   const driverConfig = config.pluginKey === plugin.pluginKey && config.driverKey === metadata.driverKey
     ? (config.driverConfig as Record<string, unknown> | undefined) ?? {} : {};
   try {
     const result = await workers.call(plugin.id, "environmentTask", {
-      driverKey: metadata.driverKey, companyId: input.companyId, environmentId: environment.id,
+      driverKey: metadata.driverKey, companyId: input.companyId, environmentId: environment?.id ?? null,
       issueId: lease.issueId, config: driverConfig,
-      taskId, runId: run.id, agentId: run.agentId, projectId: project?.projectId ?? null,
+      taskId, runId: run?.id ?? null, agentId: run?.agentId ?? null, projectId: project?.projectId ?? null,
       lease: { providerLeaseId: lease.providerLeaseId, metadata: lease.metadata ?? undefined }, operation,
     }, 15_000);
     return parseEnvironmentTaskResult(operation, taskId, result);
