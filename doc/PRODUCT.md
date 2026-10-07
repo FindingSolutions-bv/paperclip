@@ -232,3 +232,8 @@ to Tasks. A Views menu on the task list covers the inbox views (Mine, Unread,
 Blocked, Recent, Everything) and the task-status views (All, Active, Backlog,
 Done). Bare `/issues` opens the last-used view, defaulting to Mine; links that
 carry a task filter open All. Old `/inbox` links redirect to the matching view.
+
+
+### Harness and runner selection
+
+New agents select a harness and default to Paperclip Runner on qualified targets; unsupported combinations use the existing adapter. Existing agents preserve their saved execution choice. Advanced provides an explicit legacy override. See [the runner contract](agent-runners.md) for supported harnesses, request fields, compatibility and approval/import behavior.
