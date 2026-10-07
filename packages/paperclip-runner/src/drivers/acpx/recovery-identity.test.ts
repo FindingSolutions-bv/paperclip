@@ -45,13 +45,13 @@ describe("ACPX recovery identity", () => {
     const fixture = await recoveryFixture();
     const historical = JSON.parse(await readFile(new URL(path, import.meta.url), "utf8"));
     const current = resolveQualifiedAcpxProfile(agent, agent === "pi" ? "openrouter/deepseek/deepseek-v4-flash-0731" : fixture.input.requestedModel);
-    const input = { ...fixture.input, requestedModel: current.qualificationModel, profile: current, ...(agent === "pi" ? { piThinkingLevel: "low" as const } : {}) };
+    const input = { ...fixture.input, requestedModel: current.qualificationModel, profile: current, ...(agent === "pi" ? { piThinkingLevel: "low" as const } : {}), ...(agent === "cursor" ? { mode: "agent" } : {}) };
     const next = await createAcpxRecoveryBinding(input);
     const prior = await createAcpxRecoveryBinding({ ...input, profile: { ...current,
       agentProfileVersion: historical.declaration.agentProfileVersion, commandDigest: historical.commandDigest } });
     const priorExpected = { ...fixture.expected, profileDigest: prior.commandDigest,
       requestedModel: prior.requestedModel, effectiveModel: prior.effectiveModel,
-      ...(agent === "cursor" ? { cursorMode: "agent" as const } : {}), ...(agent === "pi" ? { piThinkingLevel: "low" as const } : {}) };
+      ...(agent === "cursor" ? { mode: "agent" as const } : {}), ...(agent === "pi" ? { piThinkingLevel: "low" as const } : {}) };
     const record = createAcpxIdentityRecord(priorExpected, prior);
     expect(next.profileDigest).not.toBe(prior.profileDigest);
     expect(next.profileSessionKey).not.toBe(prior.profileSessionKey);
@@ -60,18 +60,19 @@ describe("ACPX recovery identity", () => {
 
   it("binds Cursor mode on recovery and rejects missing or changed persisted mode", async () => {
     const fixture = await recoveryFixture();
-    const input = { ...fixture.input, profile: resolveQualifiedAcpxProfile("cursor", fixture.input.requestedModel) };
+    const input = { ...fixture.input, profile: resolveQualifiedAcpxProfile("cursor", fixture.input.requestedModel), mode: "agent" };
     const agent = await createAcpxRecoveryBinding(input);
-    const plan = await createAcpxRecoveryBinding({ ...input, cursorMode: "plan" });
-    expect(agent.cursorMode).toBe("agent");
+    const plan = await createAcpxRecoveryBinding({ ...input, mode: "plan" });
+    expect(agent.mode).toBe("agent");
     expect(plan.profileSessionKey).not.toBe(agent.profileSessionKey);
-    const expected = { ...fixture.expected, profileDigest: plan.commandDigest, cursorMode: "plan" as const };
+    const expected = { ...fixture.expected, profileDigest: plan.commandDigest, mode: "plan" as const };
     const record = createAcpxIdentityRecord(expected, plan);
-    expect(acpxProviderSessionIdentity(record, plan).cursorMode).toBe("plan");
-    expect(() => verifyExpectedAcpxIdentity({ ...expected, cursorMode: undefined }, plan, record)).toThrow(/immutable session/);
+    expect(acpxProviderSessionIdentity(record, plan).mode).toBe("plan");
+    expect(() => verifyExpectedAcpxIdentity({ ...expected, mode: undefined }, plan, record)).toThrow(/immutable session/);
     expect(() => verifyExpectedAcpxIdentity(expected, agent, record)).toThrow(/immutable session/);
-    expect(() => verifyExpectedAcpxIdentity(expected, plan, { ...record, cursorMode: undefined })).toThrow(/persisted runtime record/);
-    await expect(createAcpxRecoveryBinding({ ...fixture.input, cursorMode: "plan" })).rejects.toThrow(/only supported/);
+    expect(() => verifyExpectedAcpxIdentity(expected, plan, { ...record, mode: undefined })).toThrow(/persisted runtime record/);
+    const customMode = await createAcpxRecoveryBinding({ ...fixture.input, mode: "provider-custom-mode" });
+    expect(customMode.mode).toBe("provider-custom-mode");
   });
 
   it("binds Pi thinking mode and rejects old or mismatched warm identities", async () => {

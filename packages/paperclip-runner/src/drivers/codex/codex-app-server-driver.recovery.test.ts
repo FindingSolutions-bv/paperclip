@@ -44,7 +44,7 @@ import {
 } from "./codex-app-server-driver.test-support.js";
 import { NativeSessionProtocolIntegrityError } from "../../contracts/native-session-backend.js";
 
-function cursorProviderIdentity(cursorMode: unknown) {
+function cursorProviderIdentity(mode: unknown) {
   return {
     kind: "acpx",
     normalizedSessionId: "normalized-cursor-recovery",
@@ -56,7 +56,7 @@ function cursorProviderIdentity(cursorMode: unknown) {
     requestedModel: "explicit-cursor-model",
     effectiveModel: "explicit-cursor-model",
     permissionMode: "approve-all",
-    ...(cursorMode === undefined ? {} : { cursorMode }),
+    ...(mode === undefined ? {} : { mode }),
     providerLifetimeFenceCandidates: [60_001, 60_002, 60_003],
   };
 }
@@ -96,12 +96,12 @@ describe("Codex app-server Codex driver", () => {
     expect(second.calls.some((call) => call.method === "turn/start")).toBe(false);
   });
 
-  it.each([null, "autopilot", 3])("rejects malformed native Cursor mode %j before opening a session", async (mode) => {
+  it.each([null, "", 3])("rejects malformed native provider mode %j before opening a session", async (mode) => {
     const transport = new FakeCodexTransport("thread-1", "provider-session-1", cursorProviderIdentity(mode));
     const driver = makeDriver([transport]);
     await expect(driver.openSession({
       runId: "run-cursor-recovery", normalizedSessionId: "normalized-cursor-recovery", workingDirectory: WORKSPACE,
-    })).rejects.toThrow("ACPX provider identity contains an invalid Cursor mode");
+    })).rejects.toThrow("ACPX provider identity contains an invalid provider mode");
     expect(transport.calls.some((call) => call.method === "turn/start")).toBe(false);
   });
 
@@ -254,10 +254,11 @@ describe("Codex app-server Codex driver", () => {
     },
   );
 
-  it("persists and verifies the tagged runnerd provider identity on recovery", async () => {
+  it.each([undefined, "agent", "plan", "ask"] as const)("persists and verifies the tagged runnerd provider identity including mode %s on recovery", async (mode) => {
     const providerIdentity = {
       kind: "acpx",
       normalizedSessionId: "normalized-tagged-recovery",
+      ...(mode === undefined ? {} : { mode }),
       acpxRecordId: "acpx-record-1",
       backendSessionId: "backend-session-1",
       agentSessionId: "agent-session-1",

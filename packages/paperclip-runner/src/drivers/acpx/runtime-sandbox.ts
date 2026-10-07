@@ -1,3 +1,4 @@
+import { piProviderConfiguration } from "./pi-provider-config.js";
 import { COPILOT_SYSTEM_INSTRUCTIONS_FILE } from "./copilot-profile.js";
 import { randomBytes } from "node:crypto";
 import {
@@ -388,6 +389,10 @@ export async function prepareAcpxRuntimeSandbox(input: {
     workspaceRecordPath,
     `${input.binding.workspacePath}\n`,
   );
+  if (input.agent === "pi") {
+    const configuration = piProviderConfiguration(input.environment);
+    if (configuration) await writePrivateFile(join(agentHomeDirectory, "models.json"), configuration.json);
+  }
   if (input.agent === "claude") {
     // ACP otherwise rewrites exact IDs (including user-entered model IDs) to
     // picker aliases such as "sonnet". Its supported availableModels setting
@@ -455,6 +460,16 @@ export async function prepareAcpxRuntimeSandbox(input: {
         // also affect provider startup and belongs at the launch boundary.
         "[features]",
         "shell_snapshot = false",
+        ...(input.environment?.PAPERCLIP_AGENT_KEY_ID ? [
+          "[shell_environment_policy]", 'inherit = "all"', "ignore_default_excludes = true",
+          `include_only = ${JSON.stringify([...new Set([
+            "PATH", "HOME", "LANG", "LANGUAGE", "TZ", "TMPDIR", "TEMP", "TMP", "CODEX_HOME",
+            "PAPERCLIP_AGENT_KEY_ID", "PAPERCLIP_AGENT_PUBLIC_KEY", "PAPERCLIP_AGENT_PRIVATE_KEY",
+            // Provider/config secrets keep Codex's default shell exclusions;
+            // only Paperclip's scoped API token is required by Bash/curl skills.
+            ...Object.keys(input.environment).filter(key => key === "PAPERCLIP_API_KEY" || !/key|secret|token/i.test(key)),
+          ])])}`,
+        ] : []),
         "",
       ].join("\n"),
     );

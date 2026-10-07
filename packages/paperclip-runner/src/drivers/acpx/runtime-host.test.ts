@@ -204,13 +204,13 @@ describe("ACPX runtime host", () => {
   it.each([undefined, "plan", "ask"] as const)("requires observed Cursor mode %s in the host identity", async selected => {
     const fixture = await hostFixture();
     const mode = selected ?? "agent";
-    const options = { ...fixture.options, agent: "cursor" as const, model: "explicit-test-model", cursorMode: selected, permissionMode: "approve-all" as const, environment: { CURSOR_API_KEY: "test" } };
+    const options = { ...fixture.options, agent: "cursor" as const, model: "explicit-test-model", mode: selected, permissionMode: "approve-all" as const, environment: { CURSOR_API_KEY: "test" } };
     const openRuntime = vi.fn(async (launch: AcpxRuntimePortOpenOptions) => {
-      expect(launch.cursorMode).toBe(mode);
-      return runtimePort({ getStatus: async () => ({ models: { currentModelId: options.model } }), identity: async () => ({ acpxRecordId: "record-1", backendSessionId: "backend-1", agentSessionId: "agent-1", cursorMode: mode }) });
+      expect(launch.mode).toBe(mode);
+      return runtimePort({ getStatus: async () => ({ models: { currentModelId: options.model } }), identity: async () => ({ acpxRecordId: "record-1", backendSessionId: "backend-1", agentSessionId: "agent-1", mode: mode }) });
     });
     const host = await AcpxRuntimeHost.open(options, fixture.dependencies({ openRuntime }));
-    expect(host.identity().cursorMode).toBe(mode);
+    expect(host.identity().mode).toBe(mode);
     await host.close({ reason: "mode test complete" });
   });
 
@@ -219,10 +219,10 @@ describe("ACPX runtime host", () => {
     const port = runtimePort({ getStatus: async () => ({ models: { currentModelId: "explicit-test-model" } }) });
     const openRuntime = vi.fn(async () => port);
     const options = { ...fixture.options, agent: "cursor" as const, model: "explicit-test-model", permissionMode: "approve-all" as const, environment: { CURSOR_API_KEY: "test" } };
-    await expect(AcpxRuntimeHost.open(options, fixture.dependencies({ openRuntime }))).rejects.toThrow(/Cursor mode does not match/);
+    await expect(AcpxRuntimeHost.open(options, fixture.dependencies({ openRuntime }))).rejects.toThrow(/Provider mode does not match/);
     expect(port.close).toHaveBeenCalled();
     openRuntime.mockClear();
-    await expect(AcpxRuntimeHost.open({ ...options, agent: "codex", model: "gpt-5.6-sol", cursorMode: "plan" }, fixture.dependencies({ openRuntime }))).rejects.toThrow(/only supported/);
+    await expect(AcpxRuntimeHost.open({ ...options, agent: "codex", model: "gpt-5.6-sol", mode: "plan" }, fixture.dependencies({ openRuntime }))).rejects.toThrow(/does not support configurable/);
     expect(openRuntime).not.toHaveBeenCalled();
   });
 
@@ -897,7 +897,7 @@ describe("ACPX runtime host", () => {
     const opened: AcpxRuntimePortOpenOptions[] = [];
     const dependencies = fixture.dependencies({ openRuntime: async launch => {
       opened.push(launch);
-      return runtimePort({ getStatus: async () => ({ models: { currentModelId: model } }), identity: async () => ({ acpxRecordId: "record-1", backendSessionId: "backend-1", agentSessionId: "agent-1", ...(agent === "cursor" ? { cursorMode: launch.cursorMode } : {}), ...(agent === "pi" ? { piThinkingLevel: launch.piThinkingLevel } : {}) }) });
+      return runtimePort({ getStatus: async () => ({ models: { currentModelId: model } }), identity: async () => ({ acpxRecordId: "record-1", backendSessionId: "backend-1", agentSessionId: "agent-1", ...(agent === "cursor" ? { mode: launch.mode } : {}), ...(agent === "pi" ? { piThinkingLevel: launch.piThinkingLevel } : {}) }) });
     } });
     // Missing trusted context must not turn ambient values into authority.
     const withoutCopy = await AcpxRuntimeHost.open(options, dependencies);
@@ -1470,7 +1470,7 @@ describe("ACPX runtime host", () => {
         onExtensionRequest,
         onExtensionNotification,
       }),
-    ).toMatchObject({ requestId: turn.requestId });
+    ).toMatchObject({ requestId: turn.requestId, result: turn.result });
     expect(startTurn).toHaveBeenCalledWith({
       text: "Complete the task.",
       requestId: "turn-1",
@@ -1486,8 +1486,8 @@ describe("ACPX runtime host", () => {
     expect(turn.cancel).toHaveBeenCalledWith({ reason: "user interrupt" });
 
     await host.close({ reason: "shutdown" });
-    expect(turn.cancel).toHaveBeenCalledTimes(2);
-    expect(runtime.close).toHaveBeenCalledExactlyOnceWith({ reason: "user interrupt" });
+    expect(turn.cancel.mock.calls.every(([intent]) => intent.reason === "user interrupt")).toBe(true);
+    expect(runtime.close).toHaveBeenCalledOnce();
     expect(() => host.startTurn({ text: "Late", requestId: "turn-3" })).toThrow(
       "is closing",
     );

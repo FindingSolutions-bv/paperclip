@@ -13,6 +13,7 @@ vi.mock("../vendor/paperclip-runner/index.js", () => ({
   probeAcpxClaudeInstallation: probeInstallation,
   probeAcpxGrokInstallation: probeGrokInstallation,
   probeAcpxPiInstallation: probePiInstallation,
+  probeAcpxCursorInstallation: vi.fn(async () => undefined),
 }));
 
 // The registry registers a login capability for the two built-in interactive

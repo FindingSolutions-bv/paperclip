@@ -6,6 +6,7 @@ import { WebSocketServer } from "ws";
 import { and, eq } from "drizzle-orm";
 import { afterAll, afterEach, beforeAll, describe, expect, it } from "vitest";
 import {
+  costEvents,
   activityLog,
   authUsers,
   agentWakeupRequests,
@@ -103,6 +104,7 @@ async function deleteHeartbeatRunsAndWakeupsAfterActivityLogDrains(db: Db) {
     await db.delete(activityLog);
     try {
       await db.delete(heartbeatRunEvents);
+      await db.delete(costEvents);
       await db.delete(heartbeatRuns);
       await db.delete(agentWakeupRequests);
       return;
@@ -1671,20 +1673,20 @@ describeEmbeddedPostgres(
             ),
         },
         {
-          id: "LT-26 child",
+          id: "LT-26 child with unauthorized assignee",
           req: () =>
             request(app)
               .post(`/api/issues/${fixture.issues.assignedReview.id}/children`)
-              .send({ title: `child ${fixture.canaries.issueSibling}` }),
+              .send({ title: `child ${fixture.canaries.issueSibling}`, assigneeAgentId: fixture.agents.cto.id }),
         },
         {
-          id: "LT-26 company issue",
+          id: "LT-26 company issue outside boundary",
           req: () =>
             request(app)
               .post(`/api/companies/${fixture.company.id}/issues`)
               .send({
                 title: `child ${fixture.canaries.issueSibling}`,
-                parentId: fixture.issues.assignedReview.id,
+                projectId: fixture.projects.outOfScope.id,
               }),
         },
         {

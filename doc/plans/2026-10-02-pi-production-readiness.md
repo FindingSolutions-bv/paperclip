@@ -2,8 +2,36 @@
 
 The release target is Pi 1.0.0 through the native Runner. Readiness is a finite
 set of release gates. Pi remains a candidate until every required gate passes.
-Do not expand this work to additional models, widgets, images, Cursor or Copilot
-qualification. The existing draft stack must be reviewed in dependency order.
+Keep behavioral qualification on the accepted fixtures. Do not expand it to
+widgets, images, Cursor or Copilot qualification. The existing draft stack must be reviewed in dependency order.
+
+## Master integration and model selection — 2026-10-06
+
+This branch merges `origin/master` at `a6306ba606eb87c89b9ef0344e9fe8e0025580f9`.
+Pi accepts the operator's explicit provider/model ID without a Paperclip model
+allowlist. Catalog discovery does not gate selection. Exact native model
+acknowledgment remains required before prompting. API credentials for built-in
+providers and explicit native custom-provider configurations remain session-bound.
+Custom-provider configuration changes also fence session recovery.
+
+Pi profile 16 binds the updated ACPX patch and configuration/recovery sources.
+Runtime and native distribution pins remain Pi 1.0.0. Historical profile 15
+fixtures are preserved. This integration does not transfer prior live passes to
+the new source. The task acceptance below belongs to source
+`46ffa7aa3a8b219f5508448cffe297c09e38d810`. No paid model calls or platform
+qualification runs are part of this merge. Mac coverage remains deferred.
+
+Merge validation runs in an independent checkout because this worktree's
+node_modules links belong to a different checkout. Recursive typecheck, full
+build, generated-profile parity and UI token gates pass. The complete Runner
+suite passes 3,363 tests and reports five stale transport fixture expectations;
+those fixtures are corrected and all 11 selected transport regressions pass.
+All 2,465 offline Product harness tests pass; the changed catalog and manifest
+tests pass again after the final source attestations. The final focused Pi model,
+credential, installation and session suite passes 280 tests, with one skip.
+The repo-wide test command did not complete: its pre-fix run was stopped after
+24 minutes. Targeted directory and session-identity regressions pass on the
+corrected source. No full-repository green-suite claim is made.
 
 ## Immediate execution focus — 2026-10-06
 

@@ -2,6 +2,7 @@ import type { PaperclipQuestion, PaperclipQuestionResponse, PaperclipQuestionSet
 import type { UIAdapterModule } from "../types";
 import { parseCodexStdoutLine, buildPaperclipRunnerConfig } from "@paperclipai/adapter-codex-local/ui";
 import { CodexLocalConfigFields } from "../codex-local/config-fields";
+import { isRunLogOnlyProviderEvent } from "@/components/transcript/run-log-only-events";
 
 type JsonRecord = Record<string, unknown>;
 
@@ -688,6 +689,7 @@ function parsePrpEvent(
 ): TranscriptEntry[] {
   const eventType = text(event.eventType);
   const payload = record(event.payload);
+  if (isRunLogOnlyProviderEvent(eventType, payload)) return [];
   const failure = piRuntimeFailureKey(event, payload);
   if (failure !== null && failure === state.previousPiRuntimeFailure) return [];
   state.previousPiRuntimeFailure = failure;

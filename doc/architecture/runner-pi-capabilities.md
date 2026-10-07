@@ -1,5 +1,27 @@
 # Pi rich ACP runtime
 
+## User-selected models (2026-10-06)
+
+Native Pi accepts any explicit provider/model ID. The settings builder, server,
+release profile, and Rust runner do not restrict selection to a qualification
+model. Pi must acknowledge the exact selection before a prompt and on recovery;
+unavailable models fail clearly without selecting a substitute. Runtime package,
+version, command, permission, and process-ownership checks remain enforced.
+
+Bind the selected provider's credentials in the agent environment, for example
+`OPENAI_API_KEY`, `ANTHROPIC_API_KEY`, `GEMINI_API_KEY`, or `OPENROUTER_API_KEY`.
+Custom models use `PAPERCLIP_PI_PROVIDERS`, an explicit JSON object in Pi's
+`models.json` providers format. The runner writes it into the private Pi home,
+forwards explicitly bound credential references, and includes its digest in
+recovery identity. Credential commands and control-plane credential references
+are rejected. Choose a thinking level supported by the selected model (`off`
+for a model without reasoning).
+
+The DeepSeek model IDs throughout the historical qualification results below
+identify those attempts; they are not a product allowlist. Those results do not
+qualify this merge or additional models.
+
+
 ## Pi 1.0 candidate (2026-10-02, profile v13)
 
 Pi remains pinned to **`@earendil-works/pi-coding-agent@1.0.0`**, with
@@ -47,7 +69,7 @@ control, and Daytona results must be established independently.
 
 | Capability | Native / ACP surface | Paperclip surface | Remaining boundary |
 | --- | --- | --- | --- |
-| Supported thinking levels | `get_available_thinking_levels`; ACP available session modes and `thought_level` choices | Pi reasoning-level configuration | Only the exact qualified model is admitted. Other models and their level sets remain unqualified. |
+| Supported thinking levels | `get_available_thinking_levels`; ACP available session modes and `thought_level` choices | Pi reasoning-level configuration | Model selection is explicit and unrestricted; historical qualification used the recorded model and level. |
 | Set and verify thinking level | Native `set_thinking_level`, then `get_state`; ACP `session/set_mode` / config option | Saved agent setting, typed runner input, effective-mode admission | Live setting changes during an active turn are not exposed; a new compatible session is required. |
 | Recover selected level | Native restored state plus explicit effective-level verification | Mode-bound durable session identity | Old profiles and missing or mismatched mode identity cannot reuse a warm session. |
 | Provider notice severity and pricing provenance | `paperclip/pi_notice` and canonical `provider.notice.recorded` | Retained run event, usage metadata, and safe summary with severity in the activity row | Summary/severity rendering has deterministic coverage; paid visual verification of the rebuilt UI remains pending. Pricing estimates remain distinct from provider billing receipts. |
@@ -1146,9 +1168,8 @@ location and repeat setup. Concurrent setup is rejected. Cancellation drains the
 current bounded download/build command before removing its private staging tree;
 allow that cleanup to complete before trying again.
 
-Then select Pi with the exact model
-`openrouter/deepseek/deepseek-v4-flash-0731` and bind an OpenRouter credential
-through the normal provider credential UI. Setup itself makes no model request.
+Then select Pi with an explicit provider/model ID and bind its provider credential
+through the normal agent environment configuration. Setup itself makes no model request.
 A missing host closure produces explicit setup guidance. Daytona uses the
 separately built and verified Linux provider pack in its runner image; running
 local setup does not install or qualify a remote image. Published-tar local and

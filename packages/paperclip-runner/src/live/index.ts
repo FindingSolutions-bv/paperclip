@@ -7,3 +7,7 @@ export * from "./turn-stream.js";
 export * from "./linux-process-start.js";
 
 export { probeAcpxClaudeInstallation, probeAcpxGrokInstallation, probeAcpxPiInstallation } from "../drivers/acpx/installation-integrity.js";
+
+export { probeAcpxCursorInstallation } from "../drivers/acpx/profile-installation.js";
+
+export { bundledRemoteProviderPackManifestPath, bundledRemoteRunnerBinary } from "./bundled-remote-provider-pack.js";

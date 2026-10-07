@@ -1,6 +1,7 @@
-import { resolvePiThinkingLevel, type PiThinkingLevel } from "./pi-thinking.js";
+import { piProviderConfiguration } from "./pi-provider-config.js";
 import { withAcpxTurnCancellation } from "./turn-cancellation.js";
-import { resolveCursorSessionMode, type CursorSessionMode } from "./cursor-mode.js";
+import { resolveAcpxProviderMode } from "./provider-mode.js";
+import { resolvePiThinkingLevel, type PiThinkingLevel } from "./pi-thinking.js";
 import { dirname, join } from "node:path";
 import { bindAcpxAgentFiles } from "./agent-files-binding.js";
 import { assertAcpxProfileEnvironment, assertAcpxProfileWorkspace, classifyAcpxProfileError, verifyAcpxProfileInstallation } from "./profile-installation.js";
@@ -80,7 +81,7 @@ const ACPX_ADMISSION_CLEANUP_RETRY_DELAY_MS = 10;
 const ACPX_ADMISSION_CLEANUP_RESCHEDULE_MS = 1_000;
 
 export interface AcpxRuntimePortIdentity {
-  cursorMode?: CursorSessionMode;
+  mode?: string;
   piThinkingLevel?: PiThinkingLevel;
   acpxRecordId: string;
   backendSessionId: string;
@@ -160,7 +161,7 @@ export interface AcpxRuntimePortOpenOptions {
   stateDirectory: string;
   providerSessionKey: string;
   permissionMode: NativeAcpxPermissionMode;
-  cursorMode?: CursorSessionMode;
+  mode?: string;
   piThinkingLevel?: PiThinkingLevel;
   permissionPolicy: ReturnType<typeof acpxRuntimePermissionPolicy>;
   launchEnvironment: Readonly<NodeJS.ProcessEnv>;
@@ -235,7 +236,7 @@ export interface OpenAcpxRuntimeHostOptions {
   agent: QualifiedAcpxAgent;
   model: string;
   permissionMode: NativeAcpxPermissionMode;
-  cursorMode?: CursorSessionMode;
+  mode?: string;
   piThinkingLevel?: PiThinkingLevel;
   systemInstructions?: string;
   runtimeContext?: NativeRuntimeContextSnapshot | null;
@@ -345,8 +346,9 @@ export class AcpxRuntimeHost {
           workingDirectory: options.workingDirectory,
           profile,
           requestedModel: options.model,
+          ...(options.agent === "pi" ? { providerConfigurationDigest: piProviderConfiguration(options.environment)?.digest } : {}),
           permissionMode: options.permissionMode,
-          cursorMode: resolveCursorSessionMode(options.agent, options.cursorMode),
+          mode: resolveAcpxProviderMode(options.agent, options.mode),
           piThinkingLevel: resolvePiThinkingLevel(options.agent, options.piThinkingLevel),
           ...(["cursor", "copilot", "pi"].includes(options.agent) && options.providerPolicy !== undefined
             ? { providerPolicy: options.providerPolicy } : {}),
@@ -577,7 +579,7 @@ export class AcpxRuntimeHost {
             providerSessionKey: binding.profileSessionKey,
             restoringSession: options.expectedIdentity !== undefined,
             permissionMode: binding.permissionMode,
-            cursorMode: binding.cursorMode,
+            mode: binding.mode,
             piThinkingLevel: binding.piThinkingLevel,
             permissionPolicy: acpxRuntimePermissionPolicy(
               binding.permissionMode,
@@ -636,9 +638,9 @@ export class AcpxRuntimeHost {
           ),
         dependencies.retainAdmissionCleanup,
       );
+      if (runtimeIdentity.mode !== binding.mode) {
+        throw new Error("ACPX runtime Provider mode does not match the admitted session configuration");
       if (runtimeIdentity.piThinkingLevel !== binding.piThinkingLevel) throw new Error("ACPX runtime Pi thinking level conflicts with session binding");
-      if (runtimeIdentity.cursorMode !== binding.cursorMode) {
-        throw new Error("ACPX runtime Cursor mode does not match the admitted session configuration");
       }
       const observedIdentity: AcpxExpectedSessionIdentity = {
         kind: "acpx",

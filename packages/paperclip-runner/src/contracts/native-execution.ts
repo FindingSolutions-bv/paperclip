@@ -1,3 +1,6 @@
+import { QUALIFIED_ACPX_VERSION } from "../drivers/acpx/generated-profiles.js";
+import { isSupportedAcpxProfileVersion, type AcpxProfileVersion } from "../drivers/acpx/profile-compatibility.js";
+import { isProviderMode } from "./provider-mode.js";
 import { createHash } from "node:crypto";
 import type { PrpStructuredRunResult, PrpTerminalState } from "../protocol/replay-contract.js";
 import { explicitTaskSkillNames, parseNativeRuntimeContext, type NativeRuntimeContextSnapshot } from "./runtime-context.js";
@@ -89,9 +92,9 @@ export type NativeCursorMode = "agent" | "plan" | "ask";
 export interface NativeAcpxProfileSnapshot {
   driverKind: "acpx_runtime";
   protocolVersion: 1;
-  acpxVersion: "0.13.1";
+  acpxVersion: typeof QUALIFIED_ACPX_VERSION;
   agent: NativeAcpxAgent;
-  agentProfileVersion: 1 | 2 | 3 | 4 | 5 | 6 | 7 | 8 | 9 | 10 | 11 | 12 | 13 | 14 | 15;
+  agentProfileVersion: AcpxProfileVersion;
   agentServerPackage: string;
   agentServerVersion: string;
   agentRuntimePackage: string | null;
@@ -124,7 +127,7 @@ export type NativeProviderConfig =
       agent: NativeAcpxAgent;
       model: string;
       permissionMode?: NativeAcpxPermissionMode;
-      cursorMode?: NativeCursorMode;
+      mode?: string;
       piThinkingLevel?: "off" | "low" | "high" | "max";
       /** Present only in persisted v1-v3 inputs. */
       permissionPolicy?: "interactive";
@@ -140,7 +143,7 @@ export type NativeProviderConfigV4 =
       agent: NativeAcpxAgent;
       model: string;
       permissionMode: NativeAcpxPermissionMode;
-      cursorMode?: NativeCursorMode;
+      mode?: string;
       piThinkingLevel?: "off" | "low" | "high" | "max";
       profile: NativeAcpxProfileSnapshot;
     };
@@ -156,6 +159,7 @@ export interface NativeExecutionInputV1 {
     runId: string;
     issueId: string;
     agentId: string;
+    agentKeyId?: string;
     executionWorkspaceId: string;
   };
   task: {
@@ -349,7 +353,7 @@ export function parseNativeExecutionInput(value: unknown): NativeExecutionInput 
   }
 
   const binding = record(input.binding, "input.binding");
-  exactKeys(binding, ["companyId", "runId", "issueId", "agentId", "executionWorkspaceId"], "input.binding");
+  exactKeys(binding, ["companyId", "runId", "issueId", "agentId", "agentKeyId", "executionWorkspaceId"], "input.binding");
   const task = record(input.task, "input.task");
   exactKeys(task, ["identifier", "title", "description", "prompt", "workMode"], "input.task");
   const workspace = record(input.workspace, "input.workspace");
@@ -455,7 +459,7 @@ export function parseNativeExecutionInput(value: unknown): NativeExecutionInput 
       : provider.kind === "aws_agentcore"
         ? ["kind", "model", "agentCoreProfile", "maxEstimatedSessionCostUsd", "invocationLimits"]
       : provider.kind === "acpx"
-        ? ["kind", "agent", "model", isV4 ? "permissionMode" : "permissionPolicy", "profile", "piThinkingLevel", ...(isV4 ? ["cursorMode"] : [])]
+        ? ["kind", "agent", "model", isV4 ? "permissionMode" : "permissionPolicy", "profile", "piThinkingLevel", ...(isV4 ? ["mode"] : [])]
       : provider.kind === "codex" && isV4
         ? ["kind", "model", "approvalPolicy", ...(isV5 ? ["reasoningEffort"] : [])]
         : provider.kind === "opencode" && isV4
@@ -578,9 +582,8 @@ export function parseNativeExecutionInput(value: unknown): NativeExecutionInput 
     if (provider.piThinkingLevel !== undefined && (provider.agent !== "pi" || (typeof provider.piThinkingLevel !== "string" || !["off", "low", "high", "max"].includes(provider.piThinkingLevel)))) {
       throw new NativeExecutionInputError("input.provider.piThinkingLevel must be off, low, high, or max and is supported only for Pi");
     }
-    if (provider.cursorMode !== undefined && (provider.agent !== "cursor"
-      || (provider.cursorMode !== "agent" && provider.cursorMode !== "plan" && provider.cursorMode !== "ask"))) {
-      throw new NativeExecutionInputError("input.provider.cursorMode must be agent, plan, or ask and is supported only for Cursor");
+    if (provider.mode !== undefined && !isProviderMode(provider.mode)) {
+      throw new NativeExecutionInputError("input.provider.mode must be a bounded nonempty provider mode identifier");
     }
     if (providerModel === null) {
       throw new NativeExecutionInputError("input.provider.model is required for acpx");
@@ -611,9 +614,9 @@ export function parseNativeExecutionInput(value: unknown): NativeExecutionInput 
     if (
       profile.driverKind !== "acpx_runtime"
       || profile.protocolVersion !== 1
-      || profile.acpxVersion !== "0.13.1"
+      || profile.acpxVersion !== QUALIFIED_ACPX_VERSION
       || profile.agent !== provider.agent
-      || (profile.agentProfileVersion !== 1 && profile.agentProfileVersion !== 2 && profile.agentProfileVersion !== 3 && profile.agentProfileVersion !== 4 && profile.agentProfileVersion !== 5 && profile.agentProfileVersion !== 6 && profile.agentProfileVersion !== 7 && profile.agentProfileVersion !== 8 && profile.agentProfileVersion !== 9 && profile.agentProfileVersion !== 10 && profile.agentProfileVersion !== 11 && profile.agentProfileVersion !== 12 && profile.agentProfileVersion !== 13 && profile.agentProfileVersion !== 14 && profile.agentProfileVersion !== 15)
+      || !isSupportedAcpxProfileVersion(provider.agent, profile.agentProfileVersion)
     ) {
       throw new NativeExecutionInputError("input.provider.profile does not match the qualified ACPX v1 profile");
     }
@@ -632,12 +635,12 @@ export function parseNativeExecutionInput(value: unknown): NativeExecutionInput 
       ...(isV4
         ? { permissionMode: provider.permissionMode as NativeAcpxPermissionMode }
         : { permissionPolicy: "interactive" as const }),
-      ...(provider.cursorMode === undefined ? {} : { cursorMode: provider.cursorMode as NativeCursorMode }),
+      ...(provider.mode === undefined ? {} : { mode: provider.mode as string }),
       ...(provider.piThinkingLevel === undefined ? {} : { piThinkingLevel: provider.piThinkingLevel as "off" | "low" | "high" | "max" }),
       profile: {
         driverKind: "acpx_runtime",
         protocolVersion: 1,
-        acpxVersion: "0.13.1",
+        acpxVersion: QUALIFIED_ACPX_VERSION,
         agent: provider.agent,
         agentProfileVersion: profile.agentProfileVersion,
         agentServerPackage: text(profile.agentServerPackage, "input.provider.profile.agentServerPackage"),
@@ -726,6 +729,7 @@ export function parseNativeExecutionInput(value: unknown): NativeExecutionInput 
       runId: text(binding.runId, "input.binding.runId"),
       issueId: text(binding.issueId, "input.binding.issueId"),
       agentId: text(binding.agentId, "input.binding.agentId"),
+      ...(binding.agentKeyId === undefined ? {} : { agentKeyId: text(binding.agentKeyId, "input.binding.agentKeyId") }),
       executionWorkspaceId: text(binding.executionWorkspaceId, "input.binding.executionWorkspaceId"),
     },
     task: {

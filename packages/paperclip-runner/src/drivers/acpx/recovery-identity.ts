@@ -1,5 +1,5 @@
+import { parseProviderMode } from "../../contracts/provider-mode.js";
 import { resolvePiThinkingLevel, type PiThinkingLevel } from "./pi-thinking.js";
-import { resolveCursorSessionMode, type CursorSessionMode } from "./cursor-mode.js";
 import { createHash } from "node:crypto";
 import { realpath, stat } from "node:fs/promises";
 import { dirname, join, resolve } from "node:path";
@@ -21,7 +21,7 @@ export interface AcpxRecoveryBinding {
   requestedModel: string;
   effectiveModel: string;
   permissionMode: NativeAcpxPermissionMode;
-  cursorMode?: CursorSessionMode;
+  mode?: string;
   piThinkingLevel?: PiThinkingLevel;
   profileSessionKey: string;
 }
@@ -37,7 +37,7 @@ export interface AcpxIdentityRecord {
   requestedModel: string;
   effectiveModel: string;
   permissionMode: NativeAcpxPermissionMode;
-  cursorMode?: CursorSessionMode;
+  mode?: string;
   piThinkingLevel?: PiThinkingLevel;
   providerLifetimeFenceCandidates: readonly [number, number, number];
 }
@@ -49,20 +49,22 @@ export async function createAcpxRecoveryBinding(input: {
   profile: QualifiedAcpxProfile;
   requestedModel: string;
   permissionMode: NativeAcpxPermissionMode;
-  cursorMode?: CursorSessionMode;
+  mode?: string;
   piThinkingLevel?: PiThinkingLevel;
+  providerConfigurationDigest?: string;
   providerPolicy?: { readOnly: boolean; readRoots?: readonly string[]; protectedPaths?: readonly string[] };
 }): Promise<AcpxRecoveryBinding> {
   validateIdentity(input.normalizedSessionId, "normalized session");
-  const cursorMode = resolveCursorSessionMode(input.profile.agent, input.cursorMode);
+  const mode = parseProviderMode(input.mode);
   const piThinkingLevel = resolvePiThinkingLevel(input.profile.agent, input.piThinkingLevel);
   if (input.providerPolicy !== undefined && typeof input.providerPolicy.readOnly !== "boolean") throw new Error("ACPX recovery requires a valid task execution policy");
   if (input.requestedModel !== input.profile.qualificationModel) {
-    throw new Error("ACPX recovery requested an unqualified model");
+    throw new Error("ACPX recovery requested model does not match its admitted profile");
   }
   if (!isDigest(input.profile.commandDigest)) {
     throw new Error("ACPX recovery profile command digest is invalid");
   }
+  if (input.providerConfigurationDigest !== undefined && !isDigest(input.providerConfigurationDigest)) throw new Error("Invalid provider configuration digest");
   const workspacePath = await resolveWorkspace(input.workingDirectory);
   const workspaceDigest = digest(workspacePath);
   const runtimeRoot = await resolveAcpxRuntimeRoot(
@@ -84,6 +86,7 @@ export async function createAcpxRecoveryBinding(input: {
       qualificationModel: input.profile.qualificationModel,
       reportedModelId: input.profile.reportedModelId,
       permissionPolicy: input.profile.permissionPolicy,
+      ...(input.providerConfigurationDigest === undefined ? {} : { providerConfigurationDigest: input.providerConfigurationDigest }),
       ...(input.providerPolicy === undefined ? {} : { executionPolicy: {
         readOnly: input.providerPolicy.readOnly,
         readRoots: input.providerPolicy.readRoots ?? [],
@@ -99,7 +102,7 @@ export async function createAcpxRecoveryBinding(input: {
       requestedModel: input.requestedModel,
       profileDigest,
       permissionMode: input.permissionMode,
-      ...(cursorMode ? { cursorMode } : {}),
+      ...(mode ? { mode } : {}),
       ...(piThinkingLevel ? { piThinkingLevel } : {}),
     }),
   ).replace("sha256:", "paperclip-");
@@ -113,7 +116,7 @@ export async function createAcpxRecoveryBinding(input: {
     requestedModel: input.requestedModel,
     effectiveModel: input.requestedModel,
     permissionMode: input.permissionMode,
-    ...(cursorMode ? { cursorMode } : {}),
+    ...(mode ? { mode } : {}),
       ...(piThinkingLevel ? { piThinkingLevel } : {}),
     profileSessionKey,
   };
@@ -135,7 +138,7 @@ export function createAcpxIdentityRecord(
     requestedModel: binding.requestedModel,
     effectiveModel: binding.effectiveModel,
     permissionMode: binding.permissionMode,
-    ...(binding.cursorMode ? { cursorMode: binding.cursorMode } : {}),
+    ...(binding.mode ? { mode: binding.mode } : {}),
     ...(binding.piThinkingLevel ? { piThinkingLevel: binding.piThinkingLevel } : {}),
     providerLifetimeFenceCandidates: Object.freeze([
       ...expected.providerLifetimeFenceCandidates,
@@ -162,7 +165,7 @@ export function acpxProviderSessionIdentity(
     requestedModel: record.requestedModel,
     effectiveModel: record.effectiveModel,
     permissionMode: record.permissionMode,
-    ...(record.cursorMode ? { cursorMode: record.cursorMode } : {}),
+    ...(record.mode ? { mode: record.mode } : {}),
     ...(record.piThinkingLevel ? { piThinkingLevel: record.piThinkingLevel } : {}),
     providerLifetimeFenceCandidates: record.providerLifetimeFenceCandidates,
   };
@@ -189,7 +192,7 @@ export function verifyExpectedAcpxIdentity(
     expected.requestedModel !== binding.requestedModel ||
     expected.effectiveModel !== binding.effectiveModel ||
     expected.permissionMode !== binding.permissionMode ||
-    expected.cursorMode !== binding.cursorMode ||
+    expected.mode !== binding.mode ||
     expected.piThinkingLevel !== binding.piThinkingLevel
   ) {
     throw new Error(
@@ -209,7 +212,7 @@ export function verifyExpectedAcpxIdentity(
     record.requestedModel !== binding.requestedModel ||
     record.effectiveModel !== binding.effectiveModel ||
     record.permissionMode !== binding.permissionMode ||
-    record.cursorMode !== binding.cursorMode ||
+    record.mode !== binding.mode ||
     record.piThinkingLevel !== binding.piThinkingLevel ||
     !sameFenceCandidates(
       record.providerLifetimeFenceCandidates,
@@ -235,7 +238,7 @@ function parsePersistedRecord(value: unknown): AcpxIdentityRecord {
     "requestedModel",
     "effectiveModel",
     "permissionMode",
-    "cursorMode",
+    "mode",
     "piThinkingLevel",
     "providerLifetimeFenceCandidates",
   ]);
@@ -263,7 +266,7 @@ function validatedRecord(value: Record<string, unknown>): AcpxIdentityRecord {
   if (!isPermissionMode(value.permissionMode)) {
     throw new Error("ACPX identity permission mode is invalid");
   }
-  if (value.cursorMode !== undefined) resolveCursorSessionMode("cursor", value.cursorMode);
+  if (value.mode !== undefined) parseProviderMode(value.mode);
   if (value.piThinkingLevel !== undefined) resolvePiThinkingLevel("pi", value.piThinkingLevel);
   validateFenceCandidates(value.providerLifetimeFenceCandidates);
   return value as unknown as AcpxIdentityRecord;
@@ -293,7 +296,7 @@ function validateExpected(expected: AcpxExpectedSessionIdentity): void {
   ) {
     throw new Error("Expected ACPX permission mode is invalid");
   }
-  if (expected.cursorMode !== undefined) resolveCursorSessionMode("cursor", expected.cursorMode);
+  if (expected.mode !== undefined) parseProviderMode(expected.mode);
   if (expected.piThinkingLevel !== undefined) resolvePiThinkingLevel("pi", expected.piThinkingLevel);
   validateFenceCandidates(expected.providerLifetimeFenceCandidates);
 }

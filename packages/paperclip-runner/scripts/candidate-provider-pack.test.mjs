@@ -1,18 +1,27 @@
 import test from "node:test";
 import assert from "node:assert/strict";
-import { parseProviderPackArguments, materializeCandidateProviderPack, providerPackSelections } from "./candidate-provider-pack.mjs";
+import { parseProviderPackArguments, materializeCandidateProviderPack, providerPackProviders, providerPackManifestFields } from "./candidate-provider-pack.mjs";
 
-test("candidate options stay explicit and Pi is the only default qualified native asset", () => {
+test("candidate options stay explicit and supported native assets are included by default", () => {
   assert.deepEqual(parseProviderPackArguments(["--", "/pack"]), { output: "/pack", candidates: [] });
   assert.deepEqual(parseProviderPackArguments(["/pack", "--candidate-providers=pi,cursor"]), { output: "/pack", candidates: ["pi", "cursor"] });
-  assert.deepEqual(providerPackSelections([]), [{ provider: "pi", qualification: "qualified" }]);
-  assert.deepEqual(providerPackSelections(["pi", "cursor", "copilot"]), [
-    { provider: "pi", qualification: "qualified" },
-    { provider: "cursor", qualification: "pending" },
-    { provider: "copilot", qualification: "pending" },
-  ]);
-  assert.throws(() => providerPackSelections(["other"]), /Unknown/);
-  assert.throws(() => providerPackSelections(["pi", "pi"]), /duplicate/);
+  for (const [platform, architecture] of [["darwin", "arm64"], ["darwin", "x64"], ["linux", "x64"]]) {
+    assert.deepEqual(providerPackProviders(platform, architecture, []), ["pi", "cursor"]);
+    assert.deepEqual(providerPackProviders(platform, architecture, ["cursor", "pi", "copilot"]), ["pi", "cursor", "copilot"]);
+  }
+  assert.deepEqual(providerPackProviders("linux", "arm64", []), []);
+  assert.deepEqual(providerPackProviders("win32", "x64", []), []);
+  assert.deepEqual(providerPackProviders("linux", "arm64", ["cursor"]), ["cursor"]);
+});
+test("serialized manifests include every materialized qualified provider", () => {
+  const pi = { qualification: "qualified", profileDigest: "pi-digest" };
+  const cursor = { qualification: "qualified", profileDigest: "cursor-digest" };
+  const copilot = { qualification: "pending", profileDigest: "copilot-digest" };
+  assert.deepEqual(providerPackManifestFields({ pi }, []), { providers: { pi }, candidateProviders: { pi } });
+  assert.deepEqual(providerPackManifestFields({ pi, cursor, copilot }, ["copilot"]), {
+    providers: { pi, cursor }, candidateProviders: { pi, copilot },
+  });
+  assert.deepEqual(providerPackManifestFields({}, []), {});
 });
 test("candidate builder cannot admit unknown providers, options or duplicate assets", async () => {
   for (const args of [["--candidate-providers=cursor,cursor"], ["--candidate-providers=other"], ["--executable=/tmp/x"], ["/one", "/two"]]) {

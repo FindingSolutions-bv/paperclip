@@ -42,14 +42,14 @@ fn config(mode: &str) -> AcpxProviderSessionConfig {
             shutdown_grace: Duration::from_millis(100),
         },
         agent: "codex".to_owned(),
-        model: "gpt-5.6-sol".to_owned(),
+        model: "explicit-test-model".to_owned(),
         run_id: "run-1".to_owned(),
         catalog_revision: 1,
         runtime_directory: std::env::temp_dir(),
         normalized_session_id: "session-1".to_owned(),
         working_directory: std::env::temp_dir(),
         permission_mode: AcpxPermissionMode::ApproveReads,
-        cursor_mode: None,
+        mode: None,
         pi_thinking_level: None,
         permission_mode_pinned: true,
         provider_policy: None,
@@ -297,7 +297,6 @@ fn interactive_permission_requires_an_offered_action_and_acknowledgement() {
     for mode in ["permissions-interactive", "permissions-wrong-ack"] {
         let mut cfg = config(mode);
         cfg.agent = "claude".to_owned();
-        cfg.model = "claude-sonnet-5".to_owned();
         let mut session = AcpxProviderSession::start(&cfg).unwrap();
         session
             .start_turn("turn-1", "Run validation", &std::env::temp_dir())
@@ -349,7 +348,7 @@ fn permission_origin_is_bound_to_the_admitted_connection_and_survives_projection
                 Some(paperclip_runner_core::acpx_provider_session::PiThinkingLevel::Low);
         }
         if agent == "cursor" {
-            cfg.cursor_mode = Some(paperclip_runner_core::acpx_provider_session::CursorMode::Agent);
+            cfg.mode = Some("agent".to_owned());
         }
         cfg.provider_policy = Some(
             paperclip_runner_core::acpx_provider_session::AcpxProviderRuntimePolicy {

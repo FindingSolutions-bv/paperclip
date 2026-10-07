@@ -1,4 +1,4 @@
-import { mkdtemp, mkdir, readFile, readdir, rename, rm, symlink, writeFile } from "node:fs/promises";
+import { mkdtemp, mkdir, readFile, readdir, realpath, rename, rm, symlink, writeFile } from "node:fs/promises";
 import { join } from "node:path";
 import { tmpdir } from "node:os";
 import { afterEach, beforeEach, expect, it, vi } from "vitest";
@@ -20,7 +20,7 @@ beforeEach(() => {
   mocks.build.mockImplementation(async ({ outputRoot }: { outputRoot: string }) => { await mkdir(outputRoot, { recursive: true }); await writeFile(join(outputRoot, "owned"), "fixture"); });
 });
 async function fixture(vendored = true) {
-  const root = await mkdtemp(join(tmpdir(), "pi-provision-")); roots.push(root);
+  const root = await realpath(await mkdtemp(join(tmpdir(), "pi-provision-"))); roots.push(root);
   const cli = join(root, vendored ? "dist/vendor/paperclip-runner/cli" : "dist/cli");
   await mkdir(cli, { recursive: true });
   await writeFile(join(root, "package.json"), JSON.stringify({ name: vendored ? "@paperclipai/server" : "@paperclipai/paperclip-runner" }));

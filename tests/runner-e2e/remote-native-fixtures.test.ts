@@ -783,6 +783,7 @@ describe("actual generated observer state machine", () => {
     const o = await observerHarness(); o.request("snapshot"); const wait = o.request("wait");
     o.proc.set(21, { ppid: 1, group: 99, ticks: "999", argv: ["/unrelated"] }); o.intervals[0]!(); o.timers.find(t => t.ms === 100)!.fn();
     expect(wait[0].result.complete).toBe(false); expect(wait[0].result.processes.root.startTicks).toBe("100");
+    expect(wait[0].result.incompleteReasons).toContain("process_identity_reused");
   });
   it("counts transient workspace create/delete and rejects changed setup-file bytes", async () => {
     const o = await observerHarness(); o.request("snapshot");

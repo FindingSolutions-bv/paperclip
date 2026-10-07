@@ -48,7 +48,7 @@ describe("native status authority", () => {
     const passive = assessment({ reportedDisposition: "yielded", objectiveSatisfied: false,
       allCriteriaSatisfied: false, hasBlockingRemainingWork: true,
       continuation: { kind: "response_wake", summary: "Explicit continuation needed", idempotencyKey: "cursor-plan-wait:event" } });
-    expect(arbitrate({ assessment: passive, cursorPlanWaitAuthorized: true })).toMatchObject({
+    expect(arbitrate({ assessment: passive, planWaitAuthorized: true })).toMatchObject({
       toStatus: "in_progress", reasonCode: "native_plan_accepted_waiting_for_continuation", effects: [],
     });
     expect(arbitrate({ assessment: passive })).toMatchObject({
@@ -60,9 +60,9 @@ describe("native status authority", () => {
         idempotencyKey: "native-completion-incomplete",
       })],
     });
-    expect(arbitrate({ assessment: passive, cursorPlanWaitAuthorized: true, terminalState: "failed" }).reasonCode).not.toBe("native_plan_accepted_waiting_for_continuation");
-    expect(arbitrate({ assessment: passive, cursorPlanWaitAuthorized: true, priorIssueStatus: "cancelled" }).toStatus).toBe("cancelled");
-    expect(arbitrate({ assessment: passive, cursorPlanWaitAuthorized: true, governanceGate: { kind: "interaction", id: "pending" } }).toStatus).toBe("in_review");
+    expect(arbitrate({ assessment: passive, planWaitAuthorized: true, terminalState: "failed" }).reasonCode).not.toBe("native_plan_accepted_waiting_for_continuation");
+    expect(arbitrate({ assessment: passive, planWaitAuthorized: true, priorIssueStatus: "cancelled" }).toStatus).toBe("cancelled");
+    expect(arbitrate({ assessment: passive, planWaitAuthorized: true, governanceGate: { kind: "interaction", id: "pending" } }).toStatus).toBe("in_review");
   });
 
   it("a reviewer finishes its decision without completing rejected or still-reviewed work", () => {
@@ -532,7 +532,7 @@ describe("native status authority", () => {
       expect.objectContaining({
         statusAction: "blocked",
         toStatus: "blocked",
-        policyVersion: "phase6-v7",
+        policyVersion: "phase6-v10",
         reasonCode: "current_track_blocker_waiting",
         unblockDescriptor: {
           owner: "board",

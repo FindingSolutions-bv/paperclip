@@ -1,0 +1,23 @@
+{
+  "schema": "paperclip.cursor.production-contract.v1",
+  "profileVersion": 15,
+  "sourceSnapshot": "22c78242a4e0c2369fecf0c2dc4e7600fbad6706",
+  "base": "dd868ed125cd709506dd9b29fca640a44d580501",
+  "vendor": "2026.09.26-dd393fe",
+  "nativePatch": "paperclip-cursor-usage-v4",
+  "acpxPatchSha256": "edddf1ac33106800169a37c6d46f4b08d25162968147c8a3910855075e6bbef5",
+  "publicSetup": "paperclipai runtime setup cursor",
+  "assets": "public-server-and-provider-pack",
+  "modes": [
+    "agent",
+    "plan",
+    "ask"
+  ],
+  "questions": "paperclip-semantic-native-defensive",
+  "accounting": "unknown-partial-diagnostics-only",
+  "warmFiles": "mainline-owned-checkpoint-handoff",
+  "planAcceptance": "successful-run-open-task-explicit-continuation",
+  "otherProviders": "mainline-gated",
+  "modelSelection": "explicit-provider-verified-startup-and-reconnect",
+  "commandDigest": "sha256:ea3d2cffb0ccc978377cef2671a65c1377212cb812cfb1f609ccaaebcb714445"
+}

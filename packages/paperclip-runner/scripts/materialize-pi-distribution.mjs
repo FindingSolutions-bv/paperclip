@@ -8,7 +8,7 @@ import { promisify } from "node:util";
 import { PI_DISTRIBUTION_CLOSURE_SHA256 } from "../src/drivers/acpx/pi-closure-pins.ts";
 import { PI_NODE_DISTRIBUTIONS, PI_NODE_VERSION } from "../src/drivers/acpx/pi-node-pins.ts";
 import { buildNodeStartupTimeout } from "./build-node-startup-timeout.mjs";
-import { QUALIFIED_ACPX_PROFILES } from "../src/drivers/acpx/qualified-profiles.ts";
+import acpxProfiles from "../acpx-profiles.json" with { type: "json" };
 import { inventoryPiRuntimeFiles, verifyPiRuntimeManifest } from "../src/drivers/acpx/pi-verified-runtime.ts";
 
 const run = promisify(execFile);
@@ -243,7 +243,7 @@ export async function materializePiDistribution({ outputRoot, nodeExecutable, np
     const binding = await verifyPiRuntimeManifest(finalRoot, manifest);
     return {
       version: PI_DISTRIBUTION_PINS.runtime,
-      profileDigest: QUALIFIED_ACPX_PROFILES.pi.commandDigest,
+      profileDigest: acpxProfiles.profiles.pi.commandDigest,
       closureDigest: `sha256:${nativeClosureSha256}`,
       outputRoot: output, runtimeRoot: finalRoot, manifestPath: join(output, "pi-distribution.json"), metadata, ...binding,
     };

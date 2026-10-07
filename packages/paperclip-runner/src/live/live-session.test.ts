@@ -1,3 +1,4 @@
+import { resolveQualifiedAcpxProfile } from "../drivers/acpx/qualified-profiles.js";
 import { describe, expect, it, vi } from "vitest";
 import { createHash } from "node:crypto";
 import { existsSync } from "node:fs";
@@ -27,7 +28,7 @@ import { persistedCursorUsageNotice } from "../drivers/acpx/usage-accounting.js"
 import { captureTurnRejection } from "../../test/capture-turn-rejection.js";
 import * as workspaceDiff from "./workspace-diff.js";
 
-it.each(["cursor", "copilot"] as const)("requires separately bound evaluation opt-in for %s", async (acpxAgent) => {
+it.each(["copilot"] as const)("requires separately bound evaluation opt-in for %s", async (acpxAgent) => {
   const service = new CapabilityLiveSessionService();
   await expect(service.create({ provider: "acpx", acpxAgent, requestedModel: "explicit-model" }))
     .rejects.toThrow("explicit evaluation opt-in");
@@ -43,11 +44,11 @@ it("admits Pi live sessions without candidate opt-in while preserving the exact 
   const session = await service.create({ provider: "acpx", acpxAgent: "pi", piThinkingLevel: "low", requestedModel: "openrouter/deepseek/deepseek-v4-flash-0731" });
   try {
     expect(session.snapshot().config.acpxProfile).toMatchObject({
-      agent: "pi", agentProfileVersion: 15,
-      commandDigest: "sha256:790f8b954be995ef63aef0ebdb0e06215e4c0d1416d40d605b33966a3d6ba053",
+      agent: "pi", ...resolveQualifiedAcpxProfile("pi", "openrouter/deepseek/deepseek-v4-flash-0731"),
     });
-    await expect(service.create({ provider: "acpx", acpxAgent: "pi", piThinkingLevel: "low", requestedModel: "another-model" }))
-      .rejects.toThrow("requires exact model");
+    const custom = await service.create({ provider: "acpx", acpxAgent: "pi", piThinkingLevel: "low", requestedModel: "another-model" });
+    expect(custom.snapshot().config.acpxProfile).toMatchObject({ qualificationModel: "another-model", reportedModelId: "another-model" });
+    await custom.shutdown("test complete");
   } finally { await session.shutdown("test complete"); }
 });
 
@@ -258,7 +259,7 @@ class FakeCapabilityCodexTransport implements CodexAppServerTransport {
             interactionKind: "questions",
             title: "Choose the mock path",
             prompt: "Which path should the mock agent take?",
-            payload: { fields: [{ id: "path", label: "Path" }] },
+            payload: { version: 1, questionSet: { schema: "paperclip.question_set.v1", questions: [{ id: "path", prompt: "Which path?", required: true, answerMode: "single_select", options: [{ id: "safe", label: "Safe path" }, { id: "fast", label: "Fast path" }] }] } },
             continuationPolicy: "wake_assignee",
           },
         },
@@ -911,7 +912,7 @@ describe("Capability live runnerd and Codex session", () => {
     expect(session.snapshot().config).toMatchObject({
       provider: "opencode",
       driver: "opencode_server",
-      providerVersion: "1.18.32",
+      providerVersion: "1.18.34",
       requestedModel: "openrouter/deepseek/deepseek-v4-flash-0731",
     });
     await service.shutdown(session.id);
@@ -932,8 +933,9 @@ describe("Capability live runnerd and Codex session", () => {
     expect(names.filter((name) => name === "paperclip_finish")).toHaveLength(1);
     expect(names.filter((name) => name === "paperclip_block")).toHaveLength(1);
     expect(names).not.toContain("create_task");
-    expect(opened.params.baseInstructions).toContain('"revision":"paperclip-capability-live-v1"');
-    expect(opened.params.baseInstructions).toContain('"criterionIds":["objective"]');
+    expect(opened.params).not.toHaveProperty("baseInstructions");
+    expect(opened.params.developerInstructions).toContain('"revision":"paperclip-capability-live-v1"');
+    expect(opened.params.developerInstructions).toContain('"criterionIds":["objective"]');
     await first.suspend();
     const restoredService = new CapabilityLiveSessionService({ store, transportFactory: factory });
     const restored = await restoredService.restore(first.id);
@@ -942,7 +944,8 @@ describe("Capability live runnerd and Codex session", () => {
       names.filter((name) => name !== "paperclip_finish" && name !== "paperclip_block"),
     );
     const resumed = state.transports[1]!.requests.find((request) => request.method === "thread/resume")!;
-    expect(resumed.params.baseInstructions).toBe(opened.params.baseInstructions);
+    expect(resumed.params).not.toHaveProperty("baseInstructions");
+    expect(resumed.params.developerInstructions).toBe(opened.params.developerInstructions);
     await restoredService.shutdown(restored.id);
     await firstService.shutdown(first.id);
   });
@@ -1003,11 +1006,11 @@ describe("Capability live runnerd and Codex session", () => {
     expect(
       state.transports[0]?.requests.find(
         (request) => request.method === "thread/start",
-      )?.params.baseInstructions,
+      )?.params.developerInstructions,
     ).toContain(
       "Native instructions\n\nRead-only instruction sibling root: /runtime/instructions",
     );
-    expect(state.transports[0]?.requests.find((request) => request.method === "thread/start")?.params.baseInstructions)
+    expect(state.transports[0]?.requests.find((request) => request.method === "thread/start")?.params.developerInstructions)
       .toContain('Native completion report contract: {"revision":"paperclip-capability-live-v1","criterionIds":["objective"]}');
     await service.shutdown(session.id);
   });
@@ -1367,8 +1370,8 @@ describe("Capability live runnerd and Codex session", () => {
       transportOptions: { acpxCandidateProfile: acpxAgent },
     });
     const session = await service.create({
+      requestedModel: "explicit-test-model",
       provider: "acpx", acpxAgent, ...(acpxAgent === "pi" ? { piThinkingLevel: "low" as const } : {}),
-      requestedModel: acpxAgent === "pi" ? "openrouter/deepseek/deepseek-v4-flash-0731" : "exact-model",
     });
     const result = await session.sendMessage("Orient to this task.");
     expect(result.status).toBe("completed");

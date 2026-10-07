@@ -5,6 +5,24 @@ afterEach(() => vi.unstubAllEnvs());
 import { ACPX_CREDENTIAL_BINDING_ENV, createAcpxCredentialBinding, createAcpxSidecarHostEnvironment, createSanitizedAcpxSpawnInput } from "./environment.js";
 
 describe("ACPX launch environment", () => {
+  it("keeps gateway and Bedrock settings confined to the selected harness", () => {
+    const source = {
+      ANTHROPIC_BASE_URL: "https://gateway.example",
+      ANTHROPIC_AUTH_TOKEN: "selected-key",
+      CLAUDE_CODE_USE_BEDROCK: "1", AWS_REGION: "us-east-1",
+      AWS_BEARER_TOKEN_BEDROCK: "bedrock-key",
+      AWS_ACCESS_KEY_ID: "general-aws-key", AWS_SECRET_ACCESS_KEY: "general-aws-secret", AWS_SESSION_TOKEN: "general-aws-session",
+      PAPERCLIP_AI_PROVIDER_KEY: "codex-key", UNRELATED_SECRET: "private",
+    };
+    expect(createSanitizedAcpxSpawnInput(source, "claude").env).toEqual({
+      ANTHROPIC_BASE_URL: source.ANTHROPIC_BASE_URL,
+      ANTHROPIC_AUTH_TOKEN: "selected-key", CLAUDE_CODE_USE_BEDROCK: "1",
+      AWS_REGION: "us-east-1", AWS_BEARER_TOKEN_BEDROCK: "bedrock-key",
+    });
+    expect(createSanitizedAcpxSpawnInput(source, "codex").env).toEqual({ PAPERCLIP_AI_PROVIDER_KEY: "codex-key" });
+    expect(createSanitizedAcpxSpawnInput(source, "cursor").env).toEqual({});
+  });
+
   it("projects only the selected agent's credentials and runtime allowlist", () => {
     const source = {
       PATH: "/bin",
@@ -38,6 +56,8 @@ describe("ACPX launch environment", () => {
       LC_ALL: "C.UTF-8",
       HTTPS_PROXY: "https://proxy.example",
       OPENROUTER_API_KEY: "openrouter-secret",
+      OPENAI_API_KEY: "openai-secret",
+      ANTHROPIC_API_KEY: "anthropic-secret",
     });
     expect(codex.env).not.toHaveProperty("PAPERCLIP_NATIVE_MCP_TOKEN");
     expect(codex.env).not.toHaveProperty(
@@ -66,7 +86,7 @@ describe("ACPX launch environment", () => {
     };
     expect(createSanitizedAcpxSpawnInput(source, "cursor").env).toEqual({ CURSOR_API_KEY: "cursor-key", CURSOR_AUTH_TOKEN: "cursor-token" });
     expect(createSanitizedAcpxSpawnInput(source, "copilot").env).toEqual({ COPILOT_GITHUB_TOKEN: "copilot-key" });
-    expect(createSanitizedAcpxSpawnInput(source, "pi").env).toEqual({});
+    expect(createSanitizedAcpxSpawnInput(source, "pi").env).toEqual({ COPILOT_GITHUB_TOKEN: "copilot-key" });
   });
 
   it.each([

@@ -54,11 +54,8 @@ describe("ACPX driver profile", () => {
     });
   });
 
-  it.each([
-    ["claude", "claude-sonnet-5"],
-    ["codex", "gpt-5.6-sol"],
-    ["grok", "grok-4.7"],
-  ] as const)("accepts the exact qualified %s model", (agent, model) => {
+  it.each(["claude", "codex", "grok", "cursor"] as const)("accepts an unlisted %s model for native verification", agent => {
+    const model = "custom/model[reasoning=medium]";
     expect(validateAcpxDriverConfig({ agent, model })).toEqual({
       ok: true,
       config: { agent, model, permissionMode: "approve-all" },
@@ -82,7 +79,7 @@ describe("ACPX driver profile", () => {
       issues: [{ path: "command", code: "unknown_field" }],
     });
     expect(
-      validateAcpxDriverConfig({ agent: "codex", model: "other" }),
+      validateAcpxDriverConfig({ agent: "codex", model: " " }),
     ).toMatchObject({
       ok: false,
       issues: [{ path: "model", code: "invalid_model" }],
@@ -97,12 +94,12 @@ describe("ACPX driver profile", () => {
       ok: true,
       config: { agent: "pi", permissionMode: "approve-all" },
     });
-    for (const agent of ["cursor", "copilot"]) {
+    for (const agent of ["copilot"]) {
       expect(validateAcpxDriverConfig({ agent, model: "explicit-model" }))
         .toMatchObject({ ok: false, issues: [{ path: "agent", code: "qualification_pending" }] });
     }
-    expect(validateAcpxDriverConfig({ agent: "pi", model: "another-model" }))
-      .toMatchObject({ ok: false, issues: [{ path: "model", code: "invalid_model" }] });
+    expect(validateAcpxDriverConfig({ agent: "pi", piThinkingLevel: "low", model: "another-model" }))
+      .toMatchObject({ ok: true, config: { model: "another-model" } });
     expect(
       validateAcpxDriverConfig({
         agent: "claude",

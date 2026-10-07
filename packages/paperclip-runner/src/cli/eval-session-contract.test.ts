@@ -69,7 +69,7 @@ function agentCoreProfile(overrides: Record<string, unknown> = {}) {
 }
 
 describe("eval-session request contract", () => {
-  it.each(["cursor", "copilot"] as const)("admits %s only with the matching CLI diagnostic opt-in", (agent) => {
+  it.each(["copilot"] as const)("admits %s only with the matching CLI diagnostic opt-in", (agent) => {
     const value = request({ provider: "acpx", acpxAgent: agent, model: "explicit-provider-model" });
     expect(() => parseEvalSessionRequest(value)).toThrow("--candidate-profile");
     expect(parseEvalSessionRequest(value, { candidateProfile: agent })).toMatchObject({ acpxAgent: agent, model: "explicit-provider-model" });

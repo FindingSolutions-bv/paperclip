@@ -344,11 +344,11 @@ describe("NativeExecutionInputV1", () => {
       profile: provider.profile,
     });
     expect(parseNativeExecutionInput(parsed)).toEqual(parsed);
-    for (const unsupportedVersion of [0, 16, 1.5, "14", null]) {
+    for (const unsupportedVersion of [0, 17, 1.5, "14", null]) {
       expect(() => parseNativeExecutionInput({
         ...input,
         session: { ...input.session, driverKind: "acpx_runtime" },
-        provider: { ...provider, profile: { ...provider.profile, agentProfileVersion: unsupportedVersion } },
+        provider: { ...provider, piThinkingLevel: "low", profile: { ...provider.profile, agentProfileVersion: unsupportedVersion } },
       })).toThrow("qualified ACPX v1 profile");
     }
     expect(buildNativeModelEnvelope(parsed).workspace).toEqual({ cwd: "/safe/workspace" });
@@ -521,26 +521,24 @@ describe("native task context ownership", () => {
     });
   }
 
-  it.each(["off", "low", "high", "max"])("requires exact current Pi thinking level %s in native input", piThinkingLevel => {
-    const { qualificationModel, reportedModelId: _reported, permissionPolicy: _permission, modelPolicy: _policy, qualificationStatus: _status, ...profile } = QUALIFIED_ACPX_PROFILES.pi;
-    const value = { ...currentInput(), session: { ...currentInput().session, driverKind: "acpx_runtime" }, provider: { kind: "acpx", agent: "pi", model: qualificationModel, permissionMode: "approve-all", piThinkingLevel, profile } };
-    expect(parseNativeExecutionInput(value).provider).toEqual(value.provider);
-    for (const mode of [undefined, null, "medium", "minimal", "xhigh", "", { toString: () => "low" }]) expect(() => parseNativeExecutionInput({ ...value, provider: { ...value.provider, piThinkingLevel: mode } })).toThrow(/piThinkingLevel/);
-    expect(() => parseNativeExecutionInput({ ...value, provider: { ...value.provider, agent: "codex" } })).toThrow(/piThinkingLevel/);
-  });
-
-  it.each(["agent", "plan", "ask"])("round-trips Cursor mode %s through the closed execution contract", cursorMode => {
-    const { qualificationModel: _model, reportedModelId: _reported, permissionPolicy: _permission,
-      modelPolicy: _policy, qualificationStatus: _status, ...profile } = QUALIFIED_ACPX_PROFILES.cursor;
-    const value = { ...currentInput(), session: { ...currentInput().session, driverKind: "acpx_runtime" },
-      provider: { kind: "acpx", agent: "cursor", model: "explicit-model", permissionMode: "deny-all", cursorMode, profile } };
-    const result = parseNativeExecutionInput(value);
-    expect(result.provider).toEqual(value.provider);
-    expect(parseNativeExecutionInput(result)).toEqual(result);
-    for (const mode of [null, "", "PLAN", "auto", true, { toString: () => "plan" }]) {
-      expect(() => parseNativeExecutionInput({ ...value, provider: { ...value.provider, cursorMode: mode } })).toThrow("cursorMode");
+  it("carries an opaque provider mode without a vendor restriction and fences obsolete field names", () => {
+    const current = currentInput();
+    const provider = {
+      kind: "acpx", agent: "codex", model: "gpt-5.6-sol", permissionMode: "approve-all", mode: "architect",
+      profile: { driverKind: "acpx_runtime", protocolVersion: 1, acpxVersion: "0.13.1", agent: "codex", agentProfileVersion: 3,
+        agentServerPackage: "@agentclientprotocol/codex-acp", agentServerVersion: "1.6.2",
+        agentRuntimePackage: "@openai/codex", agentRuntimeVersion: "0.160.0", commandDigest: `sha256:${"a".repeat(64)}` },
+    };
+    const value = { ...current, session: { ...current.session, driverKind: "acpx_runtime" }, provider };
+    const parsed = parseNativeExecutionInput(value);
+    expect(parsed.provider).toMatchObject({ agent: "codex", mode: "architect" });
+    expect(parseNativeExecutionInput(parsed)).toEqual(parsed);
+    expect(JSON.stringify(buildNativeModelEnvelope(parsed))).not.toContain("architect");
+    for (const mode of [null, 1, "", " ", "x".repeat(241), "plan\0", "plan\n"]) {
+      expect(() => parseNativeExecutionInput({ ...value, provider: { ...provider, mode } })).toThrow(/provider.mode/);
     }
-    expect(() => parseNativeExecutionInput({ ...value, provider: { ...value.provider, agent: "copilot" } })).toThrow("cursorMode");
+    const { mode: _mode, ...withoutMode } = provider;
+    expect(() => parseNativeExecutionInput({ ...value, provider: { ...withoutMode, cursorMode: "plan" } })).toThrow(/input.provider/);
   });
 
   it.each([

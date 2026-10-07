@@ -98,7 +98,11 @@ export function buildPaperclipRunnerConfig(v: CreateConfigValues): Record<string
   const provider = isPaperclipRunnerProvider(providerCandidate)
     ? providerCandidate
     : "codex";
-  const acpxAgent = PAPERCLIP_RUNNER_ACPX_PROFILES.find(profile => profile.value === schemaValues.acpxAgent)?.value ?? "claude";
+  const selectedAcpxProfile = PAPERCLIP_RUNNER_ACPX_PROFILES.find(profile => profile.value === schemaValues.acpxAgent);
+  if (provider === "acpx" && selectedAcpxProfile && !selectedAcpxProfile.qualified) {
+    throw new Error(`${selectedAcpxProfile.label} is not enabled for production`);
+  }
+  const acpxAgent = selectedAcpxProfile?.value ?? "claude";
   const cursorMode = resolvePaperclipRunnerCursorMode(provider, acpxAgent, schemaValues.acpxSessionMode);
   const piThinkingLevel = resolvePaperclipRunnerPiThinkingLevel(provider, acpxAgent, schemaValues.piThinkingLevel);
 
@@ -108,12 +112,8 @@ export function buildPaperclipRunnerConfig(v: CreateConfigValues): Record<string
   const configuredModel = typeof config.model === "string"
     ? config.model.trim()
     : "";
-  if (provider === "acpx" && ["cursor", "copilot", "pi"].includes(acpxAgent) && !configuredModel && !schemaModel) {
+  if (provider === "acpx" && ["cursor", "pi", "copilot"].includes(acpxAgent) && !configuredModel && !schemaModel) {
     throw new Error(`${acpxAgent} requires an explicit provider model`);
-  }
-  if (provider === "acpx" && acpxAgent === "pi"
-    && (configuredModel || schemaModel) !== "openrouter/deepseek/deepseek-v4-flash-0731") {
-    throw new Error("Pi requires exact model openrouter/deepseek/deepseek-v4-flash-0731");
   }
   const managedProfileId = typeof schemaValues.managedProfileId === "string"
     ? schemaValues.managedProfileId.trim()
