@@ -150,8 +150,9 @@ describe("assistant setup from Connections", () => {
     await act(async () => { await client.invalidateQueries({ queryKey: ["mcp-connections"] }); });
     await flush();
     expect(container.textContent).toContain("Connected as you · Read and write");
-    expect(container.querySelector('[aria-label="Revoke OpenCode connection"]')).not.toBeNull();
-    expect(container.querySelector('[aria-label="Revoke Dedicated Dot connection"]')).toBeNull();
+    expect(container.querySelector('[aria-label="Revoke Dotta’s OpenCode connection"]')).not.toBeNull();
+    expect(container.textContent).not.toContain("Dedicated Dot");
+    expect(container.querySelector('[aria-label="Revoke Dotta’s Dedicated Dot connection"]')).toBeNull();
   });
   it("shows a recoverable error instead of pretending setup succeeded", async () => {
     mocks.setup.mockRejectedValue(new Error("offline"));
