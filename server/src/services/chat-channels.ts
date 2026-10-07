@@ -16,7 +16,7 @@ import { githubChatManagementService } from "./chat-github-management.js";
 import { githubReviewCheckService } from "./chat-github-checks.js";
 import { githubAutomaticReviewEvent, githubAutomaticAdmission, githubPreviousAssessment } from "./chat-github-events.js";
 import { githubReviewPrompt } from "./chat-github-review-policy.js";
-import { chatGitHubConfigurations, chatGitHubReviews } from "@paperclipai/db";
+import { chatGitHubConfigurations, chatGitHubRegistrations, chatGitHubReviews } from "@paperclipai/db";
 import type { GitHubReviewEventContext, GitHubReviewPolicy } from "@paperclipai/shared";
 import { githubChatReviewService } from "./chat-github-reviews.js";
 import { githubChatWizardService } from "./chat-github-wizard.js";
@@ -38213,7 +38213,7 @@ export function chatChannelService(db: Db, options: ChatChannelServiceOptions) {
       : null;
   }
 
-  async function storeGitHubApp(endpointId: string, userId: string, credentials: Record<string, string>) {
+  async function storeGitHubApp(endpointId: string, userId: string, credentials: Record<string, string>, source: "manifest" | "existing_app" = "existing_app") {
     const initial = await endpointRecord(endpointId);
     if (!initial || initial.endpoint.provider !== "github") throw notFound("GitHub bot not found");
     await withCredentialMutationLease(initial.endpoint, async credentialLease => {
@@ -38257,6 +38257,20 @@ export function chatChannelService(db: Db, options: ChatChannelServiceOptions) {
           setup: { ...current.setup, github: { ...current.setup.github, stage: "install", appSlug: slug, installationUrl: `https://github.com/apps/${slug}/installations/new`, registrationStatus: "completed" } },
           healthMessage: "Install the App on GitHub to continue", updatedAt: new Date(),
         }).where(eq(chatEndpoints.id, endpointId));
+        if (source === "existing_app") {
+          // Explicit recovery uses the existing-App identity path. Only drop the
+          // manifest requirement after the same App's credentials are vaulted;
+          // leave registration incomplete so advance repairs and verifies delivery.
+          await tx.update(chatGitHubRegistrations).set({
+            handoff: sql`${chatGitHubRegistrations.handoff} - 'manifestClaimId'`,
+          }).where(and(
+            eq(chatGitHubRegistrations.companyId, record.endpoint.companyId),
+            eq(chatGitHubRegistrations.endpointId, endpointId),
+            eq(chatGitHubRegistrations.userId, userId),
+            inArray(chatGitHubRegistrations.status, ["pending", "exchanging", "failed"]),
+            sql`${chatGitHubRegistrations.handoff} ? 'manifestClaimId'`,
+          ));
+        }
         await logActivity(tx as unknown as Db, { companyId: record.endpoint.companyId, actorType: "user", actorId: userId, action: "chat_github.app_connected", entityType: "tool_connection", entityId: record.endpoint.connectionId, details: { endpointId, appId: identity.botExternalId } });
       });
     });
@@ -38278,7 +38292,7 @@ export function chatChannelService(db: Db, options: ChatChannelServiceOptions) {
 
   const githubRegistration = githubChatRegistrationService(db, {
     publicOrigin: () => getPublicBaseUrl(), webhookOrigin: () => getWebhookPublicBaseUrl(), fetch: fetchImpl,
-    storeApp: async (endpointId, userId, app) => { await storeGitHubApp(endpointId, userId, { appId: app.appId, privateKey: app.privateKey, webhookSecret: app.webhookSecret, ...(app.clientId ? { clientId: app.clientId } : {}), ...(app.clientSecret ? { clientSecret: app.clientSecret } : {}) }); },
+    storeApp: async (endpointId, userId, app) => { await storeGitHubApp(endpointId, userId, { appId: app.appId, privateKey: app.privateKey, webhookSecret: app.webhookSecret, ...(app.clientId ? { clientId: app.clientId } : {}), ...(app.clientSecret ? { clientSecret: app.clientSecret } : {}) }, "manifest"); },
   });
 
   async function refreshGitHubRepositories(endpointId: string, userId: string) {
@@ -38299,7 +38313,7 @@ export function chatChannelService(db: Db, options: ChatChannelServiceOptions) {
 
   const githubWizard = githubChatWizardService(db, {
     origin: () => getPublicBaseUrl() ?? options.githubWizardOrigin ?? null, fetch: fetchImpl, startDirect: githubRegistration.start, completeDirect: githubRegistration.complete, resumeDirect: githubRegistration.resumeRegistration,
-    storeApp: storeGitHubApp,
+    storeApp: (id, userId, credentials) => storeGitHubApp(id, userId, credentials, "manifest"),
     storeCredentials: async (id, userId, additional) => {
       const record = await endpointRecord(id);
       if (!record || record.endpoint.provider !== "github") throw notFound("GitHub bot not found");

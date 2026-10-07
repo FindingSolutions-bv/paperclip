@@ -411,6 +411,63 @@ describe("GitHub App wizard", () => {
     expect(githubChatApi.confirmIdentity).toHaveBeenCalledWith("draft-1", "42");
     expect(githubChatApi.startIdentity).not.toHaveBeenCalled();
   });
+  it("lets a member add a personal connection without manager setup APIs", async () => {
+    vi.mocked(githubChatApi.advance).mockRejectedValue(
+      new Error("Manager permission required"),
+    );
+    await render("resume=draft-1&stage=identity");
+    expect(
+      container.querySelector('a[href="/apps/connect?source=github"]'),
+    ).toBeTruthy();
+    expect(container.textContent).not.toContain("Manager permission required");
+    expect(githubChatApi.advance).not.toHaveBeenCalled();
+    expect(githubChatApi.startIdentity).not.toHaveBeenCalled();
+    await click("Save & exit");
+    expect(githubChatApi.saveDraft).not.toHaveBeenCalled();
+  });
+  it("links a member's verified personal account without advancing bot setup", async () => {
+    vi.mocked(githubChatApi.personalConnections).mockResolvedValue([
+      {
+        connectionId: "personal-1",
+        name: "My GitHub",
+        login: "octocat",
+        status: "active",
+        enabled: true,
+      },
+    ]);
+    vi.mocked(githubChatApi.identity).mockResolvedValue({
+      connectionId: "personal-1",
+      githubUserId: "42",
+      login: "octocat",
+      avatarUrl: null,
+    });
+    await render("resume=draft-1&stage=identity");
+    const account = container.querySelector(
+      "#github-personal-account",
+    ) as HTMLSelectElement;
+    await act(async () => {
+      account.value = "personal-1";
+      account.dispatchEvent(new Event("change", { bubbles: true }));
+    });
+    await click("Check my account");
+    expect(githubChatApi.identity).toHaveBeenLastCalledWith(
+      "draft-1",
+      "personal-1",
+      undefined,
+    );
+    await click("Confirm my account");
+    expect(githubChatApi.identity).toHaveBeenLastCalledWith(
+      "draft-1",
+      "personal-1",
+      "42",
+    );
+    expect(container.textContent).toContain(
+      "You can now mention this bot on GitHub",
+    );
+    expect(githubChatApi.advance).not.toHaveBeenCalled();
+    expect(githubChatApi.startIdentity).not.toHaveBeenCalled();
+    expect(githubChatApi.confirmIdentity).not.toHaveBeenCalled();
+  });
   it("completes automatically while reporting runtime readiness separately", async () => {
     fixture.endpoint = {
       ...fixture.endpoint,

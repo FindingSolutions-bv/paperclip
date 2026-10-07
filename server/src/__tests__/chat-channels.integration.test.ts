@@ -2108,6 +2108,7 @@ describeEmbeddedPostgres("chat channel control-plane integration", () => {
       webhookSecret,
       providerFetch,
       webhookSyncRequests,
+      privateKey,
       setSupplementalProviderFetch(value: typeof supplementalProviderFetch) {
         supplementalProviderFetch = value;
       },
@@ -2370,7 +2371,7 @@ describeEmbeddedPostgres("chat channel control-plane integration", () => {
         .where(eq(chatGitHubRegistrations.endpointId, bot.id));
       expect(session.status).toBe("failed");
     });
-    it("wizard retains recovery when a manifest vault write saved App credentials but lost OAuth credentials", async () => {
+    it("wizard retains partial manifest recovery until explicit existing-App recovery succeeds", async () => {
       const f = await reviewBotFixture();
       const returnState = randomUUID();
       const [connection] = await db
@@ -2420,7 +2421,10 @@ describeEmbeddedPostgres("chat channel control-plane integration", () => {
         fetch: f.providerFetch,
         connector: () =>
           ({
-            githubApp: async () => ({ id: "partial-oauth" }),
+            githubApp: async () => ({
+              id: "partial-oauth",
+              webhookUrl: "https://gateway.example.test/github-apps/partial-oauth/webhook",
+            }),
             claimGitHubApp,
           }) as unknown as PaperclipCloudConnector,
         startDirect: f.service.startGitHubRegistration,
@@ -2442,6 +2446,29 @@ describeEmbeddedPostgres("chat channel control-plane integration", () => {
         .from(chatGitHubRegistrations)
         .where(eq(chatGitHubRegistrations.endpointId, f.endpoint.id));
       expect(session.status).toBe("failed");
+      const resourcesBefore = await f.service.listResources(f.endpoint.id);
+      await f.service.storeGitHubApp(f.endpoint.id, "owner-user", {
+        appId: f.endpoint.botExternalId!,
+        privateKey: f.privateKey,
+        webhookSecret: f.webhookSecret,
+      });
+      const [recovered] = await db.select().from(chatGitHubRegistrations)
+        .where(eq(chatGitHubRegistrations.id, session.id));
+      expect(recovered.handoff).toMatchObject({ cloudId: "partial-oauth", returnState });
+      expect(recovered.handoff?.manifestClaimId).toBeUndefined();
+      expect(recovered.status).toBe("failed");
+      expect(await wizard.advance(f.endpoint.id, "owner-user")).toMatchObject({ state: "verify" });
+      expect(claimGitHubApp).not.toHaveBeenCalled();
+      expect(f.webhookSyncRequests).toEqual([
+        expect.objectContaining({
+          url: "https://gateway.example.test/github-apps/partial-oauth/webhook",
+          secret: f.webhookSecret,
+        }),
+      ]);
+      expect((await f.service.listResources(f.endpoint.id)).map(({ id, enabled }) => ({ id, enabled })))
+        .toEqual(resourcesBefore.map(({ id, enabled }) => ({ id, enabled })));
+      expect((await f.service.get(f.endpoint.id)).botExternalId).toBe(f.endpoint.botExternalId);
+      expect(finish).not.toHaveBeenCalled();
     });
     it("wizard recovers a renamed enrolled origin only after checking bound state and Cloud authority", async () => {
       const f = await seedCompany();

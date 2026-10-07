@@ -71,13 +71,14 @@ export function GitHubChatSetup() {
   });
   const [copied, setCopied] = useState(false);
   const [legacyAccount, setLegacyAccount] = useState("");
+  const [identityLinked, setIdentityLinked] = useState(false);
   const [legacyIdentity, setLegacyIdentity] = useState<Awaited<
     ReturnType<typeof githubChatApi.identity>
   > | null>(null);
   const agents = useQuery({
     queryKey: ["github-setup-agents", selectedCompanyId],
     queryFn: () => agentsApi.list(selectedCompanyId!),
-    enabled: !!selectedCompanyId,
+    enabled: !!selectedCompanyId && !identityOnly,
   });
   const current = useQuery({
     queryKey: ["github-setup", resume],
@@ -89,7 +90,7 @@ export function GitHubChatSetup() {
   const progress = useQuery({
     queryKey: ["github-wizard", resume],
     queryFn: () => githubChatApi.advance(resume!),
-    enabled: !!bot && !existing,
+    enabled: !!bot && !existing && !identityOnly,
     refetchInterval: (query) =>
       ["connected", "create", "identity", "enrollment", "recovery"].includes(
         query.state.data?.state ?? "",
@@ -106,7 +107,9 @@ export function GitHubChatSetup() {
   const selectedAgent = agents.data?.find(
     (agent) => agent.id === (bot?.assignedAgentId ?? agentId),
   );
-  const state = progress.data;
+  const state = identityOnly ? undefined : progress.data;
+  const existingIdentityMethod =
+    identityOnly || state?.identityMethod === "existing_connection";
   const connected = state?.state === "connected" && !existing;
   useEffect(() => {
     setBreadcrumbs([
@@ -146,7 +149,7 @@ export function GitHubChatSetup() {
   }
   async function refresh() {
     await current.refetch();
-    await progress.refetch();
+    if (!identityOnly) await progress.refetch();
   }
   const appInput = () => ({
     name: (
@@ -161,6 +164,7 @@ export function GitHubChatSetup() {
   const exit = () =>
     void run(async () => {
       if (
+        !identityOnly &&
         bot &&
         !bot.botExternalId &&
         !state?.registration &&
@@ -225,9 +229,12 @@ export function GitHubChatSetup() {
               ? "Connect your account"
               : "Connect GitHub"}
       </h1>
-      {(error || progress.error) && (
+      {(error || (!identityOnly && progress.error) || accounts.error) && (
         <p role="alert" className="text-sm text-destructive">
           {error ||
+            (accounts.error instanceof Error
+              ? accounts.error.message
+              : undefined) ||
             (progress.error instanceof Error
               ? progress.error.message
               : "Could not check GitHub setup. Try again.")}
@@ -405,7 +412,15 @@ export function GitHubChatSetup() {
         </>
       ) : state?.state === "identity" || identityOnly ? (
         <>
-          {state?.identity ? (
+          {identityOnly && identityLinked ? (
+            <>
+              <p role="status" className="text-sm">
+                GitHub account <strong>{legacyIdentity?.login}</strong>{" "}
+                connected. You can now mention this bot on GitHub.
+              </p>
+              {footer()}
+            </>
+          ) : state?.identity ? (
             <>
               <p className="text-sm">
                 Connect GitHub account <strong>{state.identity.login}</strong>{" "}
@@ -437,6 +452,7 @@ export function GitHubChatSetup() {
                     onChange={(event) => {
                       setLegacyAccount(event.target.value);
                       setLegacyIdentity(null);
+                      setIdentityLinked(false);
                     }}
                   >
                     <option value="">Choose an account</option>
@@ -461,15 +477,14 @@ export function GitHubChatSetup() {
                   )}
                 </>
               )}
-              {state?.identityMethod === "existing_connection" &&
-                !legacyAccount && (
-                  <Link
-                    className="text-sm underline"
-                    to="/apps/connect?source=github"
-                  >
-                    Add a personal GitHub connection, then return to this draft
-                  </Link>
-                )}
+              {existingIdentityMethod && !legacyAccount && (
+                <Link
+                  className="text-sm underline"
+                  to="/apps/connect?source=github"
+                >
+                  Add a personal GitHub connection, then return to this draft
+                </Link>
+              )}
               {footer(
                 legacyAccount
                   ? legacyIdentity
@@ -484,14 +499,16 @@ export function GitHubChatSetup() {
                       legacyIdentity?.githubUserId,
                     );
                     setLegacyIdentity(observed);
-                    if (legacyIdentity) await refresh();
+                    if (legacyIdentity) {
+                      setIdentityLinked(true);
+                      await refresh();
+                    }
                   } else {
                     const result = await githubChatApi.startIdentity(bot.id);
                     window.location.assign(result.authorizationUrl);
                   }
                 },
-                state?.identityMethod === "existing_connection" &&
-                  !legacyAccount,
+                existingIdentityMethod && !legacyAccount,
               )}
             </>
           )}
