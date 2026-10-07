@@ -1490,6 +1490,10 @@ describe("worktree helpers", () => {
       expect(env).toContain("PAPERCLIP_AGENT_JWT_SECRET=");
       expect(fs.existsSync(path.join(repoRoot, ".paperclip/seed-manifest.json"))).toBe(false);
       expect(fs.existsSync(path.join(repoRoot, ".paperclip/seed-pending"))).toBe(false);
+      expect(fs.existsSync(path.join(repoRoot, ".paperclip/seed-empty"))).toBe(true);
+      await worktreeInitCommand({ seed: false, force: true, fromConfig: path.join(tempRoot, "missing.json"), home: path.join(tempRoot, "instances") });
+      expect(fs.existsSync(path.join(repoRoot, ".paperclip/seed-empty"))).toBe(false);
+      expect(readWorktreeSeedManifest(path.join(repoRoot, ".paperclip/config.json"))?.state).toBe("pending");
     } finally {
       process.chdir(originalCwd);
       if (originalJwt === undefined) delete process.env.PAPERCLIP_AGENT_JWT_SECRET; else process.env.PAPERCLIP_AGENT_JWT_SECRET = originalJwt;

@@ -246,6 +246,7 @@ export type EnsureWorktreeSeededResult = {
     | "seeded"
     | "verified_manifest"
     | "complete_marker"
+    | "explicitly_empty"
     | "legacy_unmarked"
     | "legacy_database";
   details?: SeedWorktreeDatabaseResult;
@@ -2222,6 +2223,9 @@ export async function ensureWorktreeSeeded(
 ): Promise<EnsureWorktreeSeededResult> {
   const configPath = resolveConfigPath(opts.config);
   const markers = resolveWorktreeSeedMarkerPaths(configPath);
+  if (existsSync(markers.empty)) {
+    return { seeded: false, reason: "explicitly_empty" };
+  }
   const initialManifest = readWorktreeSeedManifest(configPath);
   if (initialManifest?.state === "verified") {
     return { seeded: false, reason: "verified_manifest" };
@@ -2283,6 +2287,9 @@ export async function ensureWorktreeSeeded(
   mkdirSync(path.dirname(markers.lock), { recursive: true });
   const releaseLock = await acquireWorktreeSeedLock(markers.lock);
   try {
+    if (existsSync(markers.empty)) {
+      return { seeded: false, reason: "explicitly_empty" };
+    }
     // These checks deliberately happen under the cross-process lock. A second
     // service process waits for the first seed transaction, then observes the
     // verified manifest instead of cloning the same database concurrently.
@@ -2438,6 +2445,7 @@ async function runWorktreeInit(opts: WorktreeInitOptions): Promise<void> {
     rmSync(seedMarkers.manifest, { force: true });
     rmSync(seedMarkers.pending, { force: true });
     rmSync(seedMarkers.complete, { force: true });
+    rmSync(seedMarkers.empty, { force: true });
     rmSync(paths.instanceRoot, { recursive: true, force: true });
   }
 
@@ -2466,6 +2474,11 @@ async function runWorktreeInit(opts: WorktreeInitOptions): Promise<void> {
       });
 
       try {
+        // Persist the no-copy choice before the config becomes visible to managed startup.
+        if (opts.empty) {
+          mkdirSync(paths.repoConfigDir, { recursive: true });
+          writeFileSync(resolveWorktreeSeedMarkerPaths(paths.configPath).empty, "Explicitly empty instance; automatic database copying is disabled.\n", { mode: 0o600 });
+        }
         writeConfig(selectedConfig, paths.configPath);
         writeWorktreePortRegistry(paths.homeDir, [
           ...registeredConfigPaths,
@@ -2473,6 +2486,7 @@ async function runWorktreeInit(opts: WorktreeInitOptions): Promise<void> {
         ]);
       } catch (error) {
         rmSync(paths.configPath, { force: true });
+        if (opts.empty) rmSync(resolveWorktreeSeedMarkerPaths(paths.configPath).empty, { force: true });
         throw error;
       }
 
@@ -2605,6 +2619,8 @@ export async function worktreeEnsureSeededCommand(opts: WorktreeEnsureSeededOpti
       spinner.stop("Seeded isolated worktree database (minimal).");
     } else if (result.reason === "legacy_database") {
       spinner.stop("Validated and adopted an existing legacy worktree database.");
+    } else if (result.reason === "explicitly_empty") {
+      spinner.stop("Explicitly empty instance; automatic database copying is disabled.");
     } else {
       spinner.stop("Worktree database already has a verified seed manifest.");
     }
@@ -2622,7 +2638,7 @@ export async function worktreeEnsureSeededCommand(opts: WorktreeEnsureSeededOpti
         );
       }
     }
-    p.outro(pc.green("Worktree database seed complete."));
+    p.outro(pc.green(result.reason === "explicitly_empty" ? "Empty worktree ready." : "Worktree database seed complete."));
   } catch (error) {
     spinner.stop(pc.red("Failed to seed worktree database."));
     throw error;
@@ -4324,6 +4340,8 @@ async function runWorktreeReseed(opts: WorktreeReseedOptions): Promise<void> {
       expectedCompanyId: nonEmpty(process.env.PAPERCLIP_SEED_EXPECTED_COMPANY_ID) ?? undefined,
       seedDatabase: seedWorktreeDatabase,
     });
+    // An operator-confirmed successful reseed replaces the earlier empty-instance choice.
+    rmSync(markers.empty, { force: true });
     spinner.stop(`Reseeded ${targetEndpoint.label} (${seedMode}).`);
     p.log.message(pc.dim(`Source: ${source.configPath}`));
     p.log.message(pc.dim(`Target: ${targetEndpoint.configPath}`));

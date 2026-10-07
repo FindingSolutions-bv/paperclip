@@ -888,6 +888,11 @@ Seed modes:
 - `--no-seed` defers database copying until the worktree is first used
 - `--empty` creates an empty isolated instance, with fresh signing secrets and no deferred copy; use this for synthetic test drives
 
+`--empty` persists a `.paperclip/seed-empty` marker before writing the instance config.
+The CLI and managed runtime provisioner honor it even when a registered source
+instance is present. An explicit successful `worktree reseed`, or a replacement
+`worktree init --force` without `--empty`, clears the choice.
+
 Seeded worktree instances quarantine copied live execution by default for both `minimal` and `full` seeds. During restore, Paperclip disables copied agent timer heartbeats, resets copied `running` agents to `idle`, blocks and unassigns copied agent-owned `in_progress` issues, and unassigns copied agent-owned `todo`/`in_review` issues. This keeps a freshly booted worktree from starting agents for work already owned by the source instance. Pass `--preserve-live-work` only when you intentionally want the isolated worktree to resume copied assignments.
 
 The same quarantine stops copied project/execution-workspace runtime desired states and clears copied runtime process claims. Without this reset, booting the cloned Paperclip database could restart a source workspace's dev service from the isolated instance, creating duplicate runners, port reassignment, and stale public URLs.
@@ -985,7 +990,8 @@ The workspace UI surfaces `Provisioning database`, `Validating clone`, `Ready`, 
 | `--server-port <port>` | Preferred server port |
 | `--db-port <port>` | Preferred embedded Postgres port |
 | `--seed-mode <mode>` | Seed profile: `minimal` or `full` (default: `minimal`) |
-| `--no-seed` | Skip database seeding from the source instance |
+| `--no-seed` | Defer database copying until first use |
+| `--empty` | Create an empty instance with fresh signing secrets and disable automatic copying |
 | `--force` | Replace existing repo-local config and isolated instance data |
 
 Examples:
@@ -1086,7 +1092,8 @@ Managed workspace repair uses this same verified full-reseed contract through `P
 | `--server-port <port>` | Preferred server port |
 | `--db-port <port>` | Preferred embedded Postgres port |
 | `--seed-mode <mode>` | Seed profile: `minimal` or `full` (default: `minimal`) |
-| `--no-seed` | Skip database seeding from the source instance |
+| `--no-seed` | Defer database copying until first use |
+| `--empty` | Create an empty instance with fresh signing secrets and disable automatic copying |
 | `--force` | Replace existing repo-local config and isolated instance data |
 
 Examples:
