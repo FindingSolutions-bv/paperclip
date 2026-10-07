@@ -2212,13 +2212,14 @@ describeEmbeddedPostgres("chat channel control-plane integration", () => {
             }
             return {
               id: binding.id,
-              status: "pending",
+              returnOrigin: "http://127.0.0.1:3104",
               expiresAt: new Date(Date.now() + 60_000).toISOString(),
-              registrationUrl:
-                ownerType === "personal"
-                  ? "https://github.com/settings/apps/new"
-                  : "https://github.com/organizations/acme/settings/apps/new",
-              manifest: { public: false },
+              webhookUrl: "https://gateway.example.test/webhook",
+              callbackUrls: {
+                manifest: "https://gateway.example.test/manifest",
+                install: "https://gateway.example.test/install",
+                oauth: "https://gateway.example.test/oauth",
+              },
             };
           },
         );
@@ -2255,11 +2256,19 @@ describeEmbeddedPostgres("chat channel control-plane integration", () => {
         expect(sessions).toHaveLength(1);
         expect(sessions[0].ownerType).toBe(ownerType);
         expect(cloudRecord).toMatchObject({
-          endpointId: bot.id,
-          connectionId: bot.connectionId,
-          agentId: bot.assignedAgentId,
           returnUri: "http://127.0.0.1:3104/api/chat-github/cloud/callback",
         });
+        expect(cloudRecord).not.toHaveProperty("ownerType");
+        expect(cloudRecord).not.toHaveProperty("agentId");
+        expect(resumed.registration?.manifest).toMatchObject({
+          name: "My Reviewer",
+          public: false,
+        });
+        expect(resumed.registration?.registrationUrl).toContain(
+          ownerType === "organization"
+            ? "/organizations/acme/settings/apps/new"
+            : "/settings/apps/new",
+        );
         await expect(
           wizard.saveDraft(bot.id, "owner-user", {
             ...input,
@@ -2274,90 +2283,9 @@ describeEmbeddedPostgres("chat channel control-plane integration", () => {
         expect(current.assignedAgentId).toBe(f.assignedAgentId);
       },
     );
-    it("wizard resumes the same sealed claim after App identity was saved but vault storage was interrupted", async () => {
-      const f = await seedCompany();
-      const { service } = createService();
-      const bot = await service.create(
-        f.companyId,
-        { provider: "github", assignedAgentId: f.assignedAgentId },
-        "owner-user",
-      );
-      await db.insert(chatGitHubRegistrations).values({
-        companyId: f.companyId,
-        endpointId: bot.id,
-        userId: "owner-user",
-        stateHash: randomUUID(),
-        trustedOrigin: "http://127.0.0.1:3104",
-        ownerType: "personal",
-        status: "exchanging",
-        expiresAt: new Date(Date.now() + 60_000),
-        handoff: {
-          cloudId: "claim-recovery",
-          returnState: "bound",
-          redemptionId: "same-receipt",
-        },
-      });
-      const claimGitHubApp = vi.fn(async () => ({
-        kind: "github_app",
-        registrationId: "claim-recovery",
-        endpointId: bot.id,
-        connectionId: bot.connectionId,
-        agentId: bot.assignedAgentId,
-        appId: "1234",
-        privateKey: "test-key",
-        webhookSecret: "test-webhook-secret",
-        clientId: "test-client",
-        clientSecret: "test-client-secret",
-      }));
-      const storeApp = vi.fn(async () => {
-        await db
-          .update(chatEndpoints)
-          .set({ botExternalId: "1234" })
-          .where(eq(chatEndpoints.id, bot.id));
-        throw new Error("Vault storage interrupted");
-      });
-      const createWizard = () =>
-        githubChatWizardService(db, {
-          origin: () => "http://127.0.0.1:3104",
-          connector: () =>
-            ({
-              githubApp: async () => ({
-                id: "claim-recovery",
-                appId: "1234",
-                claimId: "same-claim",
-                status: "credentials",
-                expiresAt: new Date(Date.now() + 60_000).toISOString(),
-              }),
-              claimGitHubApp,
-            }) as unknown as PaperclipCloudConnector,
-          startDirect: service.startGitHubRegistration,
-          storeApp,
-          storeCredentials: async () => {},
-          refreshRepositories: service.refreshGitHubRepositories,
-          resources: service.listResources,
-          replaceResources: service.replaceResources,
-          configure: async () => {},
-          finish: async () => {},
-        });
-      await expect(createWizard().advance(bot.id, "owner-user")).rejects.toThrow(
-        "Vault storage interrupted",
-      );
-      await expect(createWizard().advance(bot.id, "owner-user")).rejects.toThrow(
-        "Vault storage interrupted",
-      );
-      expect(storeApp).toHaveBeenCalledTimes(2);
-      expect(claimGitHubApp).toHaveBeenCalledTimes(2);
-      expect(claimGitHubApp.mock.calls[0]).toEqual(claimGitHubApp.mock.calls[1]);
-      expect(
-        await db
-          .select()
-          .from(chatGitHubRegistrations)
-          .where(eq(chatGitHubRegistrations.endpointId, bot.id)),
-      ).toHaveLength(1);
-    });
-    it("wizard recovers a renamed enrolled origin only after checking bound state and Cloud authority", async () => {
-      const f = await seedCompany();
-      const { service } = createService();
+    it("stack exchanges a callback code only once when vault storage is interrupted", async () => {
+      const f = await seedCompany(),
+        { service } = createService();
       const bot = await service.create(
         f.companyId,
         { provider: "github", assignedAgentId: f.assignedAgentId },
@@ -2369,28 +2297,123 @@ describeEmbeddedPostgres("chat channel control-plane integration", () => {
           companyId: f.companyId,
           endpointId: bot.id,
           userId: "owner-user",
-          stateHash: createHash("sha256").update("bound-state").digest("hex"),
-          trustedOrigin: "https://old.example.test",
+          stateHash: createHash("sha256").update("bound").digest("hex"),
+          trustedOrigin: "http://127.0.0.1:3104",
+          ownerType: "personal",
           status: "pending",
-          expiresAt: new Date(Date.now() + 60_000),
+          expiresAt: new Date(Date.now() + 60000),
           handoff: {
-            cloudId: "origin-recovery",
-            returnState: "bound-state",
+            cloudId: "claim-recovery",
+            returnState: "bound",
             redemptionId: "same-receipt",
+            manifestClaimId: "same-claim",
           },
         });
+      const claimGitHubApp = vi.fn(async () => ({
+        kind: "gateway_callback",
+        callbackKind: "manifest",
+        state: "bound",
+        code: "code",
+        registrationId: "claim-recovery",
+      }));
+      const exchange = vi.fn(async (url: string | URL | Request) => {
+        expect(String(url)).toBe(
+          "https://api.github.com/app-manifests/code/conversions",
+        );
+        return Response.json({
+          id: 1234,
+          pem: "test-key",
+          webhook_secret: "test-webhook-secret",
+          client_id: "test-client",
+          client_secret: "test-client-secret",
+          slug: "my-agent",
+          owner: { type: "User", login: "octocat" },
+        });
+      });
+      const storeApp = vi.fn(async () => {
+        await db
+          .update(chatEndpoints)
+          .set({ botExternalId: "1234" })
+          .where(eq(chatEndpoints.id, bot.id));
+        throw new Error("Vault storage interrupted");
+      });
+      const createWizard = () =>
+        githubChatWizardService(db, {
+          origin: () => "http://127.0.0.1:3104",
+          fetch: exchange as typeof fetch,
+          connector: () =>
+            ({
+              githubApp: async () => ({ id: "claim-recovery" }),
+              claimGitHubApp,
+            }) as unknown as PaperclipCloudConnector,
+          startDirect: service.startGitHubRegistration,
+          storeApp,
+          storeCredentials: async () => {},
+          refreshRepositories: service.refreshGitHubRepositories,
+          resources: service.listResources,
+          replaceResources: service.replaceResources,
+          configure: async () => {},
+          finish: async () => {},
+        });
+      await expect(
+        createWizard().advance(bot.id, "owner-user"),
+      ).rejects.toThrow("Vault storage interrupted");
+      expect(await createWizard().advance(bot.id, "owner-user")).toMatchObject({
+        state: "recovery",
+      });
+      expect(exchange).toHaveBeenCalledTimes(1);
+      expect(storeApp).toHaveBeenCalledTimes(1);
+      expect(claimGitHubApp).toHaveBeenCalledTimes(1);
+      const [session] = await db
+        .select()
+        .from(chatGitHubRegistrations)
+        .where(eq(chatGitHubRegistrations.endpointId, bot.id));
+      expect(session.status).toBe("failed");
+    });
+    it("wizard recovers a renamed enrolled origin only after checking bound state and Cloud authority", async () => {
+      const f = await seedCompany();
+      const { service } = createService();
+      const bot = await service.create(
+        f.companyId,
+        { provider: "github", assignedAgentId: f.assignedAgentId },
+        "owner-user",
+      );
+      await db.insert(chatGitHubRegistrations).values({
+        companyId: f.companyId,
+        endpointId: bot.id,
+        userId: "owner-user",
+        stateHash: createHash("sha256").update("bound-state").digest("hex"),
+        trustedOrigin: "https://old.example.test",
+        status: "pending",
+        expiresAt: new Date(Date.now() + 60_000),
+        handoff: {
+          cloudId: "origin-recovery",
+          returnState: "bound-state",
+          redemptionId: "same-receipt",
+        },
+      });
       let enrolledOrigin = "https://wrong.example.test";
       const githubApp = vi.fn(async () => ({
         id: "origin-recovery",
-        status: "pending",
         returnOrigin: enrolledOrigin,
-        registrationUrl: "https://github.com/settings/apps/new",
-        manifest: { public: false },
-        expiresAt: new Date(Date.now() + 60_000).toISOString(),
+        expiresAt: new Date(Date.now() + 60000).toISOString(),
+        webhookUrl: "https://gateway.example.test/webhook",
+        callbackUrls: {
+          manifest: "https://gateway.example.test/manifest",
+          install: "https://gateway.example.test/install",
+          oauth: "https://gateway.example.test/oauth",
+        },
+      }));
+      const claimGitHubApp = vi.fn(async () => ({
+        kind: "gateway_callback",
+        registrationId: "origin-recovery",
+        callbackKind: "manifest",
+        state: "bound-state",
       }));
       const wizard = githubChatWizardService(db, {
         origin: () => "https://new.example.test",
-        connector: () => ({ githubApp }) as unknown as PaperclipCloudConnector,
+        connector: () =>
+          ({ githubApp, claimGitHubApp }) as unknown as PaperclipCloudConnector,
         startDirect: service.startGitHubRegistration,
         storeApp: service.storeGitHubApp,
         storeCredentials: async () => {},
@@ -2401,15 +2424,21 @@ describeEmbeddedPostgres("chat channel control-plane integration", () => {
         finish: async () => {},
       });
       await expect(
-        wizard.cloudCallback("unbound-state", "origin-recovery"),
+        wizard.cloudCallback("unbound-state", "origin-recovery", "claim"),
       ).rejects.toThrow("did not match");
       expect(githubApp).not.toHaveBeenCalled();
       await expect(
-        wizard.cloudCallback("bound-state", "origin-recovery"),
+        wizard.cloudCallback("bound-state", "origin-recovery", "claim"),
       ).rejects.toThrow("did not match");
       enrolledOrigin = "https://new.example.test";
+      claimGitHubApp.mockImplementation(async () => ({
+        kind: "gateway_callback",
+        registrationId: "origin-recovery",
+        callbackKind: "install",
+        state: "bound-state",
+      }));
       expect(
-        await wizard.cloudCallback("bound-state", "origin-recovery"),
+        await wizard.cloudCallback("bound-state", "origin-recovery", "claim"),
       ).toContain("https://new.example.test/");
       const [session] = await db
         .select()
@@ -2528,9 +2557,9 @@ describeEmbeddedPostgres("chat channel control-plane integration", () => {
         configure: async () => {},
         finish: async () => {},
       });
-      await expect(wizard.repairCloud(bot.id, "unrelated-user")).rejects.toThrow(
-        "active company manager",
-      );
+      await expect(
+        wizard.repairCloud(bot.id, "unrelated-user"),
+      ).rejects.toThrow("active company manager");
       const before = await context.service.listResources(bot.id);
       await wizard.repairCloud(bot.id, "owner-user");
       const current = await context.service.get(bot.id);
@@ -2547,12 +2576,19 @@ describeEmbeddedPostgres("chat channel control-plane integration", () => {
       expect(session.handoff?.webhookSecretHash).toMatch(/^[a-f0-9]{64}$/);
       await context.service.generateSetupSecret(bot.id, "owner-user");
       await wizard.repairCloud(bot.id, "owner-user");
-      const repairCalls = githubApp.mock.calls.filter(
-        ([input]) => input.binding.action === "repair",
+      expect(githubApp).toHaveBeenCalledTimes(2);
+      for (const [request] of githubApp.mock.calls) {
+        expect(request.binding).not.toHaveProperty("webhookSecret");
+        expect(request.binding).not.toHaveProperty("appToken");
+      }
+      const repairs = providerFetch.mock.calls.filter(
+        ([url, init]) =>
+          String(url) === "https://api.github.com/app/hook/config" &&
+          init?.method === "PATCH",
       );
-      expect(repairCalls).toHaveLength(2);
-      expect(repairCalls[0][0].binding.webhookSecret).not.toBe(
-        repairCalls[1][0].binding.webhookSecret,
+      expect(repairs).toHaveLength(2);
+      expect(JSON.parse(String(repairs[0][1]?.body)).secret).not.toBe(
+        JSON.parse(String(repairs[1][1]?.body)).secret,
       );
       expect((await context.service.get(bot.id)).status).toBe("attention");
     });
@@ -2999,42 +3035,55 @@ describeEmbeddedPostgres("chat channel control-plane integration", () => {
       expect((await context.service.listResources(context.endpoint.id)).every(resource => !resource.enabled)).toBe(true);
       expect(await management.configuration(context.endpoint.id, "owner-user")).toMatchObject({ revision: 1, configuration: { toolsEnabled: false } });
     });
-    it("Cloud bot delivery cannot enter another company's endpoint or a different agent binding", async () => {
+    it("stack rejects forged raw gateway deliveries without changing verification or waking an agent", async () => {
       const f = await reviewBotFixture();
-      const event = {
-        id: "event-a",
-        provider: "github" as const,
-        event: "issue_comment",
-        action: "created",
-        installationId: "2468",
-        repositoryId: "97531",
-        createdAt: new Date().toISOString(),
-        bindingIds: ["github-app:registration-a"],
-        payload: {
-          githubApp: {
-            endpointId: f.endpoint.id,
-            companyId: f.companyId,
-            registrationId: "registration-a",
-            connectionId: f.endpoint.connectionId,
-            agentId: "different-agent",
-            appId: f.endpoint.botExternalId,
-            deliveryId: "delivery-123",
-            body: {},
-          },
-        },
-      };
       await db
         .update(chatEndpoints)
         .set({
           setup: {
             ...f.endpoint.setup,
+            webhookVerifiedAt: null,
             github: { cloudRegistrationId: "registration-a" },
           },
         })
         .where(eq(chatEndpoints.id, f.endpoint.id));
-      await expect(dispatchGitHubBotCloudEvent(db, event)).rejects.toThrow(
-        "does not belong",
-      );
+      const body = JSON.stringify({ zen: "forged-ping" });
+      const event = {
+        id: "transport-event",
+        provider: "github" as const,
+        event: "gateway_delivery",
+        action: null,
+        installationId: null,
+        repositoryId: null,
+        createdAt: new Date().toISOString(),
+        bindingIds: ["github-app:registration-a"],
+        payload: {
+          githubApp: {
+            registrationId: "registration-a",
+            rawBody: Buffer.from(body).toString("base64"),
+            headers: {
+              "x-github-event": "ping",
+              "x-github-delivery": "provider-delivery",
+              "x-hub-signature-256": `sha256=${createHmac("sha256", "wrong-secret").update(body).digest("hex")}`,
+            },
+          },
+        },
+      };
+      const [connection] = await db.select().from(toolConnections).where(eq(toolConnections.id, f.endpoint.connectionId));
+      await db.update(toolConnections).set({credentialSecretRefs: connection.credentialSecretRefs.filter(ref => ref.configPath !== "credentials.webhookSecret")}).where(eq(toolConnections.id, connection.id));
+      await expect(dispatchGitHubBotCloudEvent(db, event)).rejects.toThrow("credentials are not ready");
+      await db.update(toolConnections).set({credentialSecretRefs: connection.credentialSecretRefs}).where(eq(toolConnections.id, connection.id));
+      expect(await dispatchGitHubBotCloudEvent(db, event)).toBe(true);
+      expect(
+        (await f.service.get(f.endpoint.id)).setup.webhookVerifiedAt,
+      ).toBeNull();
+      expect(f.wakeup).not.toHaveBeenCalled();
+      event.payload.githubApp.headers["x-hub-signature-256"] =
+        `sha256=${createHmac("sha256", f.webhookSecret).update(body).digest("hex")}`;
+      expect(await dispatchGitHubBotCloudEvent(db, event)).toBe(true);
+      expect(
+        (await f.service.get(f.endpoint.id)).setup.webhookVerifiedAt,
+      ).toBeTruthy();
       expect(f.wakeup).not.toHaveBeenCalled();
     });
     it("legacy name-only registration preserves an explicit empty repository selection", async () => {

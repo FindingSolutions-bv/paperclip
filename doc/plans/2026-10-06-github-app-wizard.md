@@ -62,25 +62,34 @@ new App's OAuth flow, separate from its installation callback, with bound
 state, PKCE, one explicit identity confirmation, and transient user tokens.
 All bot execution continues through installation credentials.
 
-Re-enter the existing durable webhook admission/review path from an
-independently bounded, authenticated Cloud event. Preserve resource access,
+Decrypt original provider webhook bytes from the bounded Cloud gateway queue.
+Authenticate their original signature in the stack before entering the existing
+durable webhook admission/review path. Preserve resource access,
 trust boundaries, revocation handling, and duplicate protection.
 
 ### Paperclip Cloud
 
-Extend the existing connector broker, durable registry, enrollment, signed
-requests, sealed claims, secret store, webhook inbox, event leases and acks,
-and coalesced Cloud stack wakes. No per-user tunnel or separate relay service.
+Use the existing connector broker, durable registry, enrollment, signed
+requests, sealed claims, webhook inbox, event leases and acknowledgments, and
+coalesced stack wakes as a transport gateway. No per-user tunnel is needed.
 
-Add dedicated App registrations with compare-and-swap progress, per-App
-webhook secrets, fixed provider URLs, distinct public manifest/install/OAuth
-callbacks, and normalized bot events. Store only the webhook verification
-secret in Cloud's secret store; seal private keys and OAuth client credentials
-to the enrolled instance. Installation query parameters are hints, never proof.
+The stack builds manifests, exchanges manifest codes directly with GitHub,
+vaults every App secret, and owns OAuth state, PKCE, installation verification,
+repository access, event interpretation and recovery. Cloud stores opaque routes
+and hashes of callback state. It seals callback codes and original webhook bytes
+to the enrolled stack before durable storage. It keeps no GitHub private key,
+client secret or webhook verifier for dedicated Apps.
 
-The additive capability is controlled by `CLOUD_HARNESS_GITHUB_APPS_ENABLED=1`.
-Production requires the durable provider secret store. Deploy the additive
-Cloud migration/capability before enabling the synchronized instance wizard.
+Cloud provides separate public manifest/install/OAuth callback URLs. Installation
+parameters never prove ownership. The stack authenticates the original webhook
+signature. Cloud applies bounded ingress, queue and wake limits to unverified
+traffic. Deduplication includes the original body and signature to prevent forged
+delivery identifiers from suppressing valid events.
+
+The additive capability is controlled by `CLOUD_HARNESS_GITHUB_APPS_ENABLED=1`
+and advertises version 2. Deploy the additive Cloud migration and gateway before
+the synchronized instance wizard. Existing shared-App account connections keep
+their provider-specific broker behavior and secret-store requirements.
 
 ## Qualification
 
@@ -127,12 +136,22 @@ imports resume those defaults while explicit restrictions stay preserved. A real
 vault-write interruption stays in recovery without completing an empty import;
 retrying the credentials discovers and imports the actual repositories.
 
-Cloud's final standard `npm test` passes: 2,561 tests and 73 environment-dependent
-skips. Dedicated-App regressions cover normalized concurrent starts, stale
-installation redeliveries, atomic inbox/state transitions, current enrolled
-callback destinations after old hosts stop resolving, PKCE consent and denial, expired claims, and webhook
-secret retirement with nonblocking cleanup, including overlapping repairs. The Postgres concurrency case requires a disposable
-database and was not run here.
+The earlier Cloud qualification tested a Cloud-owned App lifecycle. The
+2026-10-07 architecture revision replaces that lifecycle with the gateway
+boundary described above. Its standard `npm test` passes: 2,552 tests and 73
+conditional skips. Gateway regressions verify sealed callback and webhook
+storage, route/tenant binding, removed instances, renamed origins, forged
+identifier suppression, lease/acknowledgment and queue limits. Cloud typecheck
+and routing/sleep/wake smoke checks pass.
+
+The revised stack passes workspace typecheck and build. Focused tests cover
+local manifest exchange, interrupted vault storage without repeated exchange,
+secret rotation without disclosing it to Cloud, original-signature verification,
+and nested-envelope binding. A subsequent database run is blocked by the host's
+exhausted shared-memory identifiers (`shmget`: No space left on device), including
+the disposable Cloud Postgres concurrency qualification. These skipped or blocked
+runs do not establish database qualification. The new PR heads require fresh CI
+and review. No real provider calls or deployments were used for this revision.
 
 Before rollout, apply the additive Cloud migration, enable the dedicated-App
 capability, then deploy the synchronized instance migration and wizard through

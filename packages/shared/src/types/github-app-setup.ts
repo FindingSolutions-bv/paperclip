@@ -3,22 +3,13 @@ export type GitHubAppOwner = {
   ownerLogin?: string;
 };
 export type GitHubAppRegistrationInput = GitHubAppOwner & { name: string };
-export type GitHubAppCloudState = GitHubAppOwner & {
+/** Redacted transport route; GitHub setup state belongs to the instance. */
+export type GitHubAppCloudState = {
   id: string;
-  returnOrigin?: string;
-  status: "pending" | "exchanging" | "credentials" | "installed" | "failed";
+  returnOrigin: string;
   expiresAt: string;
-  appId?: string;
-  slug?: string;
-  claimId?: string;
-  claimExpired?: boolean;
-  registrationUrl?: string;
-  manifest?: Record<string, unknown>;
-  webhookUrl?: string;
-  installationUrl?: string;
-  installationId?: string;
-  signedDeliveryAt?: string;
-  authorizationUrl?: string;
+  webhookUrl: string;
+  callbackUrls: { manifest: string; install: string; oauth: string };
 };
 export type GitHubAppWizardState = {
   endpointId: string;

@@ -38312,20 +38312,35 @@ export function chatChannelService(db: Db, options: ChatChannelServiceOptions) {
     },
     finish: (id, userId) => test(id, { optionalSlackTestForUser: userId }),
   });
-  const unregisterGitHubCloudIngress = registerGitHubBotCloudIngress(db, async (endpoint, event, body) => {
-    const record = await endpointRecord(endpoint.id);
-    if (!record || record.endpoint.companyId !== endpoint.companyId || record.endpoint.connectionId !== endpoint.connectionId
-      || record.endpoint.assignedAgentId !== endpoint.assignedAgentId || record.endpoint.setup.github?.cloudRegistrationId !== endpoint.setup.github?.cloudRegistrationId) throw forbidden("GitHub Cloud event binding changed");
-    const credentials = await resolveCredentials(record.endpoint);
-    // Cloud authenticated the provider's original bytes. Re-enter the canonical
-    // durable ingress with a local authenticator over the bounded normalized payload.
-    const normalized = JSON.stringify(body);
-    const response = await handleWebhook(record.endpoint.publicId, "github", new Request("https://paperclip.invalid/github-cloud-ingress", {
-      method: "POST", headers: { "content-type": "application/json", "x-github-event": event.event,
-        "x-github-delivery": event.deliveryId, "x-hub-signature-256": `sha256=${createHmac("sha256", credentials.webhookSecret).update(normalized).digest("hex")}` }, body: normalized,
-    }));
-    if (!response.ok) throw conflict("GitHub Cloud ingress could not be durably accepted");
-  });
+  const unregisterGitHubCloudIngress = registerGitHubBotCloudIngress(
+    db,
+    async (endpoint, request) => {
+      const record = await endpointRecord(endpoint.id);
+      if (
+        !record ||
+        record.endpoint.companyId !== endpoint.companyId ||
+        record.endpoint.connectionId !== endpoint.connectionId ||
+        record.endpoint.assignedAgentId !== endpoint.assignedAgentId ||
+        record.endpoint.setup.github?.cloudRegistrationId !==
+          endpoint.setup.github?.cloudRegistrationId
+      )
+        throw forbidden("GitHub Cloud event binding changed");
+      // A manifest ping may arrive before its webhook verifier reaches the vault.
+      // Keep the sealed delivery queued until the stack can authenticate it.
+      if (!record.credentialSecretRefs.some((ref) => ref.configPath === "credentials.webhookSecret"))
+        throw conflict("GitHub webhook credentials are not ready");
+      // Preserve the exact provider payload and signature. Authentication, lifecycle
+      // checks and durable admission all run in the stack's canonical ingress.
+      const response = await handleWebhook(
+        record.endpoint.publicId,
+        "github",
+        request,
+      );
+      if ([400, 401, 403, 404, 413, 422].includes(response.status)) return; // Discard hostile transport without retrying it indefinitely.
+      if (!response.ok)
+        throw conflict("GitHub Cloud ingress could not be durably accepted");
+    },
+  );
 
   const unregisterSlackTaskAuthority = registerSlackTaskAuthority(db, async (binding) => {
     if (!(await instanceSettingsService(db).getExperimental()).enableChatConnectors)

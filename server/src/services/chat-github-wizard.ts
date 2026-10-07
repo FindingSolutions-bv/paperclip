@@ -13,6 +13,7 @@ import {
 import type {
   GitHubAppRegistrationInput,
   GitHubAppWizardState,
+  GitHubAppCloudState,
 } from "@paperclipai/shared";
 import { badRequest, conflict, forbidden, notFound } from "../errors.js";
 import { logActivity } from "./activity-log.js";
@@ -303,39 +304,167 @@ export function githubChatWizardService(
     const state = await cloud.githubApp({
       subject: userId,
       companyId: bot.companyId,
-      binding: cloudStart(bot, session),
+      binding: cloudStart(session),
     });
-    if (!state.registrationUrl || !state.manifest)
-      throw conflict(
-        "GitHub App registration could not be prepared. Resume the existing draft.",
-      );
     return {
       endpointId: id,
       state: "create",
-      registration: {
-        registrationUrl: state.registrationUrl,
-        manifest: state.manifest,
-        expiresAt: state.expiresAt,
-      },
+      registration: cloudManifest(session, state),
     } satisfies GitHubAppWizardState;
   }
   function cloudStart(
-    bot: Endpoint,
     session: typeof chatGitHubRegistrations.$inferSelect,
   ) {
     return {
       action: "start",
       id: session.handoff!.cloudId,
-      endpointId: bot.id,
-      connectionId: bot.connectionId,
-      agentId: bot.assignedAgentId,
-      name: session.appName!,
-      ownerType: session.ownerType,
-      ...(session.ownerLogin ? { ownerLogin: session.ownerLogin } : {}),
       returnUri: `${session.trustedOrigin}/api/chat-github/cloud/callback`,
       returnState: session.handoff!.returnState,
     };
   }
+  function cloudManifest(
+    session: typeof chatGitHubRegistrations.$inferSelect,
+    route: GitHubAppCloudState,
+  ) {
+    if (
+      !route.callbackUrls?.manifest ||
+      !route.callbackUrls.install ||
+      !route.callbackUrls.oauth ||
+      !route.webhookUrl
+    )
+      throw conflict(
+        "This Cloud connector needs the gateway update before setup can continue.",
+      );
+    const url = new URL(
+      session.ownerType === "organization"
+        ? `https://github.com/organizations/${encodeURIComponent(session.ownerLogin!)}/settings/apps/new`
+        : "https://github.com/settings/apps/new",
+    );
+    url.searchParams.set("state", session.handoff!.returnState);
+    return {
+      registrationUrl: url.toString(),
+      expiresAt: session.expiresAt.toISOString(),
+      manifest: {
+        name: session.appName,
+        url: session.trustedOrigin.startsWith("https:")
+          ? session.trustedOrigin
+          : new URL(route.webhookUrl).origin,
+        public: false,
+        hook_attributes: { url: route.webhookUrl, active: true },
+        redirect_url: route.callbackUrls.manifest,
+        setup_url: route.callbackUrls.install,
+        setup_on_update: true,
+        callback_urls: [route.callbackUrls.oauth],
+        default_permissions: {
+          contents: "read",
+          issues: "write",
+          metadata: "read",
+          pull_requests: "write",
+          checks: "write",
+        },
+        default_events: [
+          "issue_comment",
+          "pull_request_review_comment",
+          "pull_request",
+        ],
+      },
+    };
+  }
+  async function exchangeCloudManifest(
+    session: typeof chatGitHubRegistrations.$inferSelect,
+    claimId: string,
+  ) {
+    const cloud = connector();
+    if (!cloud || !session.handoff)
+      throw conflict("Restore Paperclip Cloud enrollment");
+    const material = await cloud.claimGitHubApp({
+      subject: session.userId,
+      companyId: session.companyId,
+      claimId,
+      redemptionId: session.handoff.redemptionId,
+    });
+    if (
+      material.kind !== "gateway_callback" ||
+      material.registrationId !== session.handoff.cloudId ||
+      material.callbackKind !== "manifest" ||
+      typeof material.state !== "string" ||
+      hash(material.state) !== session.stateHash ||
+      typeof material.code !== "string" ||
+      !/^[A-Za-z0-9_-]{1,256}$/.test(material.code)
+    )
+      throw forbidden("GitHub manifest return did not match this draft");
+    // Claim the single-use operation in the stack database before calling GitHub.
+    const [claimed] = await db
+      .update(chatGitHubRegistrations)
+      .set({ status: "exchanging", consumedAt: new Date() })
+      .where(
+        and(
+          eq(chatGitHubRegistrations.id, session.id),
+          eq(chatGitHubRegistrations.status, "pending"),
+          sql`${chatGitHubRegistrations.expiresAt} > now()`,
+        ),
+      )
+      .returning();
+    if (!claimed) return;
+    try {
+      await endpoint(session.endpointId, session.userId);
+      const app = await githubBotRequest<{
+        id: number;
+        pem: string;
+        webhook_secret: string;
+        client_id: string;
+        client_secret: string;
+        slug: string;
+        owner: { type: string; login: string };
+      }>(
+        fetchImpl,
+        null,
+        `/app-manifests/${encodeURIComponent(material.code)}/conversions`,
+        { method: "POST" },
+      );
+      if (
+        !Number.isSafeInteger(app.id) ||
+        app.id <= 0 ||
+        !app.pem ||
+        !app.webhook_secret ||
+        !app.client_id ||
+        !app.client_secret ||
+        !/^[a-z0-9-]+$/.test(app.slug ?? "")
+      )
+        throw conflict(
+          "GitHub returned incomplete App credentials. Recover the App already created.",
+        );
+      if (
+        app.owner?.type !==
+          (session.ownerType === "organization" ? "Organization" : "User") ||
+        (session.ownerLogin &&
+          app.owner.login?.toLowerCase() !== session.ownerLogin.toLowerCase())
+      )
+        throw forbidden("GitHub returned an App owned by a different account");
+      await options.storeApp(session.endpointId, session.userId, {
+        appId: String(app.id),
+        privateKey: app.pem,
+        webhookSecret: app.webhook_secret,
+        clientId: app.client_id,
+        clientSecret: app.client_secret,
+        slug: app.slug,
+      });
+      await db
+        .update(chatGitHubRegistrations)
+        .set({
+          status: "completed",
+          handoff: sql`${chatGitHubRegistrations.handoff} - 'manifestClaimId'`,
+        })
+        .where(eq(chatGitHubRegistrations.id, session.id));
+    } catch (error) {
+      await db
+        .update(chatGitHubRegistrations)
+        .set({ status: "failed" })
+        .where(eq(chatGitHubRegistrations.id, session.id));
+      throw error;
+    }
+  }
+
   async function saveDraft(
     id: string,
     userId: string,
@@ -390,7 +519,7 @@ export function githubChatWizardService(
     const binding = { subject: userId, companyId: bot.companyId };
     const state = await cloud.githubApp({
       ...binding,
-      binding: cloudStart(bot, session),
+      binding: cloudStart(session),
     });
     const { credentials, appJwt } = await githubBotCredentials(
       db,
@@ -399,12 +528,8 @@ export function githubChatWizardService(
     );
     if (!credentials.webhookSecret)
       throw conflict("Recover this App's webhook secret before continuing");
-    if (state.appId && state.appId !== credentials.appId)
-      throw conflict("Recovery must use the original GitHub App");
     if (!state.webhookUrl)
-      throw conflict(
-        "Paperclip Cloud does not support recovering this App yet",
-      );
+      throw conflict("Restore this App's Cloud gateway before continuing");
     await logActivity(db, {
       companyId: bot.companyId,
       actorType: "user",
@@ -414,23 +539,13 @@ export function githubChatWizardService(
       entityId: bot.connectionId,
       details: { endpointId: id, appId: credentials.appId },
     });
+    // The App JWT and webhook secret remain entirely in the instance.
     await resyncGitHubAppWebhook({
       fetch: fetchImpl,
       appToken: appJwt,
       webhookUrl: state.webhookUrl,
       webhookSecret: credentials.webhookSecret,
     });
-    const repaired = await cloud.githubApp({
-      ...binding,
-      binding: {
-        action: "repair",
-        id: session.handoff.cloudId,
-        appToken: appJwt,
-        webhookSecret: credentials.webhookSecret,
-      },
-    });
-    if (repaired.appId !== credentials.appId)
-      throw conflict("GitHub App recovery binding did not match");
     await db
       .update(chatGitHubRegistrations)
       .set({
@@ -525,20 +640,7 @@ export function githubChatWizardService(
             eq(toolConnections.companyId, bot.companyId),
           ),
         );
-      const vaulted =
-        !!bot.botExternalId &&
-        [
-          "appId",
-          "privateKey",
-          "webhookSecret",
-          "clientId",
-          "clientSecret",
-        ].every((key) =>
-          connection?.refs.some(
-            (ref) => ref.configPath === `credentials.${key}`,
-          ),
-        );
-      const hasAppCredentials =
+      let hasAppCredentials =
         !!bot.botExternalId &&
         ["appId", "privateKey", "webhookSecret"].every((key) =>
           connection?.refs.some(
@@ -546,138 +648,91 @@ export function githubChatWizardService(
           ),
         );
       const binding = { subject: userId, companyId: bot.companyId };
-      let state = await cloud.githubApp({
+      const route = await cloud.githubApp({
         ...binding,
-        binding: cloudStart(bot, session),
+        binding: cloudStart(session),
       });
-      if (hasAppCredentials) {
-        const { credentials } = await githubBotCredentials(
-          db,
-          bot.companyId,
-          id,
+      let exchangedThisTurn = false;
+      if (
+        session.status === "pending" &&
+        session.handoff.manifestClaimId &&
+        !hasAppCredentials
+      ) {
+        await exchangeCloudManifest(session, session.handoff.manifestClaimId);
+        bot = await endpoint(id, userId);
+        const [savedConnection] = await db
+          .select({ refs: toolConnections.credentialSecretRefs })
+          .from(toolConnections)
+          .where(
+            and(
+              eq(toolConnections.id, bot.connectionId),
+              eq(toolConnections.companyId, bot.companyId),
+            ),
+          );
+        hasAppCredentials = ["appId", "privateKey", "webhookSecret"].every(
+          (key) =>
+            savedConnection?.refs.some(
+              (ref) => ref.configPath === `credentials.${key}`,
+            ),
         );
-        if (
-          ["pending", "exchanging", "failed"].includes(state.status) ||
-          (session.handoff.webhookSecretHash &&
-            session.handoff.webhookSecretHash !==
-              hash(credentials.webhookSecret ?? ""))
-        ) {
-          await repairCloud(id, userId);
-          state = await cloud.githubApp({
-            ...binding,
-            binding: { action: "status", id: session.handoff.cloudId },
-          });
-          bot = await endpoint(id, userId);
-        }
+        exchangedThisTurn = true;
       }
-      if (state.status === "failed" || state.status === "exchanging")
-        return {
-          endpointId: id,
-          state: "recovery",
-          message:
-            state.status === "exchanging"
-              ? "GitHub registration is still being processed. If it was interrupted, recover the App already created on GitHub."
-              : "Recover the App already created on GitHub. Registration was interrupted and cannot safely be repeated.",
-        };
-      if (state.status === "pending") {
-        if (Date.parse(state.expiresAt) <= Date.now())
+      if (!bot.botExternalId) {
+        const current = await registration(bot);
+        if (current?.status !== "pending" || session.expiresAt <= new Date())
           return {
             endpointId: id,
             state: "recovery",
             message:
-              "Registration expired. Check GitHub for the App before using existing-App recovery.",
+              "Recover the App already created on GitHub. An interrupted exchange cannot safely be repeated.",
           };
         return {
           endpointId: id,
           state: "create",
-          registration:
-            state.registrationUrl && state.manifest
-              ? {
-                  registrationUrl: state.registrationUrl,
-                  manifest: state.manifest,
-                  expiresAt: state.expiresAt,
-                }
-              : undefined,
+          registration: cloudManifest(session, route),
         };
       }
-      if (state.claimExpired && !vaulted)
+      if (!hasAppCredentials)
         return {
           endpointId: id,
           state: "recovery",
-          message:
-            "Credential delivery expired. Recover the App already created on GitHub; do not create another App.",
+          message: "Recover this App's saved credentials before continuing.",
         };
-      if (state.claimId && !vaulted) {
-        const material = await cloud.claimGitHubApp({
-          ...binding,
-          claimId: state.claimId,
-          redemptionId: session.handoff.redemptionId,
-        });
-        if (
-          material.kind !== "github_app" ||
-          material.registrationId !== session.handoff.cloudId ||
-          material.endpointId !== bot.id ||
-          material.connectionId !== bot.connectionId ||
-          material.agentId !== bot.assignedAgentId
-        )
-          throw forbidden(
-            "GitHub App credential binding did not match this draft",
-          );
-        const credentials: Record<string, string> = {};
-        for (const key of [
-          "appId",
-          "privateKey",
-          "webhookSecret",
-          "clientId",
-          "clientSecret",
-        ]) {
-          if (typeof material[key] !== "string" || !material[key])
-            throw conflict("GitHub returned incomplete App credentials");
-          credentials[key] = material[key] as string;
-        }
-        await options.storeApp(id, userId, credentials);
-      }
-      bot = await endpoint(id, userId);
-      if (!bot.botExternalId || bot.botExternalId !== state.appId)
-        throw conflict("Recover this App's credentials before continuing.");
-      await cloud.githubApp({
-        ...binding,
-        binding: { action: "stored", id: session.handoff.cloudId },
-      });
-      const { credentials: storedCredentials } = await githubBotCredentials(
+      const { credentials: stored } = await githubBotCredentials(
         db,
         bot.companyId,
         id,
       );
-      if (!session.handoff.webhookSecretHash)
-        await db
-          .update(chatGitHubRegistrations)
-          .set({
-            handoff: sql`jsonb_set(${chatGitHubRegistrations.handoff}, '{webhookSecretHash}', ${JSON.stringify(hash(storedCredentials.webhookSecret))}::jsonb)`,
-          })
-          .where(eq(chatGitHubRegistrations.id, session.id));
+      if (
+        (!exchangedThisTurn && session.status !== "completed") ||
+        (session.handoff.webhookSecretHash &&
+          session.handoff.webhookSecretHash !==
+            hash(stored.webhookSecret ?? ""))
+      ) {
+        await repairCloud(id, userId);
+        bot = await endpoint(id, userId);
+      }
       if (session.status !== "completed")
         await db
           .update(chatGitHubRegistrations)
           .set({ status: "completed" })
           .where(eq(chatGitHubRegistrations.id, session.id));
+      if (!session.handoff.webhookSecretHash)
+        await db
+          .update(chatGitHubRegistrations)
+          .set({
+            handoff: sql`jsonb_set(${chatGitHubRegistrations.handoff}, '{webhookSecretHash}', ${JSON.stringify(hash(stored.webhookSecret ?? ""))}::jsonb)`,
+          })
+          .where(eq(chatGitHubRegistrations.id, session.id));
       await setup(bot, {
         cloudRegistrationId: session.handoff.cloudId,
         ownerType: session.ownerType,
-        ownerLogin: state.ownerLogin ?? session.ownerLogin ?? undefined,
+        ownerLogin: session.ownerLogin ?? undefined,
         appName: session.appName ?? undefined,
         registrationStatus: "completed",
       });
-      if (state.signedDeliveryAt && !bot.setup.webhookVerifiedAt) {
-        await db
-          .update(chatEndpoints)
-          .set({
-            setup: sql`jsonb_set(${chatEndpoints.setup}, '{webhookVerifiedAt}', ${JSON.stringify(state.signedDeliveryAt)}::jsonb)`,
-            updatedAt: new Date(),
-          })
-          .where(eq(chatEndpoints.id, id));
-      }
     }
+
     bot = await endpoint(id, userId);
     if (!bot.botExternalId) {
       if (session && !session.handoff?.cloudId) {
@@ -710,11 +765,16 @@ export function githubChatWizardService(
         return {
           endpointId: id,
           state: "recovery",
-          message: "This App's credentials were not completely saved. Recover its existing credentials before continuing.",
+          message:
+            "This App's credentials were not completely saved. Recover its existing credentials before continuing.",
         };
       }
     }
-    if (!bot.providerAccountId || bot.setup.github?.stage === "install" || bot.setup.github?.initialSetupPending) {
+    if (
+      !bot.providerAccountId ||
+      bot.setup.github?.stage === "install" ||
+      bot.setup.github?.initialSetupPending
+    ) {
       try {
         await options.refreshRepositories(id, userId);
       } catch (error) {
@@ -735,7 +795,8 @@ export function githubChatWizardService(
       const resources = await options.resources(id);
       // Fresh manifest and manual Apps import GitHub's initial choices. Saved
       // selections and configuration still belong to the user on recovery.
-      const initializeApp = !!session || bot.setup.github?.initialSetupPending === true;
+      const initializeApp =
+        !!session || bot.setup.github?.initialSetupPending === true;
       if (
         initializeApp &&
         bot.status !== "active" &&
@@ -770,7 +831,10 @@ export function githubChatWizardService(
           },
           userId,
         );
-      await setup(bot, { initialRepositoriesImported: true, initialSetupPending: false });
+      await setup(bot, {
+        initialRepositoriesImported: true,
+        initialSetupPending: false,
+      });
     }
     if (bot.status !== "active" && bot.status !== "verifying")
       await options.configure(id, userId);
@@ -976,15 +1040,20 @@ export function githubChatWizardService(
         subject: userId,
         companyId: bot.companyId,
         binding: {
-          action: "identity",
+          action: "callback",
           id: session.handoff.cloudId,
-          codeChallenge: challenge,
-          returnState: state,
+          stateHash: hash(state),
         },
       });
-      if (!result.authorizationUrl)
+      if (!result.callbackUrls?.oauth)
         throw conflict("GitHub account authorization is unavailable");
-      return { authorizationUrl: result.authorizationUrl };
+      const url = new URL("https://github.com/login/oauth/authorize");
+      url.searchParams.set("client_id", credentials.credentials.clientId);
+      url.searchParams.set("redirect_uri", result.callbackUrls.oauth);
+      url.searchParams.set("state", state);
+      url.searchParams.set("code_challenge", challenge);
+      url.searchParams.set("code_challenge_method", "S256");
+      return { authorizationUrl: url.toString() };
     }
     const url = new URL("https://github.com/login/oauth/authorize");
     url.searchParams.set("client_id", credentials.credentials.clientId);
@@ -1162,12 +1231,34 @@ export function githubChatWizardService(
         sql`${chatGitHubRegistrations.handoff}->>'cloudId' = ${registrationId}`,
       )
       .limit(1);
-    if (
-      !session?.handoff ||
-      (session.stateHash !== hash(state) &&
-        session.handoff.identityStateHash !== hash(state))
-    )
+    if (!session?.handoff || !claimId)
       throw forbidden("GitHub return did not match this instance");
+    const cloud = connector();
+    if (!cloud) throw conflict("Restore Paperclip Cloud enrollment");
+    const opened = await cloud.claimGitHubApp({
+      subject: session.userId,
+      companyId: session.companyId,
+      claimId,
+      redemptionId:
+        session.handoff.identityStateHash &&
+        hash(state) === session.handoff.identityStateHash
+          ? session.handoff.identityRedemptionId!
+          : session.handoff.redemptionId,
+    });
+    if (
+      opened.kind !== "gateway_callback" ||
+      opened.registrationId !== registrationId ||
+      (opened.callbackKind !== "install" && opened.state !== state)
+    )
+      throw forbidden("GitHub return did not match this draft");
+    const manifestReturn =
+      opened.callbackKind === "manifest" &&
+      session.stateHash === hash(String(opened.state ?? ""));
+    const identityReturn =
+      opened.callbackKind === "oauth" &&
+      session.handoff.identityStateHash === hash(String(opened.state ?? ""));
+    if (!manifestReturn && !identityReturn && opened.callbackKind !== "install")
+      throw forbidden("GitHub return state did not match");
     const bot = await endpoint(session.endpointId, session.userId);
     if (session.trustedOrigin !== origin()) {
       const cloud = connector();
@@ -1200,8 +1291,8 @@ export function githubChatWizardService(
         details: { registrationId: session.id },
       });
     }
-    if (session.handoff.identityStateHash === hash(state)) {
-      if (!claimId) {
+    if (identityReturn) {
+      if (typeof opened.code !== "string" || opened.error) {
         await db
           .update(chatGitHubRegistrations)
           .set({
@@ -1215,28 +1306,28 @@ export function githubChatWizardService(
           );
         return resume(bot);
       }
-      const cloud = connector();
-      if (!cloud) throw conflict("Restore Paperclip Cloud enrollment");
-      const opened = await cloud.claimGitHubApp({
+      const route = await cloud.githubApp({
         subject: session.userId,
         companyId: session.companyId,
-        claimId,
-        redemptionId: session.handoff.identityRedemptionId!,
+        binding: { action: "status", id: registrationId },
       });
-      if (
-        opened.kind !== "github_app_identity" ||
-        opened.registrationId !== registrationId ||
-        opened.endpointId !== bot.id ||
-        opened.connectionId !== bot.connectionId ||
-        opened.agentId !== bot.assignedAgentId ||
-        typeof opened.code !== "string" ||
-        typeof opened.redirectUri !== "string"
-      )
-        throw forbidden("GitHub identity return did not match this draft");
-      return completeIdentity(session, opened.code, opened.redirectUri);
+      if (opened.redirectUri !== route.callbackUrls.oauth)
+        throw forbidden("GitHub identity callback did not match");
+      return completeIdentity(session, opened.code, route.callbackUrls.oauth);
     }
-    if (hash(state) !== session.stateHash)
-      throw forbidden("GitHub return state did not match");
+    if (manifestReturn && session.status === "pending") {
+      await db
+        .update(chatGitHubRegistrations)
+        .set({
+          handoff: sql`jsonb_set(${chatGitHubRegistrations.handoff}, '{manifestClaimId}', ${JSON.stringify(claimId)}::jsonb)`,
+        })
+        .where(
+          and(
+            eq(chatGitHubRegistrations.id, session.id),
+            eq(chatGitHubRegistrations.status, "pending"),
+          ),
+        );
+    }
     const progress = await advance(session.endpointId, session.userId);
     return progress.state === "install" && progress.installationUrl
       ? progress.installationUrl

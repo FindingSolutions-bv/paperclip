@@ -1,17 +1,11 @@
-import { normalizeGitHubBotCloudPayload } from "./chat-github-cloud-payload.js";
 import type { Db, chatEndpoints } from "@paperclipai/db";
 import { chatEndpoints as endpoints } from "@paperclipai/db";
-import { and, eq } from "drizzle-orm";
-import { forbidden } from "../errors.js";
+import { and, eq, sql } from "drizzle-orm";
 import type { SealedConnectorEvents } from "./paperclip-cloud-connector.js";
 
 type Event = SealedConnectorEvents["events"][number];
 type Endpoint = typeof chatEndpoints.$inferSelect;
-type Handler = (
-  endpoint: Endpoint,
-  event: { event: string; deliveryId: string },
-  body: Record<string, unknown>,
-) => Promise<void>;
+type Handler = (endpoint: Endpoint, request: Request) => Promise<void>;
 const handlers = new WeakMap<Db, Handler>();
 export function registerGitHubBotCloudIngress(db: Db, handler: Handler) {
   handlers.set(db, handler);
@@ -19,7 +13,7 @@ export function registerGitHubBotCloudIngress(db: Db, handler: Handler) {
     if (handlers.get(db) === handler) handlers.delete(db);
   };
 }
-/** Called only for an authenticated, decrypted broker lease, never from a board request body. */
+/** Cloud proves transport ownership only. The canonical stack ingress authenticates GitHub's original bytes. */
 export async function dispatchGitHubBotCloudEvent(
   db: Db,
   event: Event,
@@ -28,54 +22,55 @@ export async function dispatchGitHubBotCloudEvent(
   if (!value || typeof value !== "object" || Array.isArray(value)) return false;
   const packet = value as Record<string, unknown>;
   if (
-    typeof packet.endpointId !== "string" ||
-    typeof packet.companyId !== "string" ||
     typeof packet.registrationId !== "string" ||
-    typeof packet.deliveryId !== "string" ||
-    !/^[A-Za-z0-9_-]{8,200}$/.test(packet.deliveryId) ||
     !event.bindingIds.includes(`github-app:${packet.registrationId}`) ||
-    !packet.body ||
-    typeof packet.body !== "object" ||
-    Array.isArray(packet.body) ||
-    JSON.stringify(packet.body).length > 1_048_576
+    typeof packet.rawBody !== "string" ||
+    packet.rawBody.length > 1_398_104 ||
+    !/^(?:[A-Za-z0-9+/]{4})*(?:[A-Za-z0-9+/]{2}==|[A-Za-z0-9+/]{3}=)?$/.test(
+      packet.rawBody,
+    ) ||
+    !packet.headers ||
+    typeof packet.headers !== "object" ||
+    Array.isArray(packet.headers)
   )
-    throw forbidden("Invalid GitHub Cloud event");
+    return true;
+  const headers = packet.headers as Record<string, unknown>;
+  if (
+    !["x-github-event", "x-github-delivery", "x-hub-signature-256"].every(
+      (key) => typeof headers[key] === "string" && headers[key].length <= 200,
+    )
+  )
+    return true;
   const [endpoint] = await db
     .select()
     .from(endpoints)
     .where(
       and(
-        eq(endpoints.companyId, packet.companyId),
-        eq(endpoints.id, packet.endpointId),
         eq(endpoints.provider, "github"),
+        sql`${endpoints.setup}->'github'->>'cloudRegistrationId' = ${packet.registrationId}`,
       ),
-    );
-  if (!endpoint || endpoint.status === "archived") return true;
+    )
+    .limit(1);
   if (
-    endpoint.connectionId !== packet.connectionId ||
-    endpoint.assignedAgentId !== packet.agentId ||
-    endpoint.botExternalId !== packet.appId ||
-    endpoint.setup.github?.cloudRegistrationId !== packet.registrationId
+    !endpoint ||
+    ["archived", "paused"].includes(endpoint.status) ||
+    (endpoint.status === "revoked" && headers["x-github-event"] !== "installation")
   )
-    throw forbidden("GitHub Cloud event does not belong to this bot");
-  if (
-    ![
-      "ping",
-      "issue_comment",
-      "pull_request_review_comment",
-      "pull_request",
-      "installation",
-      "installation_repositories",
-      "github_app_authorization",
-    ].includes(event.event)
-  )
-    throw forbidden("Unsupported GitHub Cloud event");
+    return true;
   const handler = handlers.get(db);
   if (!handler) throw new Error("GitHub bot Cloud ingress is not ready");
   await handler(
     endpoint,
-    { event: event.event, deliveryId: packet.deliveryId },
-    normalizeGitHubBotCloudPayload(packet.body as Record<string, unknown>),
+    new Request("https://paperclip.invalid/github-cloud-ingress", {
+      method: "POST",
+      headers: {
+        "content-type": "application/json",
+        "x-github-event": headers["x-github-event"] as string,
+        "x-github-delivery": headers["x-github-delivery"] as string,
+        "x-hub-signature-256": headers["x-hub-signature-256"] as string,
+      },
+      body: new Uint8Array(Buffer.from(packet.rawBody, "base64")),
+    }),
   );
   return true;
 }

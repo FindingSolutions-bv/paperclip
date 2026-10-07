@@ -137,7 +137,8 @@ and [workflow dispatch permissions](https://docs.github.com/en/rest/actions/work
 
 ## Webhooks
 
-Paperclip Cloud verifies `X-Hub-Signature-256` against the exact bounded request
+For the shared GitHub account connector, Paperclip Cloud verifies
+`X-Hub-Signature-256` against the exact bounded request
 body before parsing, deduplicates by `X-GitHub-Delivery`, and persists a minimal
 normalized event before returning `202`. Raw webhook payloads are discarded.
 When registering an active binding, Paperclip sends the current user token only
@@ -157,6 +158,35 @@ Installation lifecycle events refresh or invalidate installation summaries and
 remove obsolete Cloud bindings. Activity records contain event identifiers and
 outcomes but no webhook content. GitHub webhook content is never first-party
 telemetry.
+
+## Dedicated agent Apps
+
+The bot wizard uses Cloud gateway protocol version 2. The stack builds the
+private manifest for a personal account or organization. GitHub still asks the
+user to confirm creation and repository installation. The stack exchanges the
+returned manifest code directly with GitHub and stores every App secret in its
+vault, including the private key, client secret, and webhook verifier.
+
+Cloud stores only opaque, instance-bound callback routes and encrypted callback
+claims. It does not exchange codes, track App or installation identity, store
+GitHub secrets, or interpret bot events. It forwards original webhook bytes,
+provider headers, and signature in an envelope sealed to the stack before
+writing the inbox. The stack decrypts and authenticates those bytes through its
+existing durable ingress. Only that local check can verify a connection or
+admit work. Shared-App account connectors keep the behavior described above.
+
+Unverified gateway traffic has request, byte, pending-queue, retention and wake
+limits. Its transport deduplication includes the body and signature, so a forged
+request cannot occupy a real delivery's identifier. A ping received before its
+verifier reaches the vault remains queued for retry. Malformed and forged
+traffic is discarded after local verification. Installation returns only request
+a state refresh; the stack queries GitHub to establish installation authority.
+
+OAuth state, PKCE, consent, repository discovery, recovery and lifecycle changes
+also stay in the stack. Interrupted single-use manifest exchanges require
+recovery of the existing App instead of a second creation. Direct webhook and
+manual existing-App recovery remain available. Connecting does not prove that
+an agent runtime can execute a review.
 
 ## Run projection
 
