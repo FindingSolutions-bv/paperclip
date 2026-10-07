@@ -1,7 +1,7 @@
 import { randomUUID } from "node:crypto";
 import { eq } from "drizzle-orm";
 import { afterAll, beforeAll, describe, expect, it } from "vitest";
-import { agents, companies, createDb, heartbeatRuns, issues } from "@paperclipai/db";
+import { agents, companies, createDb, heartbeatRuns, issues, issueThreadInteractions } from "@paperclipai/db";
 import { startEmbeddedPostgresTestDatabase } from "../../__tests__/helpers/embedded-postgres.js";
 import type { PrpStructuredRunResult } from "../../vendor/paperclip-runner/index.js";
 import { documentService } from "../documents.js";
@@ -32,6 +32,28 @@ describe("native final-response feedback", () => {
     } }) as { document: { id: string; latestRevisionId: string }; documentHref: string };
     return { companyId, agentId, issueId, runId, saved };
   }
+  it("rejects a duplicate approval report for the exact pending tool-action card", async () => {
+    const value = await fixture(), interactionId = randomUUID();
+    await db.insert(issueThreadInteractions).values({ id: interactionId, companyId: value.companyId, issueId: value.issueId,
+      sourceRunId: value.runId, createdByAgentId: value.agentId, kind: "request_confirmation", status: "pending",
+      continuationPolicy: "wake_assignee", payload: { version: 1, prompt: "Approve service read", toolAction: { version: 1, actionRequestId: randomUUID(), invocationId: randomUUID(), toolName: "pages.read", toolDisplayName: "Read pages", connectionId: null, applicationId: null, appDisplayName: null, risk: "read", previewMarkdown: "Read pages", argumentsSummaryJson: "{}", argumentsHash: "test-hash", expiresAt: "2026-10-07T12:00:00Z" } },
+    });
+    const waiting: PrpStructuredRunResult = { ...done, reportedWorkDisposition: "yielded",
+      completionClaim: { ...done.completionClaim, objectiveSatisfied: false, remainingWork: [{ description: "Read the approved result", blocksCompletion: true }] },
+      evidence: [{ ref: `interaction:${interactionId}` }], continuation: { kind: "response_wake", idempotencyKey: "service-wait", summary: "Await the service decision" },
+      attentionRequests: [{ kind: "approval", ownerClass: "human", summary: "Approve the service card" }],
+    };
+    await expect(nativeCompletionFeedback(db, value.runId, waiting)).rejects.toThrow("already has an approval card");
+    // Waiting on the existing gate is valid; it must not become a second review.
+    await expect(nativeCompletionFeedback(db, value.runId, { ...waiting, attentionRequests: [] })).resolves.toContain("still waiting for a response");
+    // A separate review request is not silently removed or treated as this gate.
+    await expect(nativeCompletionFeedback(db, value.runId, { ...waiting, evidence: [] })).resolves.toContain("still waiting for a response");
+    await db.update(issueThreadInteractions).set({ status: "accepted", result: { version: 1, outcome: "accepted", toolAction: { version: 1, status: "executed", updatedAt: "2026-10-07T06:00:00Z" } } }).where(eq(issueThreadInteractions.id, interactionId));
+    await expect(nativeCompletionFeedback(db, value.runId, waiting)).rejects.toThrow("already resolved");
+    // An old run cannot bind a new completion report to its card.
+    await db.update(issueThreadInteractions).set({ sourceRunId: null }).where(eq(issueThreadInteractions.id, interactionId));
+    await expect(nativeCompletionFeedback(db, value.runId, waiting)).resolves.toContain("Completion report accepted");
+  });
   it("returns a concrete final-answer link without treating the document title as instructions", async () => {
     const value = await fixture();
     const feedback = await nativeCompletionFeedback(db, value.runId, done);

@@ -136,6 +136,31 @@ export async function nativeCompletionFeedback(
     ? continuation.objective : [issue.title, issue.description].filter(Boolean).join("\n");
   await validateNativeDeliverableEvidence(db, { companyId: run.companyId, issueId: issue.id, runId,
     objective, semanticToolReceipts: run.resultJson?.semanticToolReceipts }, result);
+  // A response wake for this run's tool action already has a durable approval
+  // surface. Reject a second approval report before it can materialize a new
+  // completion review after the original card is answered during this turn.
+  if (result.reportedWorkDisposition === "yielded" && result.continuation?.kind === "response_wake") {
+    const referencedIds = result.evidence.flatMap(({ ref }) => {
+      const match = typeof ref === "string" ? /^interaction:([a-f0-9]{8}-[a-f0-9]{4}-[a-f0-9]{4}-[a-f0-9]{4}-[a-f0-9]{12})$/i.exec(ref) : null;
+      return match ? [match[1]!] : [];
+    });
+    const referenced = referencedIds.length ? await db.select().from(issueThreadInteractions).where(and(
+      eq(issueThreadInteractions.companyId, run.companyId), eq(issueThreadInteractions.issueId, issue.id),
+      eq(issueThreadInteractions.sourceRunId, run.id), eq(issueThreadInteractions.createdByAgentId, run.agentId),
+      eq(issueThreadInteractions.kind, "request_confirmation"), eq(issueThreadInteractions.continuationPolicy, "wake_assignee"),
+      inArray(issueThreadInteractions.id, referencedIds),
+    )) : [];
+    for (const card of referenced) {
+      const action = record(record(card.payload).toolAction);
+      if (action.version !== 1 || typeof action.actionRequestId !== "string") continue;
+      if (["accepted", "rejected"].includes(card.status)) {
+        throw new Error(`The referenced tool-action approval is already resolved (${card.id}). Read its persisted interaction result and continue from that decision. Do not repeat the service call or request approval again.`);
+      }
+      if (card.status === "pending" && signals.actionableAttentionRequests.some(request => request.kind === "approval" && request.ownerClass === "human")) {
+        throw new Error(`This tool action already has an approval card (${card.id}). Wait on that existing interaction with a yielded response_wake report and no duplicate approval attentionRequest. Paperclip will resume from its decision; do not create a completion review or repeat the service call.`);
+      }
+    }
+  }
   const retiredCandidates = await findAutomaticCompletionReviews(db, issue.id);
   const retiredIds = retiredCandidates.map(({ interaction }) => interaction.id);
   const [interaction, approval] = await Promise.all([

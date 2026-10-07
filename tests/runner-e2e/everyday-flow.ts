@@ -41,6 +41,7 @@ import {
   storyReviewContinuationTimeoutDetail,
   storyHasStrandedBlockedLeaf,
   storyHasDurableAgentReviewContinuation,
+  storyHasDurableServiceContinuation,
   storyIssueHasBlockedTimelineBefore,
   storyIssueHasUnresolvedDependency,
   storyRunReportsDependencyBlock,
@@ -304,11 +305,12 @@ export async function runEverydayFlow(input: Input) {
     const settledState = await pollUntil({
       label: `everyday ${caseId} settled`,
       deadlineAt: input.deadlineAt,
-      timeoutDetail: (state) => state &&
+      timeoutDetail: (state) => state && (
         storyReviewContinuationTimeoutDetail(
           state.issues, parent?.id ?? "", fixtures.agent.id, state.runs,
           observableAgentIds(state),
-        ),
+        ) ?? (storyHasDurableServiceContinuation(state.issues, parent?.id ?? "", fixtures.agent.id, state.runs)
+          ? "task is Blocked without an active continuation after executed service approval" : undefined)),
       intervalMs: 1000,
       load: refresh,
       accept: (state) =>
@@ -346,7 +348,8 @@ export async function runEverydayFlow(input: Input) {
             parent?.id ?? "",
             fixtures.agent.id,
             state.runs,
-          )
+          ) &&
+          !storyHasDurableServiceContinuation(state.issues, parent?.id ?? "", fixtures.agent.id, state.runs)
         )
           return "task is Blocked without an active continuation";
         if (
