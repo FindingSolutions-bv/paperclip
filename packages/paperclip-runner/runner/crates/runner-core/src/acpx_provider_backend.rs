@@ -3715,7 +3715,7 @@ mod tests {
 
     #[cfg(unix)]
     fn authenticated_run_grant_attachment(agent: &str) {
-        let directory = temporary_directory("cursor-cross-run-attach");
+        let directory = temporary_directory(&format!("{agent}-cross-run-attach"));
         let runtime = directory.join("runtime");
         let workspace = directory.join("workspace");
         fs::create_dir_all(&runtime).unwrap();

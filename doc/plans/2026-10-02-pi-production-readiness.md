@@ -22,6 +22,9 @@ pass 2,479 Vitest tests and 128 native completion checks, and token gates pass.
 The final complete Rust run and fresh Linux CI are still required. Local
 PostgreSQL integration remains blocked by this host's shared-memory capacity;
 the corresponding Linux CI lanes passed before this fixture-only update.
+The complete Rust run exposed two attachment fixtures sharing a temporary
+directory namespace. Each provider now uses its own name; all three attachment
+tests pass together. The final complete suite is being rerun after this fix.
 
 The dedicated qualification key's fresh read records $0.430881296 lifetime usage
 and $4.569118704 remaining under its $5 cap, with no reset or BYOK usage. The
