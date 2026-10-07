@@ -130,7 +130,7 @@ describe("resolveNativeRuntimeMode", () => {
     })).toThrow(expect.objectContaining({
       code: "paperclip_runner_opencode_model_invalid",
     }));
-    for (const acpxAgent of ["cursor", "copilot"]) {
+    for (const acpxAgent of ["copilot"]) {
       expect(() => resolveNativeRuntimeMode({
         ...eligible,
         adapterConfig: { provider: "acpx", acpxAgent, model: "explicit-provider-model" },

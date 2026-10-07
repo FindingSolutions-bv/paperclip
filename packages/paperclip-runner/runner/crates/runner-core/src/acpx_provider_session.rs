@@ -1790,6 +1790,11 @@ mod mode_tests {
         let mut config = config();
         for agent in ["claude", "codex", "pi", "grok", "cursor", "copilot"] {
             config.agent = agent.to_owned();
+            config.pi_thinking_level = if agent == "pi" {
+                Some(PiThinkingLevel::Low)
+            } else {
+                None
+            };
             config.model = "custom/model[context=272k,reasoning=medium]".to_owned();
             config.validate().unwrap();
             assert_eq!(

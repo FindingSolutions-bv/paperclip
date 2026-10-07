@@ -884,6 +884,23 @@ describe("ACPX runtime host", () => {
     expect(openRuntime).toHaveBeenCalledOnce();
   });
 
+  it.each([undefined, "high"] as const)("retires Pi admission when the runtime reports thinking level %s", async piThinkingLevel => {
+    const fixture = await hostFixture();
+    const model = "custom-provider/caller-selected-model";
+    const runtime = runtimePort({
+      getStatus: async () => ({ models: { currentModelId: model } }),
+      identity: async () => ({ acpxRecordId: "record-1", backendSessionId: "backend-1", agentSessionId: "agent-1",
+        ...(piThinkingLevel === undefined ? {} : { piThinkingLevel }) }),
+    });
+    await expect(AcpxRuntimeHost.open({
+      ...fixture.options, agent: "pi", model, piThinkingLevel: "low", permissionMode: "deny-all",
+      providerPolicy: { readOnly: false },
+    }, fixture.dependencies({ openRuntime: async () => runtime }))).rejects.toThrow(/thinking level/);
+    expect(runtime.startTurn).not.toHaveBeenCalled();
+    expect(runtime.close).toHaveBeenCalledOnce();
+    expect(fixture.commandClose).toHaveBeenCalledOnce();
+  });
+
   it.each(["cursor", "copilot", "pi"] as const)("binds %s agent files from each registered run copy, never ambient roots", async (agent) => {
     const fixture = await hostFixture();
     const copies = await mkdtemp(join(tmpdir(), "paperclip-agent-copies-"));

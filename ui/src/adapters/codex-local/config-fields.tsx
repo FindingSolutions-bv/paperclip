@@ -293,20 +293,6 @@ export function CodexLocalConfigFields({
           </select>
         </Field>
       )}
-      {runnerManaged && runnerProvider === "acpx" && runnerSchemaValue("acpxAgent", "claude") === "cursor" && (
-        <Field configSection="adapter" label="Cursor mode" hint="Select Cursor's session mode. Permissions and company approval rules still apply.">
-          <select className={inputClass} aria-label="Cursor mode"
-            value={String(runnerSchemaValue("acpxSessionMode", "agent"))}
-            onChange={(event) => updateRunnerSchemaValue("acpxSessionMode", event.target.value)}>
-            {!["agent", "plan", "ask"].includes(String(runnerSchemaValue("acpxSessionMode", "agent"))) && (
-              <option value={String(runnerSchemaValue("acpxSessionMode", "agent"))} disabled>Unsupported saved mode — select Agent, Plan, or Ask</option>
-            )}
-            <option value="agent">Agent</option>
-            <option value="plan">Plan</option>
-            <option value="ask">Ask</option>
-          </select>
-        </Field>
-      )}
       {runnerManaged && runnerProvider === "acpx" && runnerSchemaValue("acpxAgent", "claude") === "pi" && (
         <Field configSection="adapter" label="Pi thinking level" hint="The runner verifies this exact level before each session can prompt. Changing it starts a new session.">
           <select className={inputClass} aria-label="Pi thinking level" value={String(runnerSchemaValue("piThinkingLevel", "low"))}

@@ -10,10 +10,10 @@ import {
 describe("Paperclip Runner native provider configuration", () => {
   afterEach(() => vi.unstubAllEnvs());
 
-  it.each([undefined, "agent", "plan", "ask"])("passes Cursor mode %s only after exact candidate admission", acpxSessionMode => {
+  it.each([undefined, "agent", "plan", "ask"])("passes qualified Cursor mode %s without a model roster", acpxSessionMode => {
     const adapterConfig = { provider: "acpx", acpxAgent: "cursor", model: "exact-cursor-model", acpxSessionMode };
     vi.stubEnv("PAPERCLIP_RUNNER_ACPX_QUALIFICATION", "");
-    expect(() => resolvePaperclipRunnerNativeProviderInput({ backend: "acpx_runtime", adapterConfig })).toThrow("awaiting local and Daytona qualification");
+    expect(resolvePaperclipRunnerNativeProviderInput({ backend: "acpx_runtime", adapterConfig })).toMatchObject({ acpxAgent: "cursor", model: "exact-cursor-model" });
     vi.stubEnv("PAPERCLIP_RUNNER_ACPX_QUALIFICATION", JSON.stringify([{ agent: "cursor", model: "exact-cursor-model" }]));
     expect(resolvePaperclipRunnerNativeProviderInput({ backend: "acpx_runtime", adapterConfig })).toMatchObject({
       provider: "acpx", acpxAgent: "cursor", model: "exact-cursor-model", acpxSessionMode: acpxSessionMode ?? "agent", acpxPermissionMode: "approve-all",
@@ -27,7 +27,7 @@ describe("Paperclip Runner native provider configuration", () => {
     { provider: "codex", acpxSessionMode: "plan" },
   ])("rejects invalid or foreign mode before provider admission: %j", adapterConfig => {
     expect(() => resolvePaperclipRunnerNativeProviderInput({ backend: "acpx_runtime", adapterConfig }))
-      .toThrowError(expect.objectContaining({ code: "paperclip_runner_cursor_mode_invalid" }));
+      .toThrowError(expect.objectContaining({ code: "paperclip_runner_mode_invalid" }));
   });
 
   it.each([undefined, "approve-all", "approve-paperclip", "approve-reads", "deny-all"])(
@@ -456,12 +456,12 @@ describe("Paperclip Runner native provider configuration", () => {
     ).toThrow("provider changed after this run selected its native backend");
   });
 
-  it("rejects an unqualified Pi model before a native descriptor is persisted", () => {
-    expect(() =>
+  it("preserves a caller-selected Pi model in the native descriptor", () => {
+    expect(
       resolvePaperclipRunnerNativeProviderInput({
         backend: "acpx_runtime",
         adapterConfig: { provider: "acpx", acpxAgent: "pi", model: "pi-model" },
       }),
-    ).toThrow("requires exact model openrouter/deepseek/deepseek-v4-flash-0731");
+    ).toMatchObject({ provider: "acpx", acpxAgent: "pi", model: "pi-model" });
   });
 });

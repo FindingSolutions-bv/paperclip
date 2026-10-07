@@ -5,6 +5,28 @@ set of release gates. Pi remains a candidate until every required gate passes.
 Keep behavioral qualification on the accepted fixtures. Do not expand it to
 widgets, images, Cursor or Copilot qualification. The existing draft stack must be reviewed in dependency order.
 
+## Startup and merge repairs — 2026-10-07
+
+The real sidecar process now accepts all four explicit Pi thinking levels in
+`session.open`; invalid levels, foreign-provider levels and unknown fields still
+fail before launch. Runtime identity verification independently checks thinking
+level and retires rejected admissions without prompting. Regression tests run
+with no ambient provider credentials and a caller-selected custom model.
+
+The empty ACPX patch hunk that broke GNU patch and Linux release packaging is
+removed. Current profile 16 identities and Cursor's patch declaration are
+regenerated; historical identities remain unchanged. Master-merge regressions
+in historical plan receipts, duplicated Cursor controls and outdated tests are
+reconciled. The PR's lockfile matches its dependency branch; CI resolves the
+updated manifests under the repository's lockfile policy.
+
+The startup/host suites pass 136 tests, the targeted provider/receipt/environment
+suites pass 187, the configuration/permission suites pass 71, the native Runner
+unit suite passes 342, and packaging checks pass 16. These are free regression
+checks. Production remains held until current-source CI, normal Linux package
+installation, a real Pi task and the accepted live cases have passed. Mac work
+remains deferred and no prior-source live result transfers to this candidate.
+
 ## Master integration and model selection — 2026-10-06
 
 This branch merges `origin/master` through `a9a20fb5c6c080884ced7ee0a4e3b04f9cbf3a6e`.

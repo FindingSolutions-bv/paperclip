@@ -15,8 +15,8 @@ export const cursorLifecycleAdapter: NativeProviderLifecycleAdapter = {
       if (provider.kind !== "acpx" || provider.agent !== "cursor"
         || typeof provider.model !== "string" || !provider.model.trim()) return false;
       if (provider.mode !== undefined) {
-        if (provider.mode !== "plan" || provider.mode !== undefined) return false;
-      } else if (!history.committed || !history.legacy || provider.mode !== "plan") return false;
+        if (provider.mode !== "plan" || provider.cursorMode !== undefined) return false;
+      } else if (!history.committed || !history.legacy || provider.cursorMode !== "plan") return false;
       // A committed receipt is replayed against its original, hashed admission.
       // New waits must use the currently qualified provider profile.
       if (history.committed) return true;

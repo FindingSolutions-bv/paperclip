@@ -95,7 +95,7 @@ describe("accepted Cursor plan passive-wait authority", () => {
     expect(await hasCommittedNativePlanWait(committedDb(f, proof.source, changed), f.binding)).toBe(false);
     // A new receipt cannot opt into a historical admission by renaming a field.
     const provider = (f.run.runnerProfileJson as any).nativeExecutionInput.provider;
-    provider.mode = provider.mode; delete provider.mode;
+    provider.cursorMode = provider.mode; delete provider.mode;
     expect(await hasCommittedNativePlanWait(committedDb(f, proof.source, proof.result), f.binding)).toBe(false);
   });
   it("keeps lifecycle proof generic when an adapter supplies different native semantics", () => {
@@ -126,7 +126,7 @@ describe("accepted Cursor plan passive-wait authority", () => {
     const proof = nativePlanWaitFromFacts(f)!;
     const admission = (f.run.runnerProfileJson as any).nativeExecutionInput;
     Object.assign(admission.provider.profile, { agentProfileVersion: 6, commandDigest: "sha256:377dcea64a727ce799cc112458d4b40ba4bc6574cd6c6f7233b6efd5917a6c4b" });
-    admission.provider.mode = "plan"; delete admission.provider.mode;
+    admission.provider.cursorMode = "plan"; delete admission.provider.mode;
     f.events = f.events.filter(e => !e.eventType.startsWith("tool.execution."));
     const payload = (type: string) => (f.events.find(e => e.eventType === type)!.payload as any).prpEvent;
     const { interaction, delivery } = f.interactions[0]!;
@@ -179,7 +179,7 @@ describe("accepted Cursor plan passive-wait authority", () => {
     f.run.status = "succeeded";
     const proof = nativePlanWaitFromFacts(f)!;
     const admission = (f.run.runnerProfileJson as any).nativeExecutionInput;
-    admission.provider.mode = admission.provider.mode;
+    admission.provider.cursorMode = admission.provider.mode;
     delete admission.provider.mode;
     expect(nativePlanWaitFromFacts(f)).toBeNull();
     const payload = (type: string) => (f.events.find(e => e.eventType === type)!.payload as any).prpEvent;
@@ -207,9 +207,9 @@ describe("accepted Cursor plan passive-wait authority", () => {
     expect(await hasCommittedNativePlanWait(db(), f.binding)).toBe(true);
     // History is immutable: neither changing the old mode nor rewriting its
     // field name may preserve the original acceptance authority.
-    admission.provider.mode = "agent";
+    admission.provider.cursorMode = "agent";
     expect(await hasCommittedNativePlanWait(db(), f.binding)).toBe(false);
-    delete admission.provider.mode;
+    delete admission.provider.cursorMode;
     admission.provider.mode = "plan";
     expect(await hasCommittedNativePlanWait(db(), f.binding)).toBe(false);
   });

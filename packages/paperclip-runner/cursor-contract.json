@@ -5,7 +5,7 @@
   "base": "dd868ed125cd709506dd9b29fca640a44d580501",
   "vendor": "2026.09.26-dd393fe",
   "nativePatch": "paperclip-cursor-usage-v4",
-  "acpxPatchSha256": "edddf1ac33106800169a37c6d46f4b08d25162968147c8a3910855075e6bbef5",
+  "acpxPatchSha256": "00d6af17216cb0cad902b48633eb19bf0ec6b05837a984cb24661fca593f09c1",
   "publicSetup": "paperclipai runtime setup cursor",
   "assets": "public-server-and-provider-pack",
   "modes": [
@@ -19,5 +19,5 @@
   "planAcceptance": "successful-run-open-task-explicit-continuation",
   "otherProviders": "mainline-gated",
   "modelSelection": "explicit-provider-verified-startup-and-reconnect",
-  "commandDigest": "sha256:ea3d2cffb0ccc978377cef2671a65c1377212cb812cfb1f609ccaaebcb714445"
+  "commandDigest": "sha256:ac8092119542c8fbe95dae18ba5ef4d3689803fec56b7d2735fa193eea42f59b"
 }

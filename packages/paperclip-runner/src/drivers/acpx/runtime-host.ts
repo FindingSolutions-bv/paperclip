@@ -640,7 +640,9 @@ export class AcpxRuntimeHost {
       );
       if (runtimeIdentity.mode !== binding.mode) {
         throw new Error("ACPX runtime Provider mode does not match the admitted session configuration");
-      if (runtimeIdentity.piThinkingLevel !== binding.piThinkingLevel) throw new Error("ACPX runtime Pi thinking level conflicts with session binding");
+      }
+      if (runtimeIdentity.piThinkingLevel !== binding.piThinkingLevel) {
+        throw new Error("ACPX runtime Pi thinking level conflicts with session binding");
       }
       const observedIdentity: AcpxExpectedSessionIdentity = {
         kind: "acpx",

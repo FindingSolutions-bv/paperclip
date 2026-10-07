@@ -1,4 +1,4 @@
-import { probeAcpxClaudeInstallation, probeAcpxPiInstallation } from "../vendor/paperclip-runner/index.js";
+import { probeAcpxClaudeInstallation, probeAcpxPiInstallation } from "../vendor/paperclip-runner/live/index.js";
 import { describe, expect, it, beforeEach, afterEach, vi } from "vitest";
 import { buildSandboxNpmInstallCommand } from "@paperclipai/adapter-utils";
 import type { ServerAdapterModule } from "../adapters/index.js";
@@ -19,6 +19,14 @@ import {
 
 vi.mock("../vendor/paperclip-runner/index.js", async (importOriginal) => ({
   ...await importOriginal<typeof import("../vendor/paperclip-runner/index.js")>(),
+  probeAcpxClaudeInstallation: vi.fn(async () => undefined),
+  probeAcpxGrokInstallation: vi.fn(async () => undefined),
+  probeAcpxPiInstallation: vi.fn(async () => undefined),
+  probeAcpxCursorInstallation: vi.fn(async () => undefined),
+}));
+
+vi.mock("../vendor/paperclip-runner/live/index.js", async importOriginal => ({
+  ...await importOriginal<typeof import("../vendor/paperclip-runner/live/index.js")>(),
   probeAcpxClaudeInstallation: vi.fn(async () => undefined),
   probeAcpxGrokInstallation: vi.fn(async () => undefined),
   probeAcpxPiInstallation: vi.fn(async () => undefined),

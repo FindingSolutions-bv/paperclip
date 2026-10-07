@@ -27,7 +27,7 @@ export const QUALIFIED_ACPX_PROFILE_DATA = {
     "agentServerVersion": "0.0.33",
     "agentRuntimePackage": "@earendil-works/pi-coding-agent",
     "agentRuntimeVersion": "1.0.0",
-    "commandDigest": "sha256:5f9b802c3105ab60d80b97b993e2806f608cd659de269685c1d1ac433fc93100",
+    "commandDigest": "sha256:28eefeccb2556d2668e20aee2f12a90d1fef50b9be954d5f6dd97c757e2e945e",
     "permissionPolicy": "interactive"
   },
   "cursor": {
@@ -40,7 +40,7 @@ export const QUALIFIED_ACPX_PROFILE_DATA = {
     "agentServerVersion": "2026.09.26-dd393fe",
     "agentRuntimePackage": null,
     "agentRuntimeVersion": null,
-    "commandDigest": "sha256:ea3d2cffb0ccc978377cef2671a65c1377212cb812cfb1f609ccaaebcb714445",
+    "commandDigest": "sha256:ac8092119542c8fbe95dae18ba5ef4d3689803fec56b7d2735fa193eea42f59b",
     "permissionPolicy": "interactive"
   },
   "copilot": {
@@ -53,7 +53,7 @@ export const QUALIFIED_ACPX_PROFILE_DATA = {
     "agentServerVersion": "1.0.88",
     "agentRuntimePackage": null,
     "agentRuntimeVersion": null,
-    "commandDigest": "sha256:8070042cc503a6752aaa6deb2e1501a81bc2b8e2beb087fbe86bae950f369eeb",
+    "commandDigest": "sha256:8591f9a78a16aac4cf558733cd512f09def483fc11c673504bf93be7476d994c",
     "qualificationStatus": "pending",
     "permissionPolicy": "interactive"
   },

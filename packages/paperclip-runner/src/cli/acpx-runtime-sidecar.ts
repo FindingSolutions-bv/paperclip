@@ -1209,7 +1209,7 @@ function safeOutput(value: unknown): Record<string, unknown> {
 function parseOpenParams(
   value: Record<string, unknown>,
 ): AcpxSidecarOpenParams {
-  const fields = new Set(["runtimeDirectory", "normalizedSessionId", "workingDirectory", "agent", "model", "permissionMode", "mode", "permissionModePinned", "providerPolicy", "systemInstructions", "runtimeContext", "tools", "providerSessionKey", "expectedIdentity"]);
+  const fields = new Set(["runtimeDirectory", "normalizedSessionId", "workingDirectory", "agent", "model", "permissionMode", "mode", "piThinkingLevel", "permissionModePinned", "providerPolicy", "systemInstructions", "runtimeContext", "tools", "providerSessionKey", "expectedIdentity"]);
   if (Object.keys(value).some(key => !fields.has(key))) throw new Error("ACPX open parameters include an unsupported field");
   const agent = requireQualifiedAgent(value.agent);
   const model = requiredText(value.model, "model");

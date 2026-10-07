@@ -1063,6 +1063,46 @@ describe("qualified ACPX runtime sidecar", () => {
     },
   );
 
+  it.each(["off", "low", "high", "max"])(
+    "accepts Pi thinking level %s through the actual session.open dispatcher",
+    async (piThinkingLevel) => {
+      const sidecar = startSidecar();
+      const model = "custom-provider/caller-selected-model";
+      sidecar.write(initializeRequest(1, "pi", model));
+      expect(await sidecar.next(frame => frame.id === 1)).toMatchObject({ ok: true });
+      sidecar.write({
+        protocolVersion: ACPX_SIDECAR_PROTOCOL_VERSION, id: 2, command: "session.open",
+        params: { runtimeDirectory: "/unused", workingDirectory: "/unused", normalizedSessionId: "pi-open",
+          agent: "pi", model, permissionMode: "deny-all", piThinkingLevel, systemInstructions: "Test instructions", tools: [] },
+      });
+      // The host's policy gate runs after parsing and before installation or
+      // credentials. This proves the real process crosses the open boundary
+      // without starting a provider or making a model request.
+      expect(await sidecar.next(frame => frame.id === 2)).toMatchObject({
+        ok: false, error: { message: "Pi admission requires an explicit task execution policy" },
+      });
+    },
+  );
+
+  it.each([
+    ["pi", { piThinkingLevel: "medium" }, "Pi thinking level"],
+    ["codex", { piThinkingLevel: "low" }, "only supported by Pi"],
+    ["pi", { piThinkingLevel: "low", unknownOption: true }, "unsupported field"],
+  ])("rejects invalid %s session.open fields before launch", async (agent, fields, message) => {
+    const sidecar = startSidecar();
+    const model = "caller-selected-model";
+    sidecar.write(initializeRequest(1, agent, model));
+    expect(await sidecar.next(frame => frame.id === 1)).toMatchObject({ ok: true });
+    sidecar.write({
+      protocolVersion: ACPX_SIDECAR_PROTOCOL_VERSION, id: 2, command: "session.open",
+      params: { runtimeDirectory: "/unused", workingDirectory: "/unused", normalizedSessionId: "invalid-open",
+        agent, model, permissionMode: "deny-all", tools: [], ...fields },
+    });
+    expect(await sidecar.next(frame => frame.id === 2)).toMatchObject({
+      ok: false, error: { message: expect.stringContaining(message) },
+    });
+  });
+
   it.each([
     ["cursor", "explicit-cursor-model"],
     ["copilot", "explicit-copilot-model"],
@@ -1146,7 +1186,7 @@ class SidecarProcess {
     this.#child = spawn(
       fileURLToPath(new URL("../../node_modules/.bin/tsx", import.meta.url)),
       [fileURLToPath(new URL("./acpx-runtime-sidecar.ts", import.meta.url))],
-      { stdio: ["pipe", "pipe", "pipe"] },
+      { stdio: ["pipe", "pipe", "pipe"], env: { PATH: process.env.PATH, LANG: "C.UTF-8" } },
     );
     let stdout = "";
     this.#child.stdout.setEncoding("utf8");

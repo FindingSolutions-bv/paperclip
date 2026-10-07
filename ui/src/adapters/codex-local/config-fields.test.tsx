@@ -11,7 +11,7 @@ import { CodexLocalConfigFields } from "./config-fields";
 
 beforeAll(() => { Object.assign(globalThis, { IS_REACT_ACT_ENVIRONMENT: true }); });
 
-async function renderMarkup(node: ReactNode, expand?: string): Promise<string> {
+async function renderMarkup(node: ReactNode, expand?: string, inspect?: (container: HTMLElement) => void): Promise<string> {
   const container = document.createElement("div");
   document.body.appendChild(container);
   const root = createRoot(container);
@@ -19,13 +19,14 @@ async function renderMarkup(node: ReactNode, expand?: string): Promise<string> {
   if (expand) await act(async () => {
     container.querySelector(`[aria-label="${expand}"]`)?.dispatchEvent(new KeyboardEvent("keydown", { key: "Enter", bubbles: true }));
   });
-  const html = document.body.innerHTML;
+  inspect?.(container);
+  const html = container.innerHTML + Array.from(document.body.children).filter(child => child !== container).map(child => child.outerHTML).join("");
   await act(async () => root.unmount());
   container.remove();
   return html;
 }
 
-async function renderRunner(config: Record<string, unknown>, expand?: string): Promise<string> {
+async function renderRunner(config: Record<string, unknown>, expand?: string, inspect?: (container: HTMLElement) => void): Promise<string> {
   return renderMarkup(
     <TooltipProvider>
       <CodexLocalConfigFields
@@ -41,7 +42,7 @@ async function renderRunner(config: Record<string, unknown>, expand?: string): P
         hideInstructionsFile
       />
     </TooltipProvider>,
-    expand,
+    expand, inspect,
   );
 }
 
@@ -87,8 +88,8 @@ describe("Paperclip Runner Codex configuration", () => {
     expect(html).not.toContain("Ask for untrusted operations");
   });
 
-  it("offers qualified Claude and Pi and keeps sibling ACP candidates visibly disabled", () => {
-    const html = renderRunner({
+  it("offers qualified Claude, Cursor and Pi while keeping Copilot disabled", async () => {
+    const html = await renderRunner({
       provider: "acpx",
       acpxAgent: "claude",
       acpxPermissionMode: "approve-reads",
@@ -96,38 +97,42 @@ describe("Paperclip Runner Codex configuration", () => {
 
     expect(html).toContain('ACP agents');
     expect(html).toContain("ACP agent");
-    expect(html).toContain('<option value="claude" selected="">Claude</option>');
-    expect(html).toContain('<option value="cursor" disabled="">Cursor — qualification pending</option>');
-    expect(html).toContain('<option value="copilot" disabled="">GitHub Copilot — qualification pending</option>');
-    expect(html).toContain('<option value="pi">Pi</option>');
-    expect(html).not.toContain('<option value="pi" disabled="">');
+    const options = new DOMParser().parseFromString(html, "text/html").querySelectorAll('[role="option"]');
+    expect(Array.from(options, option => ({ label: option.textContent?.trim(), disabled: option.hasAttribute("data-disabled") })))
+      .toEqual(expect.arrayContaining([
+        { label: "Claude", disabled: false }, { label: "Cursor", disabled: false },
+        { label: "Pi", disabled: false }, { label: "GitHub Copilot — qualification pending", disabled: true },
+      ]));
     expect(html).not.toContain("Codex via ACPX");
     expect(html).not.toContain("ACPX Codex");
     expect(html).not.toContain("Pi via ACPX");
     expect(html).toContain("Allow Paperclip reads");
   });
 
-  it.each([undefined, "agent", "plan", "ask"])("displays saved Cursor mode %s", acpxSessionMode => {
-    const html = renderRunner({ provider: "acpx", acpxAgent: "cursor", acpxSessionMode });
+  it.each([undefined, "agent", "plan", "ask"])("displays saved Cursor mode %s", async acpxSessionMode => {
     const selected = acpxSessionMode ?? "agent";
-    expect(html).toContain('aria-label="Cursor mode"');
-    expect(html).toContain(`<option value="${selected}" selected="">`);
+    await renderRunner({ provider: "acpx", acpxAgent: "cursor", acpxSessionMode }, undefined, container => {
+      const modes = container.querySelectorAll('[aria-label="Cursor mode"]');
+      expect(modes).toHaveLength(1);
+      expect((modes[0] as HTMLSelectElement).value).toBe(selected);
+    });
   });
 
-  it.each([undefined, "off", "low", "high", "max"])("displays saved Pi thinking level %s", piThinkingLevel => {
-    const html = renderRunner({ provider: "acpx", acpxAgent: "pi", piThinkingLevel });
-    expect(html).toContain('aria-label="Pi thinking level"');
-    expect(html).toContain(`<option value="${piThinkingLevel ?? "low"}" selected="">`);
+  it.each([undefined, "off", "low", "high", "max"])("displays saved Pi thinking level %s", async piThinkingLevel => {
+    await renderRunner({ provider: "acpx", acpxAgent: "pi", piThinkingLevel }, undefined, container => {
+      const mode = container.querySelector('[aria-label="Pi thinking level"]');
+      expect((mode as HTMLSelectElement).value).toBe(piThinkingLevel ?? "low");
+    });
   });
-  it("shows unsupported saved Pi level without aliasing it", () => {
-    expect(renderRunner({ provider: "acpx", acpxAgent: "pi", piThinkingLevel: "medium" })).toContain("Unsupported saved thinking level");
+  it("shows unsupported saved Pi level without aliasing it", async () => {
+    expect(await renderRunner({ provider: "acpx", acpxAgent: "pi", piThinkingLevel: "medium" })).toContain("Unsupported saved thinking level");
   });
-  it.each(["claude", "copilot", "pi"])("does not expose Cursor mode for %s", acpxAgent => {
-    expect(renderRunner({ provider: "acpx", acpxAgent })).not.toContain('aria-label="Cursor mode"');
+  it.each(["claude", "copilot", "pi"])("does not expose Cursor mode for %s", async acpxAgent => {
+    expect(await renderRunner({ provider: "acpx", acpxAgent })).not.toContain('aria-label="Cursor mode"');
   });
 
-  it("falls back to the fail-closed Codex permission mode", () => {
-    const html = renderRunner({ codexPermissionMode: "unrestricted" });
+  it("falls back to the fail-closed Codex permission mode", async () => {
+    const html = await renderRunner({ codexPermissionMode: "unrestricted" });
 
     expect(html).toContain("Unsupported saved mode — select a qualified mode");
     expect(html).toContain("cannot start or recover a Paperclip Runner run");

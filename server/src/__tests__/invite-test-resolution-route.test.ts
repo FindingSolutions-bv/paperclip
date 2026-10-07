@@ -78,7 +78,7 @@ async function createApp(
   return app;
 }
 
-describe.sequential("GET /invites/:token/test-resolution", () => {
+describe("GET /invites/:token/test-resolution", { sequential: true }, () => {
   beforeAll(async () => {
     // Route transformation is fixture setup, not part of the network assertions.
     await loadAppModules();
