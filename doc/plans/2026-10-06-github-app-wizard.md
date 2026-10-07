@@ -105,20 +105,27 @@ Save & exit, resume without a reload, full reload, and the conditional Cloud
 enrollment handoff passed. The test did not authorize Cloud enrollment or
 create a provider App.
 
-The focused UI suite has ten passing tests. Backend coverage includes both
-owner types, interrupted registration and vault storage, initial repository
-import, preserved settings, tenant binding, legacy callbacks, Cloud webhook
-repair, and automatic completion with runtime warnings. Typecheck, build,
-and UI token gates pass. Full Vitest qualification is running on the review
-branch.
+The focused wizard and retained clipboard/recovery UI suites pass (37 tests).
+Backend wizard coverage passes (14 cases), including both owner types,
+interrupted registration and vault storage, empty saved repository selections,
+localhost configuration, concurrent identity attempts, enrolled-origin recovery,
+tenant binding, and legacy callbacks. The complete OpenAPI suite passes (13
+tests). Workspace typecheck, build, and UI token gates pass. The revised GitHub
+browser journey passes through manual recovery, identity confirmation, automatic
+completion, settings, and reconnect.
 
-Cloud qualification passed its current service suite (200 tests) and the
-remaining current test files (2,352 tests, 73 environment-dependent skips).
-Further focused cases cover replacement installation and dedicated identity
-consent with PKCE, denial, and single-use state. The Postgres concurrency case
-requires a disposable database and was not run here. Generated test output
-must be cleaned before the suite: stale files from earlier builds caused two
-false failures against deleted upstream tests.
+The full local Vitest run reported 16,080 passing tests, nine failing tests,
+and three suites with database-startup timeouts. Its failing suites are being
+rerun in isolation; this is not a claim of a green full suite. CI initially
+identified outdated wizard expectations and missing API documentation, both now
+covered by the updated focused checks.
+
+Cloud's final standard `npm test` passes: 2,559 tests and 73 environment-dependent
+skips. Dedicated-App regressions cover normalized concurrent starts, stale
+installation redeliveries, atomic inbox/state transitions, current enrolled
+callback destinations, PKCE consent and denial, expired claims, and webhook
+secret retirement. The Postgres concurrency case requires a disposable
+database and was not run here.
 
 Before rollout, apply the additive Cloud migration, enable the dedicated-App
 capability, then deploy the synchronized instance migration and wizard through

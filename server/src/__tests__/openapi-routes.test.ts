@@ -808,6 +808,21 @@ describe("openapi routes", () => {
     expect(replacement.responses["422"]).toBeDefined();
   });
 
+  it("documents the manager-only GitHub wizard and compatible owner-aware registration", () => {
+    const { spec } = loadSpecRoutes();
+    for (const [suffix, method] of [["draft", "put"], ["setup", "post"], ["identity/start", "post"], ["identity/confirm", "post"]]) {
+      const operation = spec.paths[`/api/chat-endpoints/{endpointId}/github/${suffix}`][method];
+      expect(operation["x-paperclip-authorization"]).toEqual({ actor: "board" });
+      expect(operation.security).toEqual([{ BoardSessionAuth: [] }, { BoardApiKeyAuth: [] }]);
+    }
+    const registration = spec.paths["/api/chat-endpoints/{endpointId}/github/registration"].post;
+    const input = registration.requestBody.content["application/json"].schema;
+    expect(input.properties.ownerType.enum).toEqual(["personal", "organization"]);
+    expect(input.required).not.toContain("ownerType");
+    const response = registration.responses["200"].content["application/json"].schema;
+    expect(response.oneOf ?? response.anyOf).toHaveLength(2);
+  });
+
   it("documents auth and reviewed response-code invariants", () => {
     const { spec } = loadSpecRoutes();
 

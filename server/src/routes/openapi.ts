@@ -2288,6 +2288,16 @@ const githubConfigurationResponseSchema = z.object({
   updatedAt: z.string().optional(),
 });
 const githubPersonResponseSchema = z.object({ githubUserId: z.string(), login: z.string() });
+const githubWizardInputSchema = z.object({ name: z.string().trim().min(1).max(34), ownerType: z.enum(["personal", "organization"]), ownerLogin: z.string().regex(/^[A-Za-z0-9](?:[A-Za-z0-9-]{0,37}[A-Za-z0-9])?$/).optional() }).strict();
+const githubWizardCheckSchema = z.object({ key: z.string(), label: z.string(), ok: z.boolean(), detail: z.string() });
+const githubWizardResponseSchema = z.object({
+  endpointId: z.string().uuid(), state: z.enum(["create", "install", "identity", "verify", "connected", "recovery", "enrollment"]),
+  registration: z.object({ registrationUrl: z.string().url(), manifest: z.record(z.string(), z.unknown()), expiresAt: z.string() }).optional(),
+  installationUrl: z.string().url().optional(), identity: githubPersonResponseSchema.extend({ avatarUrl: z.string().nullable() }).optional(),
+  identityLinked: z.boolean().optional(), identityMethod: z.enum(["dedicated_app", "existing_connection"]).optional(),
+  verification: z.object({ ready: z.boolean(), checks: z.array(githubWizardCheckSchema) }).optional(),
+  runtimeChecks: z.array(githubWizardCheckSchema).optional(), message: z.string().optional(),
+});
 const githubBotOperations: Array<{
   method: string;
   suffix: string;
@@ -2349,10 +2359,14 @@ const githubBotOperations: Array<{
   },
   {
     method: "post", suffix: "registration", summary: "Prepare GitHub App manifest registration",
-    description: "Creates expiring single-use state bound to the current user, company, endpoint, and trusted HTTPS origin. Return data contains the manifest and registration URL, never private App credentials. Response is not cached.",
-    body: z.object({ name: z.string().trim().min(1).max(34) }).strict(),
-    response: z.object({ expiresAt: z.string(), registrationUrl: z.string().url(), manifest: z.record(z.string(), z.unknown()) }),
+    description: "Starts or resumes a private App under a personal account or organization. Supplying ownerType uses the two-screen wizard and Cloud callbacks, including localhost; omitting it preserves legacy direct registration. State remains bound to the member, company, draft, connection, agent, and trusted origin. Credentials are never returned.",
+    body: githubWizardInputSchema.partial({ ownerType: true }).refine(value => value.ownerType !== "organization" || !!value.ownerLogin, "Enter the GitHub organization"),
+    response: z.union([z.object({ expiresAt: z.string(), registrationUrl: z.string().url(), manifest: z.record(z.string(), z.unknown()) }), githubWizardResponseSchema]),
   },
+  { method: "put", suffix: "draft", summary: "Save GitHub App setup choices", description: "Saves the App name and ownership choice on the same assigned draft. Requires connection-management access; creates no provider resources.", body: githubWizardInputSchema, response: chatEndpointResponseSchema },
+  { method: "post", suffix: "setup", summary: "Advance GitHub App setup", description: "Resumes credential delivery, installation discovery, repository import, and verification. Returns redacted progress or the required human action. Runtime execution is reported separately.", response: githubWizardResponseSchema },
+  { method: "post", suffix: "identity/start", summary: "Authorize your identity with the dedicated GitHub App", description: "Starts a member-bound OAuth authorization with PKCE. Does not grant bot execution access through personal credentials.", response: z.object({ authorizationUrl: z.string().url() }) },
+  { method: "post", suffix: "identity/confirm", summary: "Confirm the observed GitHub identity", description: "Confirms only the signed-in configuring member's expiring observed identity and resumes the same setup draft.", body: z.object({ githubUserId: z.string().regex(/^[1-9][0-9]*$/) }).strict(), response: githubWizardResponseSchema },
   {
     method: "post", suffix: "app", summary: "Connect an existing GitHub App",
     description: "Validates App identity with GitHub and vaults write-only credentials server-side. Installation and signed webhook delivery must still be verified.",

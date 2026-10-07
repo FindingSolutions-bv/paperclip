@@ -9530,7 +9530,7 @@ export function chatChannelService(db: Db, options: ChatChannelServiceOptions) {
     ) {
       throw unprocessable("Unsupported chat endpoint setup action");
     }
-    if (!getWebhookPublicBaseUrl() && endpoint.provider !== "discord" && endpoint.provider !== "imessage-photon") {
+    if (!getWebhookPublicBaseUrl() && endpoint.provider !== "discord" && endpoint.provider !== "imessage-photon" && !(endpoint.provider === "github" && endpoint.setup.github?.cloudRegistrationId)) {
       throw unprocessable(
         `A public HTTPS Paperclip URL is required before connecting ${PROVIDER_LABELS[endpoint.provider]}`,
       );
@@ -27959,6 +27959,7 @@ export function chatChannelService(db: Db, options: ChatChannelServiceOptions) {
     endpointId: string,
     updates: Array<{ id: string; enabled: boolean }>,
     actorUserId?: string | null,
+    options?: { initialGitHubImport?: boolean },
   ) {
     const initial = await endpointRecord(endpointId);
     if (!initial) throw notFound("Chat endpoint not found");
@@ -27977,6 +27978,7 @@ export function chatChannelService(db: Db, options: ChatChannelServiceOptions) {
               companyId: chatEndpoints.companyId,
               connectionId: chatEndpoints.connectionId,
               provider: chatEndpoints.provider,
+              setup: chatEndpoints.setup,
             })
             .from(chatEndpoints)
             .where(
@@ -27987,6 +27989,7 @@ export function chatChannelService(db: Db, options: ChatChannelServiceOptions) {
             )
             .for("no key update");
           if (!endpoint) throw notFound("Chat endpoint not found");
+          if (options?.initialGitHubImport && endpoint.provider === "github" && (endpoint.setup.github?.repositorySelectionSaved || !endpoint.setup.github?.initialRepositoryImportPending)) return;
           const rows = await tx
             .select({
               id: chatEndpointResources.id,
@@ -28040,6 +28043,8 @@ export function chatChannelService(db: Db, options: ChatChannelServiceOptions) {
                   eq(chatEndpointResources.id, entry.id),
                 ),
               );
+          if (endpoint.provider === "github")
+            await tx.update(chatEndpoints).set({ setup: sql`jsonb_set(${chatEndpoints.setup}, '{github}', coalesce(${chatEndpoints.setup}->'github', '{}'::jsonb) || '{"repositorySelectionSaved":true,"initialRepositoryImportPending":false}'::jsonb)`, updatedAt: new Date() }).where(eq(chatEndpoints.id, endpointId));
           if (changes.length > 0)
             await logActivity(
               tx as unknown as Db,

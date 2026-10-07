@@ -5,6 +5,7 @@ export type GitHubAppOwner = {
 export type GitHubAppRegistrationInput = GitHubAppOwner & { name: string };
 export type GitHubAppCloudState = GitHubAppOwner & {
   id: string;
+  returnOrigin?: string;
   status: "pending" | "exchanging" | "credentials" | "installed" | "failed";
   expiresAt: string;
   appId?: string;

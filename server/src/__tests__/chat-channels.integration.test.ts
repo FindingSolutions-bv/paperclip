@@ -1,5 +1,6 @@
 import { toolActionRequests, toolInvocations } from "@paperclipai/db";
 import { GitHubPublicationLeaseLost, withGitHubPublicationLease } from "../services/chat-github-publication-lease.js";
+import { secretService } from "../services/secrets.js";
 import { githubChatWizardService } from "../services/chat-github-wizard.js";
 import type { PaperclipCloudConnector } from "../services/paperclip-cloud-connector.js";
 import { dispatchGitHubBotCloudEvent } from "../services/chat-github-cloud-ingress.js";
@@ -2242,23 +2243,21 @@ describeEmbeddedPostgres("chat channel control-plane integration", () => {
         { provider: "github", assignedAgentId: f.assignedAgentId },
         "owner-user",
       );
-      await db
-        .insert(chatGitHubRegistrations)
-        .values({
-          companyId: f.companyId,
-          endpointId: bot.id,
-          userId: "owner-user",
-          stateHash: randomUUID(),
-          trustedOrigin: "http://127.0.0.1:3104",
-          ownerType: "personal",
-          status: "exchanging",
-          expiresAt: new Date(Date.now() + 60_000),
-          handoff: {
-            cloudId: "claim-recovery",
-            returnState: "bound",
-            redemptionId: "same-receipt",
-          },
-        });
+      await db.insert(chatGitHubRegistrations).values({
+        companyId: f.companyId,
+        endpointId: bot.id,
+        userId: "owner-user",
+        stateHash: randomUUID(),
+        trustedOrigin: "http://127.0.0.1:3104",
+        ownerType: "personal",
+        status: "exchanging",
+        expiresAt: new Date(Date.now() + 60_000),
+        handoff: {
+          cloudId: "claim-recovery",
+          returnState: "bound",
+          redemptionId: "same-receipt",
+        },
+      });
       const claimGitHubApp = vi.fn(async () => ({
         kind: "github_app",
         registrationId: "claim-recovery",
@@ -2317,6 +2316,69 @@ describeEmbeddedPostgres("chat channel control-plane integration", () => {
           .where(eq(chatGitHubRegistrations.endpointId, bot.id)),
       ).toHaveLength(1);
     });
+    it("wizard recovers a renamed enrolled origin only after checking bound state and Cloud authority", async () => {
+      const f = await seedCompany();
+      const { service } = createService();
+      const bot = await service.create(
+        f.companyId,
+        { provider: "github", assignedAgentId: f.assignedAgentId },
+        "owner-user",
+      );
+      await db
+        .insert(chatGitHubRegistrations)
+        .values({
+          companyId: f.companyId,
+          endpointId: bot.id,
+          userId: "owner-user",
+          stateHash: createHash("sha256").update("bound-state").digest("hex"),
+          trustedOrigin: "https://old.example.test",
+          status: "pending",
+          expiresAt: new Date(Date.now() + 60_000),
+          handoff: {
+            cloudId: "origin-recovery",
+            returnState: "bound-state",
+            redemptionId: "same-receipt",
+          },
+        });
+      let enrolledOrigin = "https://wrong.example.test";
+      const githubApp = vi.fn(async () => ({
+        id: "origin-recovery",
+        status: "pending",
+        returnOrigin: enrolledOrigin,
+        registrationUrl: "https://github.com/settings/apps/new",
+        manifest: { public: false },
+        expiresAt: new Date(Date.now() + 60_000).toISOString(),
+      }));
+      const wizard = githubChatWizardService(db, {
+        origin: () => "https://new.example.test",
+        connector: () => ({ githubApp }) as unknown as PaperclipCloudConnector,
+        startDirect: service.startGitHubRegistration,
+        storeApp: service.storeGitHubApp,
+        storeCredentials: async () => {},
+        refreshRepositories: service.refreshGitHubRepositories,
+        resources: service.listResources,
+        replaceResources: service.replaceResources,
+        configure: async () => {},
+        finish: async () => {},
+      });
+      await expect(
+        wizard.cloudCallback("unbound-state", "origin-recovery"),
+      ).rejects.toThrow("did not match");
+      expect(githubApp).not.toHaveBeenCalled();
+      await expect(
+        wizard.cloudCallback("bound-state", "origin-recovery"),
+      ).rejects.toThrow("did not match");
+      enrolledOrigin = "https://new.example.test";
+      expect(
+        await wizard.cloudCallback("bound-state", "origin-recovery"),
+      ).toContain("https://new.example.test/");
+      const [session] = await db
+        .select()
+        .from(chatGitHubRegistrations)
+        .where(eq(chatGitHubRegistrations.endpointId, bot.id));
+      expect(session!.trustedOrigin).toBe(enrolledOrigin);
+      expect(session!.handoff?.cloudId).toBe("origin-recovery");
+    });
     it("wizard keeps localhost draft choices while waiting for Cloud enrollment", async () => {
       const f = await seedCompany();
       const { service } = createService();
@@ -2363,21 +2425,19 @@ describeEmbeddedPostgres("chat channel control-plane integration", () => {
       const context = await configuredGitHubEndpoint(f, {}, true);
       const bot = await context.service.get(context.endpoint.id),
         cloudId = "registration-repair";
-      await db
-        .insert(chatGitHubRegistrations)
-        .values({
-          companyId: f.companyId,
-          endpointId: bot.id,
-          userId: "owner-user",
-          stateHash: randomUUID(),
-          trustedOrigin: "https://reviews.example.test",
-          ownerType: "organization",
-          ownerLogin: "paperclipai",
-          appName: "Reviewer",
-          status: "failed",
-          expiresAt: new Date(),
-          handoff: { cloudId, returnState: "bound", redemptionId: "receipt" },
-        });
+      await db.insert(chatGitHubRegistrations).values({
+        companyId: f.companyId,
+        endpointId: bot.id,
+        userId: "owner-user",
+        stateHash: randomUUID(),
+        trustedOrigin: "https://reviews.example.test",
+        ownerType: "organization",
+        ownerLogin: "paperclipai",
+        appName: "Reviewer",
+        status: "failed",
+        expiresAt: new Date(),
+        handoff: { cloudId, returnState: "bound", redemptionId: "receipt" },
+      });
       const webhookUrl = `https://cloud.example.test/v1/connector/webhooks/github/apps/${cloudId}`;
       let repaired = false;
       const githubApp = vi.fn(
@@ -2540,21 +2600,20 @@ describeEmbeddedPostgres("chat channel control-plane integration", () => {
         (await f.service.githubWizard.advance(f.endpoint.id, "owner-user")).state,
       ).toBe("connected");
     });
-    it("imports initial GitHub access without a second picker and leaves later additions disabled", async () => {
+    it("wizard preserves an explicit empty repository selection at revision zero", async () => {
       const f = await seedCompany();
       const context = await configuredGitHubEndpoint(f, {}, true);
-      const current = await context.service.get(context.endpoint.id);
-      const first = await context.service.listResources(current.id);
+      const resources = await context.service.listResources(context.endpoint.id);
       await context.service.replaceResources(
-        current.id,
-        first.map((resource) => ({ id: resource.id, enabled: false })),
+        context.endpoint.id,
+        resources.map((resource) => ({ id: resource.id, enabled: false })),
         "owner-user",
       );
       await db
         .insert(chatGitHubRegistrations)
         .values({
           companyId: f.companyId,
-          endpointId: current.id,
+          endpointId: context.endpoint.id,
           userId: "owner-user",
           stateHash: randomUUID(),
           trustedOrigin: "https://reviews.example.test",
@@ -2563,6 +2622,275 @@ describeEmbeddedPostgres("chat channel control-plane integration", () => {
           status: "completed",
           expiresAt: new Date(Date.now() + 60_000),
         });
+      await context.service.githubWizard.advance(context.endpoint.id, "owner-user");
+      expect(
+        (await context.service.listResources(context.endpoint.id)).map(
+          (resource) => resource.enabled,
+        ),
+      ).toEqual([false]);
+      // The import fence also protects a stale caller that already planned an import.
+      await context.service.replaceResources(
+        context.endpoint.id,
+        resources.map((resource) => ({ id: resource.id, enabled: true })),
+        "owner-user",
+        { initialGitHubImport: true },
+      );
+      expect(
+        (await context.service.listResources(context.endpoint.id)).map(
+          (resource) => resource.enabled,
+        ),
+      ).toEqual([false]);
+    });
+    it("wizard configures Cloud webhook delivery without a public instance URL", async () => {
+      const f = await seedCompany();
+      const context = await configuredGitHubEndpoint(f, {}, true);
+      const current = await context.service.get(context.endpoint.id);
+      await db
+        .update(chatEndpoints)
+        .set({
+          status: "draft",
+          setup: {
+            ...current.setup,
+            github: {
+              ...current.setup.github,
+              cloudRegistrationId: "cloud-localhost",
+            },
+          },
+        })
+        .where(eq(chatEndpoints.id, current.id));
+      const local = createService(new FakeChatSdkRuntime(), context.providerFetch, {
+        publicBaseUrl: null,
+        webhookPublicBaseUrl: null,
+      });
+      expect(
+        (
+          await local.service.configure(
+            current.id,
+            { action: "configure" },
+            "owner-user",
+          )
+        ).status,
+      ).not.toBe("error");
+      const direct = await local.service.create(
+        f.companyId,
+        { provider: "github", assignedAgentId: f.assignedAgentId },
+        "owner-user",
+      );
+      await expect(
+        local.service.configure(direct.id, { action: "configure" }, "owner-user"),
+      ).rejects.toThrow("public");
+    });
+    it("wizard serializes identity starts and callbacks without overwriting PKCE or handoff state", async () => {
+      const f = await seedCompany();
+      const context = await configuredGitHubEndpoint(f, {}, true);
+      const connectedAppId = (await context.service.get(context.endpoint.id))
+        .botExternalId;
+      const vault = secretService(db);
+      const [connection] = await db
+        .select()
+        .from(toolConnections)
+        .where(eq(toolConnections.id, context.endpoint.connectionId));
+      const refs = [...connection!.credentialSecretRefs];
+      for (const key of ["clientId", "clientSecret"]) {
+        const secret = await vault.create(f.companyId, {
+          name: `wizard-${key}-${randomUUID()}`,
+          provider: "local_encrypted",
+          value: `test-${key}`,
+        });
+        await vault.createBinding({
+          companyId: f.companyId,
+          secretId: secret.id,
+          targetType: "tool_connection",
+          targetId: connection!.id,
+          configPath: `credentials.${key}`,
+        });
+        refs.push({
+          configPath: `credentials.${key}`,
+          secretId: secret.id,
+          versionSelector: "latest",
+        });
+      }
+      await db
+        .update(toolConnections)
+        .set({ credentialSecretRefs: refs })
+        .where(eq(toolConnections.id, connection!.id));
+      await db
+        .insert(chatGitHubRegistrations)
+        .values({
+          companyId: f.companyId,
+          endpointId: context.endpoint.id,
+          userId: "owner-user",
+          stateHash: randomUUID(),
+          trustedOrigin: "https://reviews.example.test",
+          status: "completed",
+          expiresAt: new Date(Date.now() + 60_000),
+          handoff: {
+            cloudId: "",
+            returnState: "preserve-return",
+            redemptionId: "preserve-receipt",
+            webhookSecretHash: "preserve-hash",
+          },
+        });
+      let entered!: () => void,
+        release!: () => void,
+        callbackEntered!: () => void,
+        callbackRelease!: () => void;
+      const storing = new Promise<void>((resolve) => {
+        entered = resolve;
+      });
+      const storeGate = new Promise<void>((resolve) => {
+        release = resolve;
+      });
+      const exchanging = new Promise<void>((resolve) => {
+        callbackEntered = resolve;
+      });
+      const exchangeGate = new Promise<void>((resolve) => {
+        callbackRelease = resolve;
+      });
+      let writes = 0,
+        verifier = "",
+        verifierSecretId = "";
+      const wizard = githubChatWizardService(db, {
+        origin: () => "https://reviews.example.test",
+        connector: () => null,
+        startDirect: context.service.startGitHubRegistration,
+        storeApp: context.service.storeGitHubApp,
+        storeCredentials: async (_id, _user, values) => {
+          if (++writes === 1) {
+            entered();
+            await storeGate;
+          }
+          verifier = values.identityCodeVerifier!;
+          if (verifierSecretId) {
+            await vault.rotate(verifierSecretId, { value: verifier });
+            return;
+          }
+          const secret = await vault.create(f.companyId, {
+            name: `wizard-verifier-${randomUUID()}`,
+            provider: "local_encrypted",
+            value: verifier,
+          });
+          verifierSecretId = secret.id;
+          await vault.createBinding({
+            companyId: f.companyId,
+            secretId: secret.id,
+            targetType: "tool_connection",
+            targetId: connection!.id,
+            configPath: "credentials.identityCodeVerifier",
+          });
+          await db
+            .update(toolConnections)
+            .set({
+              credentialSecretRefs: [
+                ...refs,
+                {
+                  configPath: "credentials.identityCodeVerifier",
+                  secretId: secret.id,
+                  versionSelector: "latest",
+                },
+              ],
+            })
+            .where(eq(toolConnections.id, connection!.id));
+        },
+        fetch: (async (input, init) => {
+          if (String(input).endsWith("/access_token")) {
+            expect(JSON.parse(String(init?.body)).code_verifier).toBe(verifier);
+            callbackEntered();
+            await exchangeGate;
+            return Response.json({ access_token: "transient" });
+          }
+          if (String(input).endsWith("/user"))
+            return Response.json({
+              id: 1357,
+              login: "octocat",
+              avatar_url: "https://example.test/avatar",
+            });
+          if (String(input).includes("/user/installations?"))
+            return Response.json({
+              installations: [{ id: 2468, app_id: Number(connectedAppId) }],
+            });
+          throw new Error(`Unexpected identity request ${String(input)}`);
+        }) as typeof fetch,
+        refreshRepositories: context.service.refreshGitHubRepositories,
+        resources: context.service.listResources,
+        replaceResources: context.service.replaceResources,
+        configure: async () => {},
+        finish: async () => {},
+      });
+      const first = wizard.startIdentity(context.endpoint.id, "owner-user");
+      await Promise.race([
+        storing,
+        first.then(() => {
+          throw new Error("Expected a paused vault write");
+        }),
+      ]);
+      await expect(
+        wizard.startIdentity(context.endpoint.id, "owner-user"),
+      ).rejects.toThrow("in progress");
+      release();
+      const authorization = await first,
+        state = new URL(authorization.authorizationUrl).searchParams.get("state")!;
+      const callback = wizard.identityCallback(state, "code");
+      await Promise.race([
+        exchanging,
+        callback.then(() => {
+          throw new Error("Expected a paused OAuth exchange");
+        }),
+      ]);
+      await expect(
+        wizard.startIdentity(context.endpoint.id, "owner-user"),
+      ).rejects.toThrow("in progress");
+      callbackRelease();
+      await callback;
+      const [session] = await db
+        .select()
+        .from(chatGitHubRegistrations)
+        .where(eq(chatGitHubRegistrations.endpointId, context.endpoint.id));
+      expect(session!.handoff).toMatchObject({
+        returnState: "preserve-return",
+        redemptionId: "preserve-receipt",
+        webhookSecretHash: "preserve-hash",
+        identity: { githubUserId: "1357", login: "octocat" },
+      });
+      expect(session!.handoff?.identityStateHash).toBeUndefined();
+      expect(session!.handoff?.identityLeaseId).toBeUndefined();
+      expect(writes).toBe(2);
+    });
+    it("imports initial GitHub access without a second picker and leaves later additions disabled", async () => {
+      const f = await seedCompany();
+      const context = await configuredGitHubEndpoint(f, {}, true);
+      const current = await context.service.get(context.endpoint.id);
+      const first = await context.service.listResources(current.id);
+      // Inventory before any user selection: simulate a fresh provider import,
+      // rather than an explicit user decision to disable every repository.
+      await db
+        .update(chatEndpointResources)
+        .set({ enabled: false })
+        .where(eq(chatEndpointResources.endpointId, current.id));
+      await db
+        .update(chatEndpoints)
+        .set({
+          setup: {
+            ...current.setup,
+            github: {
+              ...current.setup.github,
+              repositorySelectionSaved: undefined,
+              initialRepositoryImportPending: true,
+            },
+          },
+        })
+        .where(eq(chatEndpoints.id, current.id));
+      await db.insert(chatGitHubRegistrations).values({
+        companyId: f.companyId,
+        endpointId: current.id,
+        userId: "owner-user",
+        stateHash: randomUUID(),
+        trustedOrigin: "https://reviews.example.test",
+        ownerType: "organization",
+        ownerLogin: "paperclipai",
+        status: "completed",
+        expiresAt: new Date(Date.now() + 60_000),
+      });
       const result = await context.service.githubWizard.advance(
         current.id,
         "owner-user",

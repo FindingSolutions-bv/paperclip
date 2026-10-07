@@ -425,6 +425,18 @@ export async function installChatControlPlaneMock(
     if (provider.provider === "github" && pathname.startsWith(`/api/chat-endpoints/${endpoint.id}/github/`)) {
       const operation = pathname.split("/github/")[1];
       const body = method === "GET" ? {} : bodyOf(route);
+      if (operation === "setup") {
+        if (!githubAppConnected) { await fulfill(route, { endpointId: endpoint.id, state: "create" }); return; }
+        if (!state.githubIdentityConfirmed) { await fulfill(route, { endpointId: endpoint.id, state: "identity", identityMethod: "existing_connection" }); return; }
+        githubConfiguration.configuration.toolsEnabled = true;
+        resource.enabled = true;
+        Object.assign(endpoint, { status: "active", botExternalId: "123456", resources: [resource], setup: { ...endpoint.setup, step: "complete" } });
+        await fulfill(route, { endpointId: endpoint.id, state: "connected", identityLinked: true, verification: { ready: true, checks: [] } }); return;
+      }
+      if (operation === "draft") {
+        Object.assign(endpoint.setup, { github: { ...endpoint.setup.github, appName: body.name, ownerType: body.ownerType, ownerLogin: body.ownerLogin } });
+        await fulfill(route, endpoint); return;
+      }
       if (operation === "configuration") {
         if (method === "PUT") { expect(body.expectedRevision).toBe(githubConfiguration.revision); githubConfiguration = { revision: githubConfiguration.revision + 1, configuration: body.configuration as typeof githubConfiguration.configuration }; }
         await fulfill(route, githubConfiguration); return;
@@ -438,7 +450,7 @@ export async function installChatControlPlaneMock(
         state.configuredCredentialKeys = Object.keys(body).sort();
         if (state.setupAttempts === 1) { await fulfill(route, { error: "GitHub rejected the supplied App credentials." }, 422); return; }
         githubAppConnected = true;
-        Object.assign(endpoint, { status: "attention", botUsername: "maya-paperclip[bot]" });
+        Object.assign(endpoint, { status: "attention", botExternalId: "123456", botUsername: "maya-paperclip[bot]", botLabel: "Maya" });
         Object.assign(endpoint.setup, { github: { stage: "install", appSlug: "maya-paperclip", installationUrl: "https://github.com/apps/maya-paperclip/installations/new", managementUrl: "https://github.com/settings/installations/2468" } });
         await fulfill(route, endpoint); return;
       }

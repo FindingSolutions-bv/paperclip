@@ -61,7 +61,12 @@ vi.mock("@/api/agents", () => ({
   agentsApi: { list: vi.fn(), get: vi.fn(), updatePermissions: vi.fn() },
 }));
 vi.mock("@/api/chatEndpoints", () => ({
-  chatEndpointsApi: { create: vi.fn(), get: vi.fn(), listResources: vi.fn() },
+  chatEndpointsApi: {
+    create: vi.fn(),
+    get: vi.fn(),
+    listResources: vi.fn(),
+    setup: vi.fn(),
+  },
 }));
 vi.mock("@/api/githubChat", () => ({
   githubChatApi: {
@@ -173,6 +178,24 @@ describe("GitHub App wizard", () => {
       await new Promise((resolve) => setTimeout(resolve, 20));
     });
   }
+  it("reconnects the same App using vaulted credentials without requiring another paste", async () => {
+    fixture.endpoint.status = "attention";
+    fixture.endpoint.botExternalId = "1234";
+    vi.mocked(chatEndpointsApi.setup).mockResolvedValue(fixture.endpoint);
+    await render("resume=draft-1&reconnect=1");
+    const button = [...container.querySelectorAll("button")].find(
+      (button) => button.textContent === "Reconnect App",
+    )!;
+    expect(button.disabled).toBe(false);
+    expect(container.querySelector("#github-webhook-secret")).toBeNull();
+    await act(async () => {
+      button.click();
+    });
+    expect(chatEndpointsApi.setup).toHaveBeenCalledWith("draft-1", {
+      action: "reconnect",
+    });
+    expect(githubChatApi.connectApp).not.toHaveBeenCalled();
+  });
   async function render(query = "agentId=reviewer") {
     await act(async () =>
       root.render(

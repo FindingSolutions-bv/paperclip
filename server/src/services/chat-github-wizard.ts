@@ -81,6 +81,7 @@ export function githubChatWizardService(
       endpointId: string,
       updates: Array<{ id: string; enabled: boolean }>,
       userId: string,
+      options?: { initialGitHubImport?: boolean },
     ) => Promise<unknown>;
     configure: (endpointId: string, userId: string) => Promise<unknown>;
     finish: (endpointId: string, userId: string) => Promise<unknown>;
@@ -206,6 +207,13 @@ export function githubChatWizardService(
       );
     }
     await saveDraft(id, userId, input);
+    // Only a fresh registration may import GitHub's initial selection. Old
+    // drafts without this marker retain even an entirely disabled selection.
+    if (
+      !bot.setup.github?.repositorySelectionSaved &&
+      !(await options.resources(id)).length
+    )
+      await setup(bot, { initialRepositoryImportPending: true });
     const cloud = connector();
     if (!cloud) {
       if (origin().startsWith("https://"))
@@ -717,6 +725,8 @@ export function githubChatWizardService(
         session &&
         bot.status !== "active" &&
         saved.revision === 0 &&
+        bot.setup.github?.initialRepositoryImportPending === true &&
+        !bot.setup.github?.repositorySelectionSaved &&
         !resources.some((resource) => resource.enabled)
       ) {
         await options.replaceResources(
@@ -725,6 +735,7 @@ export function githubChatWizardService(
             .filter((resource) => resource.availability === "available")
             .map((resource) => ({ id: resource.id, enabled: true })),
           userId,
+          { initialGitHubImport: true },
         );
       }
       if (session && saved.revision === 0 && bot.status !== "active")
@@ -828,7 +839,95 @@ export function githubChatWizardService(
       .limit(1);
     return !!link;
   }
+  async function withIdentityLease<T>(
+    sessionId: string,
+    work: (assertOwned: () => Promise<void>) => Promise<T>,
+  ): Promise<T> {
+    const leaseId = nonce();
+    const leaseUntil = () => new Date(Date.now() + 120_000).toISOString();
+    const [claimed] = await db
+      .update(chatGitHubRegistrations)
+      .set({
+        handoff: sql`coalesce(${chatGitHubRegistrations.handoff}, '{"cloudId":"","returnState":"","redemptionId":""}'::jsonb) || ${JSON.stringify({ identityLeaseId: leaseId, identityLeaseExpiresAt: leaseUntil() })}::jsonb`,
+      })
+      .where(
+        and(
+          eq(chatGitHubRegistrations.id, sessionId),
+          sql`(${chatGitHubRegistrations.handoff}->>'identityLeaseExpiresAt' is null or ${chatGitHubRegistrations.handoff}->>'identityLeaseExpiresAt' <= ${new Date().toISOString()})`,
+        ),
+      )
+      .returning({ id: chatGitHubRegistrations.id });
+    if (!claimed)
+      throw conflict(
+        "Another account-linking attempt is in progress. Try again shortly.",
+      );
+    let lost = false;
+    const assertOwned = async () => {
+      const [owned] = await db
+        .select({ id: chatGitHubRegistrations.id })
+        .from(chatGitHubRegistrations)
+        .where(
+          and(
+            eq(chatGitHubRegistrations.id, sessionId),
+            sql`${chatGitHubRegistrations.handoff}->>'identityLeaseId' = ${leaseId}`,
+            sql`${chatGitHubRegistrations.handoff}->>'identityLeaseExpiresAt' > ${new Date().toISOString()}`,
+          ),
+        );
+      if (lost || !owned)
+        throw conflict("Account-linking changed. Connect your account again.");
+    };
+    const renewal = setInterval(() => {
+      void db
+        .update(chatGitHubRegistrations)
+        .set({
+          handoff: sql`jsonb_set(${chatGitHubRegistrations.handoff}, '{identityLeaseExpiresAt}', ${JSON.stringify(leaseUntil())}::jsonb)`,
+        })
+        .where(
+          and(
+            eq(chatGitHubRegistrations.id, sessionId),
+            sql`${chatGitHubRegistrations.handoff}->>'identityLeaseId' = ${leaseId}`,
+          ),
+        )
+        .returning({ id: chatGitHubRegistrations.id })
+        .then((rows) => {
+          if (!rows.length) lost = true;
+        })
+        .catch(() => {
+          lost = true;
+        });
+    }, 30_000);
+    renewal.unref();
+    try {
+      return await work(assertOwned);
+    } finally {
+      clearInterval(renewal);
+      await db
+        .update(chatGitHubRegistrations)
+        .set({
+          handoff: sql`${chatGitHubRegistrations.handoff} - 'identityLeaseId' - 'identityLeaseExpiresAt'`,
+        })
+        .where(
+          and(
+            eq(chatGitHubRegistrations.id, sessionId),
+            sql`${chatGitHubRegistrations.handoff}->>'identityLeaseId' = ${leaseId}`,
+          ),
+        );
+    }
+  }
   async function startIdentity(id: string, userId: string) {
+    const bot = await endpoint(id, userId),
+      session = await registration(bot);
+    if (!session || session.userId !== userId)
+      throw forbidden("The configuring member must link their GitHub account");
+    return withIdentityLease(session.id, (assertOwned) =>
+      startIdentityLocked(id, userId, assertOwned),
+    );
+  }
+  async function startIdentityLocked(
+    id: string,
+    userId: string,
+    assertOwned: () => Promise<void>,
+  ) {
     const bot = await endpoint(id, userId),
       session = await registration(bot);
     if (!session || session.userId !== userId)
@@ -843,23 +942,15 @@ export function githubChatWizardService(
       );
     const verifier = nonce(),
       state = nonce();
+    await assertOwned();
     await options.storeCredentials(id, userId, {
       identityCodeVerifier: verifier,
     });
+    await assertOwned();
     await db
       .update(chatGitHubRegistrations)
       .set({
-        handoff: {
-          ...(session.handoff ?? {
-            cloudId: "",
-            returnState: "",
-            redemptionId: nonce(),
-          }),
-          identityStateHash: hash(state),
-          identityExpiresAt: new Date(Date.now() + 10 * 60_000).toISOString(),
-          identityRedemptionId: nonce(),
-          identity: undefined,
-        },
+        handoff: sql`(${chatGitHubRegistrations.handoff} - 'identity') || ${JSON.stringify({ identityStateHash: hash(state), identityExpiresAt: new Date(Date.now() + 10 * 60_000).toISOString(), identityRedemptionId: nonce() })}::jsonb`,
       })
       .where(eq(chatGitHubRegistrations.id, session.id));
     const challenge = createHash("sha256").update(verifier).digest("base64url");
@@ -895,6 +986,26 @@ export function githubChatWizardService(
     session: typeof chatGitHubRegistrations.$inferSelect,
     code: string,
     redirectUri: string,
+  ) {
+    return withIdentityLease(session.id, async (assertOwned) => {
+      const [current] = await db
+        .select()
+        .from(chatGitHubRegistrations)
+        .where(eq(chatGitHubRegistrations.id, session.id));
+      if (
+        !current ||
+        current.handoff?.identityStateHash !==
+          session.handoff?.identityStateHash
+      )
+        return resume(await endpoint(session.endpointId, session.userId));
+      return completeIdentityLocked(current, code, redirectUri, assertOwned);
+    });
+  }
+  async function completeIdentityLocked(
+    session: typeof chatGitHubRegistrations.$inferSelect,
+    code: string,
+    redirectUri: string,
+    assertOwned: () => Promise<void>,
   ) {
     const bot = await endpoint(session.endpointId, session.userId);
     if (
@@ -980,21 +1091,20 @@ export function githubChatWizardService(
     )
       throw conflict("GitHub returned an invalid account");
     // OAuth token remains transient; only an expiring observed identity is saved.
+    await assertOwned();
+    const identity = {
+      githubUserId: String(user.id),
+      login: user.login,
+      avatarUrl: user.avatar_url ?? null,
+      expiresAt: new Date(Date.now() + 10 * 60_000).toISOString(),
+    };
     await db
       .update(chatGitHubRegistrations)
       .set({
-        handoff: {
-          ...session.handoff!,
-          identityStateHash: undefined,
-          identity: {
-            githubUserId: String(user.id),
-            login: user.login,
-            avatarUrl: user.avatar_url ?? null,
-            expiresAt: new Date(Date.now() + 10 * 60_000).toISOString(),
-          },
-        },
+        handoff: sql`jsonb_set(${chatGitHubRegistrations.handoff}, '{identity}', ${JSON.stringify(identity)}::jsonb)`,
       })
       .where(eq(chatGitHubRegistrations.id, session.id));
+    await assertOwned();
     await options.storeCredentials(bot.id, session.userId, {
       identityCodeVerifier: nonce(),
     });
@@ -1037,9 +1147,44 @@ export function githubChatWizardService(
         sql`${chatGitHubRegistrations.handoff}->>'cloudId' = ${registrationId}`,
       )
       .limit(1);
-    if (!session?.handoff || session.trustedOrigin !== origin())
+    if (
+      !session?.handoff ||
+      (session.stateHash !== hash(state) &&
+        session.handoff.identityStateHash !== hash(state))
+    )
       throw forbidden("GitHub return did not match this instance");
     const bot = await endpoint(session.endpointId, session.userId);
+    if (session.trustedOrigin !== origin()) {
+      const cloud = connector();
+      if (!cloud) throw forbidden("GitHub return did not match this instance");
+      const current = await cloud.githubApp({
+        subject: session.userId,
+        companyId: session.companyId,
+        binding: { action: "status", id: registrationId },
+      });
+      // A manager-authenticated Cloud lookup, rather than a callback parameter,
+      // proves the current enrolled destination after an instance rename.
+      if (current.returnOrigin !== origin())
+        throw forbidden("GitHub return did not match this instance");
+      await db
+        .update(chatGitHubRegistrations)
+        .set({ trustedOrigin: origin() })
+        .where(
+          and(
+            eq(chatGitHubRegistrations.id, session.id),
+            eq(chatGitHubRegistrations.trustedOrigin, session.trustedOrigin),
+          ),
+        );
+      await logActivity(db, {
+        companyId: session.companyId,
+        actorType: "system",
+        actorId: "chat-github-setup",
+        action: "chat_github.registration_origin_recovered",
+        entityType: "tool_connection",
+        entityId: bot.connectionId,
+        details: { registrationId: session.id },
+      });
+    }
     if (session.handoff.identityStateHash === hash(state)) {
       if (!claimId) {
         await db
@@ -1047,7 +1192,12 @@ export function githubChatWizardService(
           .set({
             handoff: sql`${chatGitHubRegistrations.handoff} - 'identityStateHash'`,
           })
-          .where(eq(chatGitHubRegistrations.id, session.id));
+          .where(
+            and(
+              eq(chatGitHubRegistrations.id, session.id),
+              sql`${chatGitHubRegistrations.handoff}->>'identityStateHash' = ${hash(state)}`,
+            ),
+          );
         return resume(bot);
       }
       const cloud = connector();
@@ -1125,11 +1275,23 @@ export function githubChatWizardService(
       throw conflict(
         "Connect your GitHub account again before confirming its identity",
       );
-    await management.linkObservedIdentity(id, userId, candidate);
-    await db
-      .update(chatGitHubRegistrations)
-      .set({ handoff: { ...session.handoff!, identity: undefined } })
-      .where(eq(chatGitHubRegistrations.id, session.id));
+    await withIdentityLease(session.id, async (assertOwned) => {
+      const [current] = await db
+        .select()
+        .from(chatGitHubRegistrations)
+        .where(eq(chatGitHubRegistrations.id, session.id));
+      if (
+        current?.handoff?.identity?.githubUserId !== githubUserId ||
+        current.handoff.identity.expiresAt !== candidate.expiresAt
+      )
+        throw conflict("GitHub identity changed. Connect your account again.");
+      await assertOwned();
+      await management.linkObservedIdentity(id, userId, candidate);
+      await db
+        .update(chatGitHubRegistrations)
+        .set({ handoff: sql`${chatGitHubRegistrations.handoff} - 'identity'` })
+        .where(eq(chatGitHubRegistrations.id, session.id));
+    });
     return advance(id, userId);
   }
   return {

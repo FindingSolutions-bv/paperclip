@@ -199,6 +199,8 @@ export interface ChatEndpointSetupState {
     appName?: string;
     cloudRegistrationId?: string;
     initialRepositoriesImported?: boolean;
+    repositorySelectionSaved?: boolean;
+    initialRepositoryImportPending?: boolean;
   };
   step: "choose_agent" | "provider_setup" | "test" | "complete";
   /** Server-generated boundary; only provider events at or after this time can complete setup. */
