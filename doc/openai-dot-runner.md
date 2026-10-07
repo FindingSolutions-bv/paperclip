@@ -107,9 +107,21 @@ closed launch fields, expiry and late effect receipts after fencing.
 The earlier real-Dot account experiment proved OAuth and signed wake/report
 transport through the reference harness; see `dot-runner-prototype.md`. That
 proof does not qualify this new dedicated endpoint against a real account.
-The dedicated adapter's account acceptance test remains to be run. The new
-connection UI has passed compilation and token gates; it has not yet received
-a hands-on browser acceptance test.
+The dedicated adapter's real-account acceptance test remains to be run.
+On 2026-10-06, a hands-on browser test used a fresh authenticated instance with
+synthetic account, company, and agent data through its public HTTPS origin.
+It verified the experimental prerequisites, saved toggle behavior, Dot harness,
+dedicated MCP URL, one-use pairing instructions, and revocation. The instance
+was created with `worktree init --empty`, so it copied no private instance data
+or signing keys. Real Dot pairing, event delivery, and task completion remain
+to be qualified.
+
+The current integration includes master through `a6306ba60`, including the
+assistant configuration and tool expansion in #15380. Dot still uses its own
+agent resource and cannot receive personal configuration permission. Full
+workspace typecheck and build, UI token gates, and 198 focused tests passed
+after this merge. The empty-worktree tests and clone-migration regression also
+passed. These checks do not replace the full repository CI and review gates.
 
 Local verification on 2026-10-03:
 
