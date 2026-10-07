@@ -34,6 +34,12 @@ The historical Everyday fixture and prompts remain unchanged. The new fixture an
 
 ## Validation and remaining gate
 
-Credential-free checks pass: eval typecheck; 1,801 support tests plus 128 Node tests (one intentional support skip); 51 connection/schema tests; one real-server fixture test; one focused Rust feedback test; and local browser wrong-task/title calibration. Repository typecheck and build pass. The full repository test run is still under inspection after a Telegram integration test failed outside the changed paths.
+Credential-free checks pass: eval typecheck; 1,801 support tests plus 128 Node tests (one intentional support skip); 51 connection/schema tests; one real-server fixture test; one focused Rust feedback test; and local browser wrong-task/title calibration. Repository typecheck and build pass. The full repository test run is still under inspection after Telegram and workspace-runtime integration tests failed outside the changed paths. No full local pass is claimed.
 
 A corrected paid baseline is pending. Run an explicit provider-choice canary first, then the other distinct cells only after that evidence is usable. Preserve every attempt, decision, actual run, cost gap and failure. No instruction reduction or general integration quality claim is qualified yet.
+
+## Initial corrected campaign stopped before provider execution
+
+[Campaign 37574251834](https://github.com/paperclipai/paperclip/actions/runs/37574251834) resolved source `cbf1c4fba8eabbf779435f550c455f6a66c5aae5` on trusted master workflow `99a9de9940bf5974352d9dbfbb2f21e62e89689f`. It was cancelled during the shared build after review identified another browser precondition defect. The matrix job has no steps and no runner execution; no provider cell or behavioral grade occurred. Preserve this cancelled campaign separately.
+
+The initial stable-ID check assumed whitespace around the identifier. The real breadcrumb uses adjacent title/identifier spans. A regression reproduces the failure with `Renamed taskRUN-1`; the corrected check targets the visible identifier element under the current breadcrumb and matches its text exactly. All five browser checks now pass, including wrong route, wrong/partial identifier and an identifier present only in the mutable title or elsewhere on the page. Seven focused suite checks and eval typecheck pass. This review correction changes only browser support and this report; production logic is unchanged.
