@@ -1,0 +1,143 @@
+# Minimal dedicated GitHub App wizard
+
+Date: 2026-10-06
+Status: Implemented. Automated and local UI qualification in progress; live provider qualification pending.
+
+## Accepted scope
+
+Support personal accounts and organizations equally through a private,
+user-owned GitHub App. Its identity belongs to the selected review agent.
+GitHub owns the creation confirmation and repository installation consent.
+Paperclip owns configuration, credential storage, delivery, and verification.
+The normal journey has two Paperclip screens:
+
+1. Choose agent, with an inline low-trust conversion when needed. Assigned
+   drafts resume directly into Connect GitHub.
+2. Connect GitHub: My account or An organization, optional organization login,
+   and an editable name suggested from the agent. Continue submits the manifest
+   directly to GitHub. Creation returns securely to Paperclip and then goes
+   straight to installation. Installation returns to automatic verification
+   and completion, with conditional identity confirmation when necessary.
+
+There is no setup-method selection, delegated setup task, copied prompt,
+mandatory guidance form, second repository selection, manual refresh gate,
+manual verification gate, or Finish action. Settings retain advanced behavior
+and existing-App recovery. Setup-agent assignment remains deferred.
+
+## Defaults and constraints
+
+- Mentions-only, advisory review, linked members, guests off, no merge-rule
+  changes. Preserve existing agent instructions and explicit bot configuration.
+- Import the installation's initial repository access, including an explicit
+  All repositories choice. Preserve saved narrower access on resumed drafts.
+  Later additions remain disabled until selected in existing settings.
+- Disclose that connecting enables the new bot's GitHub tools. Reconnect
+  preserves existing tool restrictions.
+- Use GitHub's verified App identity, including renames during registration.
+- Keep runtime and isolation readiness separate from GitHub connection health.
+  An optional test mention proves execution; connection health alone does not.
+- Private Apps install on their owning account. Preserve existing public-App
+  connections and manual credential recovery.
+- Human-only steps: sign-in/MFA, App creation, repository consent, required org
+  administrator approval, initial Cloud enrollment, unverified identity consent.
+
+## Implementation
+
+### Instance
+
+Extend existing manager-only APIs with owner selection, draft persistence,
+redacted wizard progress, dedicated-App identity authorization/confirmation,
+and automatic completion. Bind callback state and sealed claims to the exact
+company, draft, connection, agent, configuring member, and enrolled origin.
+Retain the legacy personal registration request and direct webhook flow.
+
+Serialize registration creation against the draft. Retry Cloud creation with
+its existing registration identifier and immutable binding after a lost
+response. Recover an uncertain manifest exchange or expired claim through the
+existing App; never silently create another App. Vault credentials before
+acknowledging receipt or exposing installation as the next step.
+
+Use existing verified linked identities when available. Otherwise use the
+new App's OAuth flow, separate from its installation callback, with bound
+state, PKCE, one explicit identity confirmation, and transient user tokens.
+All bot execution continues through installation credentials.
+
+Re-enter the existing durable webhook admission/review path from an
+independently bounded, authenticated Cloud event. Preserve resource access,
+trust boundaries, revocation handling, and duplicate protection.
+
+### Paperclip Cloud
+
+Extend the existing connector broker, durable registry, enrollment, signed
+requests, sealed claims, secret store, webhook inbox, event leases and acks,
+and coalesced Cloud stack wakes. No per-user tunnel or separate relay service.
+
+Add dedicated App registrations with compare-and-swap progress, per-App
+webhook secrets, fixed provider URLs, distinct public manifest/install/OAuth
+callbacks, and normalized bot events. Store only the webhook verification
+secret in Cloud's secret store; seal private keys and OAuth client credentials
+to the enrolled instance. Installation query parameters are hints, never proof.
+
+The additive capability is controlled by `CLOUD_HARNESS_GITHUB_APPS_ENABLED=1`.
+Production requires the durable provider secret store. Deploy the additive
+Cloud migration/capability before enabling the synchronized instance wizard.
+
+## Qualification
+
+Automated coverage must exercise both owner URLs; private manifests; bound
+callbacks and claims; retries after lost responses; failed and expired
+exchanges without duplicate Apps; hostile signatures/owner bindings;
+duplicate deliveries; preserved configuration and repository restrictions;
+identity consent/expiry; company isolation; and legacy registration/recovery.
+
+Run focused backend/UI tests and token gates, then typecheck, Vitest, and
+build. Walk through the actual local UI for agent selection, account choice,
+save/resume, enrollment and recovery. Separately qualify real personal and
+organization App creation/installation and a response under each dedicated
+identity, with human consent. Mocked provider tests cannot establish that live
+qualification or runtime execution succeeded.
+
+## Evidence and remaining rollout gates
+
+The production wizard was exercised in an isolated local test drive. Agent
+selection, inline low-trust conversion, organization choice, name editing,
+Save & exit, resume without a reload, full reload, and the conditional Cloud
+enrollment handoff passed. The test did not authorize Cloud enrollment or
+create a provider App.
+
+The focused UI suite has ten passing tests. Backend coverage includes both
+owner types, interrupted registration and vault storage, initial repository
+import, preserved settings, tenant binding, legacy callbacks, Cloud webhook
+repair, and automatic completion with runtime warnings. Typecheck, build,
+and UI token gates pass. Full Vitest qualification is running on the review
+branch.
+
+Cloud qualification passed its current service suite (200 tests) and the
+remaining current test files (2,352 tests, 73 environment-dependent skips).
+Further focused cases cover replacement installation and dedicated identity
+consent with PKCE, denial, and single-use state. The Postgres concurrency case
+requires a disposable database and was not run here. Generated test output
+must be cleaned before the suite: stale files from earlier builds caused two
+false failures against deleted upstream tests.
+
+Before rollout, apply the additive Cloud migration, enable the dedicated-App
+capability, then deploy the synchronized instance migration and wizard through
+the existing connector rollout control. A real personal and organization
+registration, installation, consent, signed delivery and bot response remain
+required. No deployment, real App creation, installation, runtime provisioning,
+or model execution was performed by the local UI walkthrough.
+
+## Prior findings retained
+
+Earlier setup research found repeated interviews, missing manager APIs, tunnel
+requirements, runtime provisioning, and image-delivery limitations. This wizard supersedes
+its onboarding approach. Setup agents, runtime provisioning, and screenshot
+publication are deferred; GitHub connection completion must not claim any of
+those are working.
+
+## Provider references
+
+- [Manifest registration](https://docs.github.com/en/apps/sharing-github-apps/registering-a-github-app-from-a-manifest)
+- [App registration and ownership](https://docs.github.com/en/apps/creating-github-apps/registering-a-github-app/registering-a-github-app)
+- [Installation](https://docs.github.com/en/apps/using-github-apps/installing-your-own-github-app)
+- [Setup callback verification](https://docs.github.com/en/apps/creating-github-apps/registering-a-github-app/about-the-setup-url)

@@ -1,5 +1,9 @@
 # GitHub chat and review bot — design approval preview
 
+> Historical design prototype: the production wizard now starts with agent selection,
+> followed by setup-method selection with copying or assignment to a setup helper.
+> Use the running app and `ui/src/pages/apps/chat/GitHubChatSetup.tsx` for the current flow.
+
 Open **Apps / GitHub chat & reviews / 00 · Start here**. All provider handoffs,
 identity events, tool probes, GitHub output, and Paperclip tasks are fixtures.
 No production route, credential storage, runtime, or provider call is changed.

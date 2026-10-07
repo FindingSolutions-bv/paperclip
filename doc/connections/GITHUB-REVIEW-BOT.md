@@ -11,26 +11,37 @@ required GitHub checks, read
 
 ## Set up a bot
 
-1. Choose the permanent agent assignment. Prefer a
+1. Choose the bot agent. Prefer a
    [low-trust review agent](https://docs.paperclip.ing/administration/trust-and-low-trust-review/)
    with an isolated sandbox and a scoped task boundary. Standard-trust agents
-   show a warning; choosing one does not silently reduce their permissions.
-2. Make the instance reachable through public HTTPS, then create an App with
-   manifest registration or connect an existing App. Credentials are vaulted.
-3. Install the App on GitHub. Grant access only to the intended repositories.
-4. Refresh the repository list in Paperclip and enable the repositories this bot
-   should handle. GitHub installation access and Paperclip enablement are
-   separate controls. Use **Configure on GitHub** to change installation access,
-   then refresh again.
-5. Verify signed delivery, App identity, repository permissions, and the assigned
-   agent's effective tools/runtime separately. For existing Apps, add Contents
-   read, Pull requests write, and Checks write alongside chat permissions and
-   subscribe to pull-request events. Approve any installation permission upgrade.
-6. Choose your existing personal GitHub connection and explicitly confirm the
-   verified account identity. That connection links your identity; the bot uses
-   its own App credentials for agent tools and publication.
-7. Configure access, event prompts, review behavior, and publication permissions.
-   Save progress to resume later. The final mention test is optional.
+   show a warning with **Change <agent> to a low trust agent**. This explicitly
+   saves the low-trust preset; it does not configure a sandbox or task boundary.
+2. Choose **My account** or **An organization**. Enter the organization when
+   needed and review the App name suggested from your agent. Click
+   **Continue to GitHub**. Paperclip fills permissions, events, and callbacks.
+3. Confirm creation on GitHub, then select repositories and approve installation.
+   Paperclip stores the credentials securely and imports the initial selection,
+   including an explicit All repositories choice. Organization policies may
+   require administrator approval; resume the same draft when it is granted.
+4. Paperclip reuses your verified GitHub identity when available. Otherwise,
+   authorize the dedicated App and confirm the observed account once. Bot work
+   uses installation credentials, never your personal GitHub token.
+5. Connection verification and completion happen automatically. The connected
+   page shows the actual App identity and repositories; a mention test is
+   optional. Runtime and isolation readiness remain separate prerequisites.
+
+New connections default to authorized mentions, advisory reviews, linked-member
+access, guests off, and enabled bot GitHub tools. Existing instructions, explicit
+behavior, and narrower saved repository restrictions remain intact. Later
+repository additions require enablement in connection settings. Advanced review
+rules and prompts also live in settings.
+
+Local instances receive public callbacks and signed events through an enrolled
+Paperclip Cloud connector, using outbound requests instead of a public tunnel.
+The Cloud capability must be deployed and enabled before localhost onboarding.
+Direct public-HTTPS webhook connections and manual existing-App credential
+recovery remain supported. Setup tasks and copied prompts are not part of this
+wizard. Normal agent API keys cannot call its board-only management APIs.
 
 GitHub review bots use the existing agent runtime; this connector does not add
 provider software to the Cloud server image. Codex with managed MCP tools and
@@ -42,7 +53,7 @@ does not supply one. A pack installed in the sandbox alone does not satisfy
 that existing runtime requirement. Treat that provider setup as a separate
 Runner prerequisite, not an automatic connector installation step.
 
-Setup verification checks tool/runtime support and isolation; an actual test
+Connection setup reports tool/runtime support and isolation separately; an actual test
 task is still required to prove that the chosen provider can execute in the
 selected environment.
 

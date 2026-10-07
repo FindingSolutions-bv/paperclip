@@ -2,6 +2,7 @@ import type {
   ChatEndpointSetupState,
   GitHubChatConfiguration,
   GitHubTaskReview,
+  GitHubAppRegistrationInput, GitHubAppWizardState,
 } from "@paperclipai/shared";
 import { api } from "./client";
 import type { ChatEndpoint, ChatEndpointResource } from "./chatEndpoints";
@@ -32,12 +33,12 @@ export const githubChatApi = {
       expectedRevision,
       configuration,
     }),
-  registration: (id: string, name: string) =>
-    api.post<{
-      registrationUrl: string;
-      manifest: Record<string, unknown>;
-      expiresAt: string;
-    }>(`${path(id)}/registration`, { name }),
+  registration: (id: string, input: GitHubAppRegistrationInput) =>
+    api.post<GitHubAppWizardState>(`${path(id)}/registration`, input),
+  saveDraft: (id: string, input: GitHubAppRegistrationInput) => api.put<{ saved: true }>(`${path(id)}/draft`, input),
+  advance: (id: string) => api.post<GitHubAppWizardState>(`${path(id)}/setup`, {}),
+  startIdentity: (id: string) => api.post<{ authorizationUrl: string }>(`${path(id)}/identity/start`, {}),
+  confirmIdentity: (id: string, githubUserId: string) => api.post<GitHubAppWizardState>(`${path(id)}/identity/confirm`, { githubUserId }),
   connectApp: (
     id: string,
     credentials: { appId: string; privateKey: string; webhookSecret: string },

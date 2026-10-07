@@ -60,6 +60,27 @@ export const chatGitHubRegistrations = pgTable(
     userId: text("user_id").notNull(),
     stateHash: text("state_hash").notNull(),
     trustedOrigin: text("trusted_origin").notNull(),
+    ownerType: text("owner_type")
+      .$type<"personal" | "organization">()
+      .notNull()
+      .default("personal"),
+    ownerLogin: text("owner_login"),
+    appName: text("app_name"),
+    handoff: jsonb("handoff").$type<{
+      cloudId: string;
+      redemptionId: string;
+      returnState: string;
+      webhookSecretHash?: string;
+      identityStateHash?: string;
+      identityExpiresAt?: string;
+      identityRedemptionId?: string;
+      identity?: {
+        githubUserId: string;
+        login: string;
+        avatarUrl: string | null;
+        expiresAt: string;
+      };
+    }>(),
     status: text("status")
       .$type<"pending" | "exchanging" | "completed" | "failed">()
       .notNull()

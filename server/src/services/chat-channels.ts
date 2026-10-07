@@ -18,6 +18,8 @@ import { githubReviewPrompt } from "./chat-github-review-policy.js";
 import { chatGitHubConfigurations, chatGitHubReviews } from "@paperclipai/db";
 import type { GitHubReviewEventContext, GitHubReviewPolicy } from "@paperclipai/shared";
 import { githubChatReviewService } from "./chat-github-reviews.js";
+import { githubChatWizardService } from "./chat-github-wizard.js";
+import { registerGitHubBotCloudIngress } from "./chat-github-cloud-ingress.js";
 import { githubChatRegistrationService } from "./chat-github-registration.js";
 import { githubChatPrincipalAccess } from "./chat-github-access.js";
 import { githubAppJwt } from "./chat-github-client.js";
@@ -1463,6 +1465,8 @@ export interface ChatChannelServiceOptions {
   /** Production bridge for resuming a native run that owns the question. */
   resolveNativeQuestion?: QuestionResponseDeliveryServiceOptions["resolveNativeQuestion"];
   publicBaseUrl?: string | null;
+  /** Canonical loopback browser return for Cloud-assisted GitHub registration. */
+  githubWizardOrigin?: string | null;
   /** Optional verified ingress origin; never used for board or identity links. */
   webhookPublicBaseUrl?: string | null;
   runtime?: ChatSdkRuntime;
@@ -9815,7 +9819,13 @@ export function chatChannelService(db: Db, options: ChatChannelServiceOptions) {
       const next = await endpointRecord(endpoint.id);
       if (!next) throw notFound("Chat endpoint not found");
       await invalidateRuntime(endpoint.id);
-      if (endpoint.provider === "github" && input.action === "reconnect") {
+      if (endpoint.provider === "github" && input.action === "reconnect" && endpoint.setup.github?.cloudRegistrationId) {
+        if (!actorUserId) throw forbidden("A configuring member is required to recover this App");
+        await credentialLease.assertOwned();
+        await githubWizard.repairCloud(endpoint.id, actorUserId);
+        await credentialLease.assertOwned();
+      }
+      if (endpoint.provider === "github" && input.action === "reconnect" && !endpoint.setup.github?.cloudRegistrationId) {
         // The immutable App and its installation were verified above. Repair
         // only its callback using the stored secret; never reinstall it or
         // change repository access. Keep historical signed-ping evidence, but
@@ -10035,7 +10045,7 @@ export function chatChannelService(db: Db, options: ChatChannelServiceOptions) {
         }
         if (endpoint.provider === "github" && endpoint.setup.github) {
           const verified = await githubChatManagementService(db, fetchImpl).verification(endpoint.id);
-          if (!verified.ready) throw conflict("Finish verifying the App, repositories, and assigned agent's tools before activating this bot", { checks: verified.checks });
+          if (!verified.ready && !(finishOptions?.optionalSlackTestForUser && verified.connectionReady)) throw conflict("Finish verifying the App, repositories, and assigned agent's tools before activating this bot", { checks: verified.checks });
         }
         const testStartedAtValue = endpoint.setup.testStartedAt;
         const testStartedAt = testStartedAtValue
@@ -38225,7 +38235,7 @@ export function chatChannelService(db: Db, options: ChatChannelServiceOptions) {
         await tx.update(chatEndpoints).set({
           status: "attention", botExternalId: identity.botExternalId, botUsername: identity.botUsername,
           botDisplayName: identity.botLabel, providerAccountId: identity.providerAccountId, providerAccountLabel: identity.providerAccountLabel,
-          setup: { ...record.endpoint.setup, github: { stage: "install", appSlug: slug, installationUrl: `https://github.com/apps/${slug}/installations/new`, registrationStatus: "completed" } },
+          setup: { ...record.endpoint.setup, github: { ...record.endpoint.setup.github, stage: "install", appSlug: slug, installationUrl: `https://github.com/apps/${slug}/installations/new`, registrationStatus: "completed" } },
           healthMessage: "Install the App on GitHub to continue", updatedAt: new Date(),
         }).where(eq(chatEndpoints.id, endpointId));
         await logActivity(tx as unknown as Db, { companyId: record.endpoint.companyId, actorType: "user", actorId: userId, action: "chat_github.app_connected", entityType: "tool_connection", entityId: record.endpoint.connectionId, details: { endpointId, appId: identity.botExternalId } });
@@ -38249,7 +38259,7 @@ export function chatChannelService(db: Db, options: ChatChannelServiceOptions) {
 
   const githubRegistration = githubChatRegistrationService(db, {
     publicOrigin: () => getPublicBaseUrl(), webhookOrigin: () => getWebhookPublicBaseUrl(), fetch: fetchImpl,
-    storeApp: async (endpointId, userId, app) => { await storeGitHubApp(endpointId, userId, { appId: app.appId, privateKey: app.privateKey, webhookSecret: app.webhookSecret }); },
+    storeApp: async (endpointId, userId, app) => { await storeGitHubApp(endpointId, userId, { appId: app.appId, privateKey: app.privateKey, webhookSecret: app.webhookSecret, ...(app.clientId ? { clientId: app.clientId } : {}), ...(app.clientSecret ? { clientSecret: app.clientSecret } : {}) }); },
   });
 
   async function refreshGitHubRepositories(endpointId: string, userId: string) {
@@ -38267,6 +38277,41 @@ export function chatChannelService(db: Db, options: ChatChannelServiceOptions) {
     });
     return listResources(endpointId);
   }
+
+  const githubWizard = githubChatWizardService(db, {
+    origin: () => getPublicBaseUrl() ?? options.githubWizardOrigin ?? null, fetch: fetchImpl, startDirect: githubRegistration.start, completeDirect: githubRegistration.complete, resumeDirect: githubRegistration.resumeRegistration,
+    storeApp: storeGitHubApp,
+    storeCredentials: async (id, userId, additional) => {
+      const record = await endpointRecord(id);
+      if (!record || record.endpoint.provider !== "github") throw notFound("GitHub bot not found");
+      await withCredentialMutationLease(record.endpoint, async lease => {
+        const current = await endpointRecord(id);
+        if (!current || ["archived", "revoked", "paused"].includes(current.endpoint.status)) throw conflict("GitHub App is unavailable");
+        const credentials = await resolveCredentials(current.endpoint);
+        await persistCredentials(current.endpoint, { ...credentials, ...additional }, lease, userId);
+      });
+    },
+    refreshRepositories: refreshGitHubRepositories, resources: listResources, replaceResources,
+    configure: async (id, userId) => {
+      await update(id, { allowGroupChats: true }, userId);
+      return configure(id, { action: "configure" }, userId);
+    },
+    finish: (id, userId) => test(id, { optionalSlackTestForUser: userId }),
+  });
+  const unregisterGitHubCloudIngress = registerGitHubBotCloudIngress(db, async (endpoint, event, body) => {
+    const record = await endpointRecord(endpoint.id);
+    if (!record || record.endpoint.companyId !== endpoint.companyId || record.endpoint.connectionId !== endpoint.connectionId
+      || record.endpoint.assignedAgentId !== endpoint.assignedAgentId || record.endpoint.setup.github?.cloudRegistrationId !== endpoint.setup.github?.cloudRegistrationId) throw forbidden("GitHub Cloud event binding changed");
+    const credentials = await resolveCredentials(record.endpoint);
+    // Cloud authenticated the provider's original bytes. Re-enter the canonical
+    // durable ingress with a local authenticator over the bounded normalized payload.
+    const normalized = JSON.stringify(body);
+    const response = await handleWebhook(record.endpoint.publicId, "github", new Request("https://paperclip.invalid/github-cloud-ingress", {
+      method: "POST", headers: { "content-type": "application/json", "x-github-event": event.event,
+        "x-github-delivery": event.deliveryId, "x-hub-signature-256": `sha256=${createHmac("sha256", credentials.webhookSecret).update(normalized).digest("hex")}` }, body: normalized,
+    }));
+    if (!response.ok) throw conflict("GitHub Cloud ingress could not be durably accepted");
+  });
 
   const unregisterSlackTaskAuthority = registerSlackTaskAuthority(db, async (binding) => {
     if (!(await instanceSettingsService(db).getExperimental()).enableChatConnectors)
@@ -38377,6 +38422,7 @@ export function chatChannelService(db: Db, options: ChatChannelServiceOptions) {
       await db.update(chatEndpoints).set({ setup: sql`jsonb_set(${chatEndpoints.setup}, '{github}', coalesce(${chatEndpoints.setup}->'github', '{}'::jsonb) || ${JSON.stringify({ stage })}::jsonb)`, updatedAt: new Date() }).where(eq(chatEndpoints.id, endpointId));
       return get(endpointId);
     },
+    githubWizard,
     startGitHubRegistration: githubRegistration.start,
     completeGitHubRegistration: githubRegistration.complete,
     storeGitHubApp,
@@ -38433,6 +38479,7 @@ export function chatChannelService(db: Db, options: ChatChannelServiceOptions) {
       await Promise.allSettled([...failedRetryTasks.values()]);
       unregisterFailedRetryAuthority();
       unregisterSlackTaskAuthority();
+      unregisterGitHubCloudIngress();
       unregisterCommittedResponseAuthority();
       await Promise.allSettled([...publicationEndpointTasks.values()]);
       await Promise.allSettled([...backgroundMessageTasks]);
