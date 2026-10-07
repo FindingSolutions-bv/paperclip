@@ -5,6 +5,50 @@ set of release gates. Pi remains a candidate until every required gate passes.
 Do not expand this work to additional models, widgets, images, Cursor or Copilot
 qualification. The existing draft stack must be reviewed in dependency order.
 
+## Current corrected source — 2026-10-06
+
+Shipping source `46ffa7aa3a8b219f5508448cffe297c09e38d810` contains the
+durable cleanup correction below. Full build, recursive typecheck and Product
+harness typecheck pass. All 288 environment tests pass. Exact-head CI has 53
+successful checks and two optional skips. Greptile completes successfully;
+the review-thread audit finds no unresolved threads or omitted pages.
+
+All 18 public archives are freshly packed and installed with verified integrity.
+The public-payload audit excludes credentials, databases and run evidence. The
+source-bound image is
+`ghcr.io/paperclipai/paperclip-daytona-runner@sha256:e8c38507c99db401a23d62c680cea888c58ee213c3edc3b85bf3ff04e3e26090`.
+Anonymous access and source/content labels pass. Normal native Linux CLI
+installation, Pi setup and offline admission pass with lifecycle scripts and
+the packaged daemon, without a binary override or model key. Admission takes
+7.701 seconds, confirms profile 15 and Pi 1.0.0, and exits the Runner cleanly.
+The temporary sandbox is deleted; an independent SDK lookup returns 404.
+
+Normal ARM Mac npm installation passes, but Pi setup cancels before admission.
+Its failed grade remains preserved. The installation process, setup lock and
+temporary setup directory are absent; no ARM runtime is admitted. The host log
+records repeated thermal-emergency sleeps during this attempt. That correlation
+does not prove which cancellation source fired. The original setup deadlines
+remain unchanged, and no unchanged retry runs. Darwin x64 compilation passes;
+normal x64 installation and physical Intel hardware proof remain outstanding.
+Host stability and an available physical Intel Mac or Intel Mac CI host have
+been requested from the operator.
+
+Prerequisite #14922 now has 52 successful checks. Prerequisites #14923 and
+#14924 each have 53 successful checks and two skips. Only their specific
+cancelled jobs and dependent checks were resumed at verified, unchanged heads;
+the original cancelled attempts remain preserved. All three have no open
+review threads. The premature-admission finding on #14921 remains open until
+the complete live qualification proves readiness.
+
+The new set has **0/26 Product and 0/7 Runner qualified passes**. Its final
+freeze and normal platform admission are incomplete. Prior-set 8/26 Product
+and 5/7 Runner passes remain historical. No new paid model attempt runs during
+these corrections. Memory, steering, semantic tool-call and terminal failures
+still require their own evidence-backed corrections before retries. Keep the
+dedicated key's $5 lifetime cap and the $100 campaign ceiling. The frozen
+model and low thinking remain unchanged. Production, merge and release remain
+held.
+
 ## Failed reusable-lease deletion correction — 2026-10-06
 
 Review of `fc661a364` identifies a further crash window: issue/workspace
@@ -828,7 +872,8 @@ local tests and release review are still required.
 
 ## Release gates
 
-These results describe frozen shipping source `c0eba7f4d` and its package/image
+Use the current corrected-source section above for the current status. The
+following detailed results describe frozen shipping source `c0eba7f4d` and its package/image
 manifest `e15b2b70cad3890555e422a82e62718d1eadf55c3557920a662d6108b596cf2b`.
 The failed reusable-lease correction changes shipping inputs. These results are
 historical until the corrected set is rebuilt and independently qualified.
@@ -1842,6 +1887,17 @@ They are retained history, not the current remaining-case roster.
 These are operator instructions for a later authorized release. Production
 remains held until all 33 qualification cases, integration checks and prerequisite
 reviews pass. This goal does not publish, merge or deploy the candidate.
+
+Failed reusable leases retain provider resources until destruction succeeds.
+Before removing an environment, inspect its deletion preview and request the
+normal consented reusable-resource teardown. A live holding run or
+`pending_cleanup` lease must continue blocking deletion. Let the recorded,
+attempt-fenced cleanup finish; do not clear its status or bypass the guard.
+After controller loss, cleanup ownership can take up to 15 minutes to expire
+before the sweep reclaims it. Confirm actual provider absence independently of
+the database status. Drain or recover recorded cleanup before rolling back to
+a release that cannot interpret its metadata, and preserve the provider handle
+and receipts throughout that operation.
 
 1. Record `paperclipai --version`, the prior CLI/server package versions, the
    current company configuration and the exact retained package set. Run
