@@ -81,6 +81,8 @@ struct State {
     text: Option<String>,
     operations: BTreeMap<String, Receipt>,
     completion: Option<Value>,
+    #[serde(default)]
+    completion_input: Option<Value>,
     events: VecDeque<PolledEvent>,
     next_event: u64,
 }
@@ -335,6 +337,7 @@ impl DotCommandExecutor {
                 text: None,
                 operations: BTreeMap::new(),
                 completion: None,
+                completion_input: None,
                 events: VecDeque::new(),
                 next_event: 1,
             });
@@ -421,10 +424,16 @@ impl DotCommandExecutor {
                 if state.lifecycle != "running" || state.tools.pending_calls().next().is_some() {
                     return Err(invalid("Dot cannot finish with unsettled tool calls"));
                 }
-                let result = op.input["result"].clone();
-                if state.completion.as_ref() != Some(&result) {
+                let submitted = &op.input["result"];
+                if state.completion.as_ref() != Some(submitted)
+                    && state.completion_input.as_ref() != Some(submitted)
+                {
                     return Err(invalid("Dot must successfully invoke paperclip_finish or paperclip_block with this result first"));
                 }
+                let result = state
+                    .completion
+                    .clone()
+                    .ok_or_else(|| invalid("Dot completion is missing"))?;
                 state.lifecycle = "completed".to_owned();
                 state
                     .tools
@@ -472,7 +481,15 @@ impl DotCommandExecutor {
                 .and_then(Value::as_str)
                 .is_none_or(|o| matches!(o, "completed" | "succeeded" | "success"))
         {
-            let mut completion = receipt.operation.input["arguments"].clone();
+            // The control plane normalizes provider aliases and optional fields.
+            // Persist that exact accepted report; do not revalidate raw arguments
+            // against a different contract. Legacy canonical receipts still work.
+            let accepted_input = receipt.operation.input["arguments"].clone();
+            let mut completion = result
+                .result
+                .get("completionReport")
+                .cloned()
+                .unwrap_or_else(|| accepted_input.clone());
             completion["schema"] = json!("paperclip.run_result.v1");
             let schema: Value = serde_json::from_str(include_str!(
                 "../../../../protocol/schemas/result.schema.json"
@@ -504,6 +521,7 @@ impl DotCommandExecutor {
                 ));
             }
             state.completion = Some(completion);
+            state.completion_input = Some(accepted_input);
         }
         let outcome =
             json!({"status":"completed","isError":result.is_error,"result":result.result});
@@ -935,6 +953,59 @@ mod tests {
                 .filter(|event| event.event_type == "run.result.proposed")
                 .count(),
             1
+        );
+    }
+    #[test]
+    fn normalized_completion_survives_restart_and_accepts_the_original_report() {
+        let dir = TestDirectory::new();
+        let mut e = prepared(dir.path());
+        accept(&mut e);
+        let input = json!({"reportedWorkDisposition":"completed","summary":"Saved report",
+            "completionClaim":{"contractRevision":"contract-1","objectiveSatisfied":true,"criteria":[{"criterionId":"criterion-1","status":"passed","evidenceRefs":[]}],"remainingWork":[]},
+            "evidence":[],"verification":[]});
+        let mut canonical = input.clone();
+        canonical["schema"] = json!("paperclip.run_result.v1");
+        canonical["reportedWorkDisposition"] = json!("done");
+        canonical["completionClaim"]["criteria"][0]["status"] = json!("satisfied");
+        canonical["attentionRequests"] = json!([]);
+        canonical["artifacts"] = json!([]);
+        call(
+            &mut e,
+            "external_provider.operation",
+            operation(
+                "completion-1",
+                "tool",
+                json!({"name":"paperclip_finish","arguments":input}),
+            ),
+        );
+        call(
+            &mut e,
+            "semantic_tool.result",
+            json!({"callId":"completion-1","operationId":"paperclip_finish","result":{"accepted":true,"completionReport":canonical},"isError":false}),
+        );
+        drop(e);
+        let mut e = DotCommandExecutor::with_runner_config(dir.path(), &config(dir.path()));
+        let mut changed = input.clone();
+        changed["summary"] = json!("Changed after acceptance");
+        assert!(e
+            .execute(&command(
+                "external_provider.operation",
+                operation("finish-1", "finish", json!({"result":changed}))
+            ))
+            .is_err());
+        call(
+            &mut e,
+            "external_provider.operation",
+            operation("finish-2", "finish", json!({"result":input})),
+        );
+        let events = e.poll_events().unwrap();
+        assert_eq!(
+            events
+                .iter()
+                .find(|event| event.event_type == "run.result.proposed")
+                .unwrap()
+                .payload,
+            canonical
         );
     }
     #[test]

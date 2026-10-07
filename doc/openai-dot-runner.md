@@ -66,6 +66,16 @@ structured report. Paperclip's ordinary result and status finalizers decide
 the task disposition. Dot can also discover its assigned tasks and request
 normal admission with `paperclip_dot_tasks` and `paperclip_dot_request_work`.
 
+The completion tool returns its canonical accepted report. The final turn can
+repeat either that canonical report or the exact original accepted arguments;
+the Runner persists and emits the canonical report. Changed reports are rejected.
+Work requests use a durable admission receipt keyed by binding, generation and
+request ID. Retries read that receipt, even after a task finishes, and cannot
+enqueue another run or move the same request to another task. A Dot runs one
+assignment at a time; competing tasks stay queued regardless of the agent's
+configured concurrency. During setup the connection panel continues checking
+for a verified event subscription without requiring a manual refresh.
+
 ## Limits and recovery
 
 - One active assignment per binding. Acceptance expires after 10 minutes;

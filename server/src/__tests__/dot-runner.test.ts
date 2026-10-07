@@ -5,12 +5,12 @@ import { fileURLToPath } from "node:url";
 import { mkdtemp, readFile, rm, writeFile } from "node:fs/promises";
 import { tmpdir } from "node:os";
 import { join } from "node:path";
-import { eq, sql } from "drizzle-orm";
+import { and, eq, sql } from "drizzle-orm";
 import express, { type Request } from "express";
 import request from "supertest";
 import { afterAll, beforeAll, describe, expect, it, vi } from "vitest";
 import { agents, authUsers, companies, companyMemberships, createDb, dotMailboxItems, dotRunnerAssignments, dotRunnerOperations,
-  heartbeatRuns, issues, nativeRunResults, nativeRunFinalizations, completionContracts, mcpEventDeliveries, workspaceOperations } from "@paperclipai/db";
+  heartbeatRuns, agentWakeupRequests, issues, nativeRunResults, nativeRunFinalizations, completionContracts, mcpEventDeliveries, workspaceOperations } from "@paperclipai/db";
 import { startEmbeddedPostgresTestDatabase } from "./helpers/embedded-postgres.js";
 import { createPublicMcpOAuth, DEVICE_GRANT } from "../services/public-mcp/oauth.js";
 import { createPublicMcpExecutor } from "../services/public-mcp/capabilities.js";
@@ -27,6 +27,7 @@ import { documentService } from "../services/documents.js";
 import { setupRunnerPrpWebSocketServer } from "../realtime/runner-prp-ws.js";
 import { finalizeNativeRun } from "../services/native-runtime/native-run-finalizer.js";
 import { resolveHeartbeatNativeRuntimeMode, resolveNativeRuntimeMode } from "../services/native-runtime/runtime-mode.js";
+import { heartbeatService } from "../services/heartbeat.js";
 
 describe("durable Dot Runner integration", () => {
   let temporary: Awaited<ReturnType<typeof startEmbeddedPostgresTestDatabase>>;
@@ -38,6 +39,7 @@ describe("durable Dot Runner integration", () => {
     temporary = await startEmbeddedPostgresTestDatabase("paperclip-dot-runner-");
     db = createDb(temporary.connectionString);
     root = await mkdtemp(join(tmpdir(), "paperclip-dot-state-"));
+    vi.stubEnv("PAPERCLIP_IN_WORKTREE", "false");
     vi.stubEnv("PAPERCLIP_RUNNER_BINARY", join(runnerRoot, "runner/target/release", process.platform === "win32" ? "paperclip-runnerd.exe" : "paperclip-runnerd"));
     vi.stubEnv("PAPERCLIP_RUNNER_STATE_DIR", join(root, "runner-state"));
     vi.stubEnv("PAPERCLIP_SECRETS_MASTER_KEY", randomBytes(32).toString("base64"));
@@ -159,6 +161,45 @@ describe("durable Dot Runner integration", () => {
       if (statement.trim()) await db.execute(sql.raw(statement));
     }
   });
+
+  it("keeps competing Dot assignments queued and replays durable work requests", async () => {
+    const f = await fixture();
+    await db.update(companies).set({ defaultResponsibleUserId: f.userId }).where(eq(companies.id, f.company.id));
+    await db.update(agents).set({ runtimeConfig: { heartbeat: { maxConcurrentRuns: 20, wakeOnDemand: true } } }).where(eq(agents.id, f.agent.id));
+    const holding = await offeredWork(f);
+    await db.update(heartbeatRuns).set({ status: "running", startedAt: new Date() }).where(eq(heartbeatRuns.id, holding.run.id));
+    const task = async (title: string) => (await db.insert(issues).values({ companyId: f.company.id, title, status: "todo", assigneeAgentId: f.agent.id, responsibleUserId: f.userId }).returning())[0]!;
+    const first = await task("First queued task");
+    const second = await task("Second queued task");
+    try {
+      const id = randomUUID();
+      const responses = await Promise.all(Array.from({ length: 3 }, () => f.broker.requestWork(f.principal, first.id, id)));
+      expect(responses[0]?.runId).toBeTruthy();
+      expect(responses).toEqual([responses[0], responses[0], responses[0]]);
+      const wakes = await db.select().from(agentWakeupRequests).where(and(eq(agentWakeupRequests.agentId, f.agent.id), eq(agentWakeupRequests.idempotencyKey, `dot-work:${f.snapshot.bindingId}:${f.snapshot.bindingGeneration}:${id}`)));
+      expect(wakes).toHaveLength(1);
+      expect((await db.select().from(heartbeatRuns).where(eq(heartbeatRuns.id, responses[0]!.runId!)))[0]?.status).toBe("queued");
+      await heartbeatService(db).resumeQueuedRuns();
+      expect((await db.select().from(heartbeatRuns).where(eq(heartbeatRuns.id, responses[0]!.runId!)))[0]?.status).toBe("queued");
+      await db.update(heartbeatRuns).set({ status: "succeeded", finishedAt: new Date() }).where(eq(heartbeatRuns.id, responses[0]!.runId!));
+      await db.update(issues).set({ status: "done" }).where(eq(issues.id, first.id));
+      expect(await f.broker.requestWork(f.principal, first.id, id)).toEqual(responses[0]);
+      await expect(f.broker.requestWork(f.principal, second.id, id)).rejects.toThrow("another task");
+      const third = await task("Third queued task");
+      const raceId = randomUUID();
+      const race = await Promise.allSettled([f.broker.requestWork(f.principal, second.id, raceId), f.broker.requestWork(f.principal, third.id, raceId)]);
+      expect(race.filter(r => r.status === "fulfilled")).toHaveLength(1);
+      expect(race.filter(r => r.status === "rejected")).toHaveLength(1);
+      const raceWakes = await db.select().from(agentWakeupRequests).where(and(eq(agentWakeupRequests.agentId, f.agent.id), eq(agentWakeupRequests.idempotencyKey, `dot-work:${f.snapshot.bindingId}:${f.snapshot.bindingGeneration}:${raceId}`)));
+      expect(raceWakes).toHaveLength(1);
+      const allRuns = await db.select().from(heartbeatRuns).where(eq(heartbeatRuns.agentId, f.agent.id));
+      expect(allRuns).toHaveLength(3); // Holding turn plus one admitted run per unique request.
+      expect(allRuns.filter(r => r.status === "queued")).toHaveLength(1);
+    } finally {
+      await db.update(heartbeatRuns).set({ status: "cancelled", finishedAt: new Date() }).where(eq(heartbeatRuns.agentId, f.agent.id));
+      await f.events.unsubscribe(f.principal, f.subscription); await f.events.stop();
+    }
+  }, 30000);
 
   it("verifies reconnects and wakes the same outstanding assignment after exhausted delivery", async () => {
     const f = await fixture();
@@ -340,13 +381,17 @@ describe("durable Dot Runner integration", () => {
       await expect(f.broker.operation(f.principal, assignment!.id, writeId, "tool", { ...args, arguments: { ...args.arguments, body: "changed" } })).rejects.toThrow("different arguments");
       const document = await documentService(db).getIssueDocumentByKey(issue!.id, "report");
       expect(document?.body).toBe("17 + 25 = 42.");
-      const result = { schema: "paperclip.run_result.v1", reportedWorkDisposition: "done", summary: "Saved the arithmetic report.",
+      const result = { reportedWorkDisposition: "completed", summary: "Saved the arithmetic report.",
         completionClaim: { contractRevision: execution.completionContract.contract.revision, objectiveSatisfied: true,
-          criteria: execution.completionContract.contract.criteria.map(c => ({ criterionId: c.id, status: "satisfied", evidenceRefs: [] })), remainingWork: [] },
-        evidence: [], verification: [{ commandOrCheck: "17 + 25", status: "passed" }], attentionRequests: [], artifacts: [] };
+          criteria: execution.completionContract.contract.criteria.map(c => ({ criterionId: c.id, status: "passed", evidenceRefs: [] })), remainingWork: [] },
+        evidence: [], verification: [{ commandOrCheck: "17 + 25", status: "pass" }] };
       const completionId = randomUUID();
       await f.broker.operation(f.principal, assignment!.id, completionId, "tool", { name: "paperclip_finish", arguments: result });
       await vi.waitFor(async () => expect(await f.broker.operationStatus(f.principal, assignment!.id, completionId)).toMatchObject({ status: "completed", isError: false }), { timeout: 10000 });
+      expect(await f.broker.operationStatus(f.principal, assignment!.id, completionId)).toMatchObject({ result: { completionReport: {
+        schema: "paperclip.run_result.v1", reportedWorkDisposition: "done", artifacts: [], attentionRequests: [],
+        verification: [{ commandOrCheck: "17 + 25", status: "passed" }],
+      } } });
       await f.broker.operation(f.principal, assignment!.id, randomUUID(), "finish", { result });
       await resultPromise;
       // The heartbeat records its controller workspace settlement before the

@@ -102,7 +102,7 @@ class RunnerdDotSession implements HarnessSession {
           if (!result.ok || (call.operationId === "paperclip_block") !== (result.ok && result.result.reportedWorkDisposition === "blocked")) {
             return { result: { error: "Invalid completion report. Use the admitted completion contract and the correct completion tool." }, isError: true };
           }
-          try { return { result: { accepted: true, feedback: await o.completionFeedback?.(result.result) ?? "Completion accepted; finish the external turn." } }; }
+          try { return { result: { accepted: true, completionReport: result.result, feedback: await o.completionFeedback?.(result.result) ?? "Completion accepted; finish the external turn." } }; }
           catch (error) { return { result: { error: error instanceof Error ? error.message : "Completion rejected" }, isError: true }; }
         }
         if (!o.dynamicToolHandler) throw new Error("dot_semantic_authority_unavailable");

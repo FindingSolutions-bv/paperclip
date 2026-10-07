@@ -20,7 +20,9 @@ export function DotRunnerConnection({ companyId, agentId, bindingId, onBinding }
   const key = ["dot-binding", companyId, agentId];
   const state = useQuery({ queryKey: key, enabled: !!companyId && !!agentId,
     queryFn: () => api.get<Connection>(path),
-    refetchInterval: query => query.state.data?.binding?.status === "pairing" || query.state.data?.binding?.hasPendingChallenge || query.state.data?.binding?.assignment ? 5000 : false });
+    refetchInterval: query => query.state.data?.binding?.status === "pairing" ||
+      (query.state.data?.binding?.connected && !query.state.data.binding.subscriptionVerified) ||
+      query.state.data?.binding?.hasPendingChallenge || query.state.data?.binding?.assignment ? 5000 : false });
   const pair = useMutation({ mutationFn: () => api.post<{ bindingId: string; pairingCode: string; expiresAt: string }>(path, {}),
     onSuccess: result => { setPairing(result); onBinding(result.bindingId); void client.invalidateQueries({ queryKey: key }); } });
   const test = useMutation({ mutationFn: () => api.post(path + "/event-test", {}),
