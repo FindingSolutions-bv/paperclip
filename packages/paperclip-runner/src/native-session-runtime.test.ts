@@ -7641,7 +7641,7 @@ describe("executeNativeSession recovery", () => {
     ]);
   });
 
-  it("parks a provider turn immediately after a durable governed wait appears", async () => {
+  it("parks immediately but retains shutdown usage before finalizing a governed wait", async () => {
     const yielded: PrpStructuredRunResult = {
       schema: "paperclip.run_result.v1",
       reportedWorkDisposition: "yielded",
@@ -7681,8 +7681,8 @@ describe("executeNativeSession recovery", () => {
       turnId: "turn-waiting",
     };
     const turnInterrupted: PrpEvent = {
-      ...controlEvent(2, "turn.interrupted", { reason: "governed_wait" }),
-      sourceEventId: "provider-recovery:2",
+      ...controlEvent(3, "turn.interrupted", { reason: "governed_wait" }),
+      sourceEventId: "provider-recovery:3",
       sourceInstanceId: "provider-recovery",
       sourceKind: "provider",
       turnId: "turn-waiting",
@@ -7711,6 +7711,8 @@ describe("executeNativeSession recovery", () => {
       async *events() {
         yield itemCompleted;
         await cancelled;
+        yield { ...itemCompleted, sourceSeq: 2, sourceEventId: "provider-recovery:2",
+          payload: { kind: "usage", usage: { runDelta: { inputTokens: 7, outputTokens: 3 }, runDeltaComplete: true } } };
         yield turnInterrupted;
       },
       async startTurn() {
@@ -7789,6 +7791,7 @@ describe("executeNativeSession recovery", () => {
     });
 
     expect(cancel).toHaveBeenCalledOnce();
+    expect(events.find(event => event.payload.kind === "usage")?.payload.usage).toMatchObject({ runDelta: { inputTokens: 7, outputTokens: 3 } });
     expect(completed).toMatchObject({
       result: yielded,
       terminal: {
@@ -7799,6 +7802,8 @@ describe("executeNativeSession recovery", () => {
     });
     expect(events.map((event) => event.eventType)).toEqual([
       "item.completed",
+      "item.completed",
+      "turn.interrupted",
       "run.result.accepted",
       "run.terminal",
     ]);

@@ -922,7 +922,7 @@ async function consumeTurn(
     let latestSessionGoal: HarnessThreadGoal | null = null;
     let resultSource: "semantic_result" | "governed_wait" | null = null;
     let providerFailure: NativeProviderTerminalFailure | null = null;
-    const settleDurableResult = (
+    const settleDurableResult = async (
       event: PrpEvent,
       result: PrpStructuredRunResult,
       reason: string,
@@ -940,6 +940,43 @@ async function consumeTurn(
       void cleanup
         .catch(() => quarantineSession("governed_cleanup_failed"))
         .finally(() => governedCleanupOperations.delete(cleanup));
+      // Cancellation revokes provider work immediately, but shutdown can still
+      // supply its final usage. Keep a bounded accounting-only drain before
+      // acknowledging the run; otherwise the next wake sees permanent debt.
+      // Never let a stuck stream or cleanup revoke the durable governed wait.
+      const drainAbort = new AbortController();
+      const stopDrain = () => drainAbort.abort(appendAbort.signal.reason);
+      appendAbort.signal.addEventListener("abort", stopDrain, { once: true });
+      const drainMs = Math.min(5_000, timeoutMs > 0 ? Math.max(1, Math.floor(timeoutMs / 4)) : 5_000);
+      let drainTimer: ReturnType<typeof setTimeout> | undefined;
+      const drained = (async () => {
+        while (!drainAbort.signal.aborted) {
+          const next = await eventIterator.next();
+          if (next.done || drainAbort.signal.aborted) return;
+          const trailing = next.value;
+          const terminal = isTurnTerminal(trailing);
+          const usage = trailing.eventType === "item.completed" && trailing.payload.kind === "usage";
+          if (trailing.turnId === event.turnId && (usage || terminal)) {
+            const receipt = await controlPlane.appendEvent(trailing, { signal: drainAbort.signal });
+            if (drainAbort.signal.aborted) return;
+            eventCount += receipt.disposition === "committed" ? 1 : 0;
+            highestContiguousSourceSeq = Math.max(highestContiguousSourceSeq, receipt.highestContiguousSourceSeq);
+            if (terminal) return;
+          }
+        }
+      })();
+      await Promise.race([
+        drained.catch(() => quarantineSession("governed_accounting_drain_failed")),
+        new Promise<void>(resolve => { drainTimer = setTimeout(() => {
+          drainAbort.abort(new Error("governed accounting drain timed out"));
+          quarantineSession("governed_accounting_drain_timed_out");
+          resolve();
+        }, drainMs); }),
+      ]).finally(() => {
+        clearTimeout(drainTimer);
+        appendAbort.signal.removeEventListener("abort", stopDrain);
+        drainAbort.abort();
+      });
       return {
         event,
         eventCount,

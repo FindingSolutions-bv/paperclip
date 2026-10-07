@@ -549,7 +549,10 @@ class HarnessNativeSession implements NativeSession {
           (event.eventType === "run.terminal" && ["failed", "cancelled"].includes(String(event.payload.runTerminalState))) ||
           (event.eventType === "item.completed" &&
             event.payload.kind === "interrupt_acknowledgement");
-        if (this.#explicitlyCancelled && !isCancellationEvent) continue;
+        // Accounting for work already performed survives cancellation. It grants
+        // no tool, message, semantic-result, or continuation authority.
+        const isUsageReceipt = event.eventType === "item.completed" && event.payload.kind === "usage";
+        if (this.#explicitlyCancelled && !isCancellationEvent && !isUsageReceipt) continue;
         sourceInstanceId = event.sourceInstanceId;
         lastSourceSequence = Math.max(lastSourceSequence, event.sourceSeq);
         if (event.eventType === "runtime_request.created") {
