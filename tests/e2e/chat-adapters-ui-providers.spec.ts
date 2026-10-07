@@ -149,6 +149,24 @@ test.describe.serial("native chat adapter UI", () => {
   test("Slack: automatic creation survives refresh, consent, and verification without copying durable secrets", async ({ page }) => {
     const slack = PROVIDERS.find(provider => provider.provider === "slack")!;
     const mock = await installChatControlPlaneMock(page, slack, seed, { enableChatConnectors: true, automaticSlack: true });
+    async function holdSetupRequest(action: "registration" | "install") {
+      let release!: () => void;
+      let received!: () => void;
+      const pending = new Promise<void>(resolve => { release = resolve; });
+      const requested = new Promise<void>(resolve => { received = resolve; });
+      await page.route(`**/api/chat-endpoints/endpoint-slack/slack/${action}`, async route => {
+        received();
+        await pending;
+        await route.fallback();
+      }, { times: 1 });
+      return { release, requested };
+    }
+    async function expectNavigationLocked() {
+      const steps = page.getByRole("navigation", { name: "Connection setup progress" }).getByRole("button");
+      await expect(steps).toHaveCount(7);
+      for (const step of await steps.all()) await expect(step).toBeDisabled();
+      await expect(page.getByRole("button", { name: "Save & exit", exact: true })).toBeDisabled();
+    }
     const rootUrl = new URL(`/${seed.prefix}/apps/chat/connect?provider=slack&purpose=chat&resume=endpoint-slack`, test.info().project.use.baseURL).href;
     const callbackUrl = new URL("/api/chat-slack/oauth/callback?state=fixture-state&code=fixture-code", rootUrl).href;
     let callbackRequests = 0;
@@ -169,8 +187,16 @@ test.describe.serial("native chat adapter UI", () => {
     await page.goto(`/${seed.prefix}/apps/chat/connect?provider=slack&purpose=chat&agentId=${seed.agentId}`);
     await page.getByRole("button", { name: "Continue", exact: true }).click();
     await page.getByLabel("App configuration token", { exact: true }).fill("fixture-config-token");
-    await page.getByRole("button", { name: "Create Slack app", exact: true }).click();
+    const creation = await holdSetupRequest("registration");
+    try {
+      await page.getByRole("button", { name: "Create Slack app", exact: true }).click();
+      await creation.requested;
+      await expectNavigationLocked();
+      await expect(page.getByLabel("App configuration token", { exact: true })).toHaveValue("");
+      await expect(page.getByLabel("Slack app name", { exact: true })).toHaveAttribute("readonly", "");
+    } finally { creation.release(); }
     await expect(page.getByRole("heading", { name: "Install Slack app", exact: true })).toBeVisible();
+    await expect(page.getByRole("navigation", { name: "Connection setup progress" }).getByRole("button", { name: /Choose agent/ })).toBeEnabled();
     expect(mock.slackCreations).toBe(1);
     await expect(page.getByLabel("Bot User OAuth Token", { exact: true })).toHaveCount(0);
     await expect(page.getByLabel("Signing Secret", { exact: true })).toHaveCount(0);
@@ -178,7 +204,12 @@ test.describe.serial("native chat adapter UI", () => {
     await expect(page.getByRole("heading", { name: "Install Slack app", exact: true })).toBeVisible();
     await page.getByRole("button", { name: "Save & exit", exact: true }).click();
     await page.goto(rootUrl);
-    await page.getByRole("button", { name: "Install in Slack", exact: true }).click();
+    const installation = await holdSetupRequest("install");
+    try {
+      await page.getByRole("button", { name: "Install in Slack", exact: true }).click();
+      await installation.requested;
+      await expectNavigationLocked();
+    } finally { installation.release(); }
     await expect(page.getByRole("heading", { name: "Fixture Slack consent" })).toBeVisible();
     await page.getByRole("link", { name: "Approve installation" }).click();
     await expect(page.getByRole("heading", { name: "Verify Slack connection", exact: true })).toBeVisible();

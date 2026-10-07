@@ -140,6 +140,7 @@ import { getExternalChannelBindingSummary } from "../services/chat-channel-bindi
 import { PaperclipRunnerToolAuthority } from "../services/native-runtime/paperclip-runner-tool-authority.js";
 import { NativeChatAttachmentReadScope } from "../services/native-runtime/chat-attachment-read.js";
 import { logActivity } from "../services/activity-log.js";
+import * as activityLogService from "../services/activity-log.js";
 import { subscribeCompanyLiveEvents } from "../services/live-events.js";
 import { issueThreadInteractionService } from "../services/issue-thread-interactions.js";
 import { questionResponseDeliveryService } from "../services/question-response-delivery.js";
@@ -4043,6 +4044,26 @@ describeEmbeddedPostgres("chat channel control-plane integration", () => {
       const publicState = JSON.stringify({ saved, row, activities: await db.select().from(activityLog).where(eq(activityLog.companyId, f.companyId)) });
       for (const canary of [configToken, signingSecret, clientSecret, f.token]) expect(publicState).not.toContain(canary);
       await request(f.app).patch(`/api/chat-endpoints/${f.endpoint.id}`).send({ slackApp: appDetails }).expect(409);
+    });
+    it("preserves a saved app when its creation activity fails without exposing the failure", async () => {
+      const f = await fixture();
+      const originalLogActivity = activityLogService.logActivity;
+      const activity = vi.spyOn(activityLogService, "logActivity").mockImplementation(async (database, input) => {
+        if (input.action === "chat_slack.app_created") throw new Error(`Audit outage ${clientSecret}`);
+        return originalLogActivity(database, input);
+      });
+      const warning = vi.spyOn(chatAttachmentLogger, "warn").mockImplementation(() => {});
+      try {
+        await f.create();
+        await f.create();
+        expect((await f.service.get(f.endpoint.id)).setup.slackRegistration).toMatchObject({ status: "install", appId: f.appId, errorCode: null });
+        const row = await f.service.slackRegistration.registration(f.endpoint.id);
+        expect(Object.keys(row!.secretIds).sort()).toEqual(["clientSecret", "signingSecret"]);
+        expect(f.provider.mock.calls.filter(([url]) => String(url).endsWith("apps.manifest.create"))).toHaveLength(1);
+        expect(warning).toHaveBeenCalledWith({ endpointId: f.endpoint.id, appId: f.appId }, "Slack app creation activity could not be recorded");
+        expect(JSON.stringify(warning.mock.calls)).not.toContain(clientSecret);
+        expect(activity.mock.calls.some(([, input]) => input.action === "chat_slack.creation_failed")).toBe(false);
+      } finally { activity.mockRestore(); warning.mockRestore(); }
     });
     it("installs, requires signed URL verification, reauthorizes the same app, and never links the installing user", async () => {
       const f = await fixture();

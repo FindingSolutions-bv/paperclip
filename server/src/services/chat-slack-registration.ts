@@ -6,6 +6,7 @@ import { buildSlackAppManifest, slackAppConfigurationSchema, slackRegistrationEr
 import { badRequest, conflict, forbidden, notFound, unprocessable } from "../errors.js";
 import { accessService } from "./access.js";
 import { logActivity } from "./activity-log.js";
+import { logger } from "../middleware/logger.js";
 import { instanceSettingsService } from "./instance-settings.js";
 import { secretService } from "./secrets.js";
 import { writeConnectionCredential } from "./connection-credentials.js";
@@ -148,6 +149,7 @@ export function slackChatRegistrationService(db: Db, options: {
       const [row] = await db.insert(chatSlackRegistrations).values({ endpointId, ...values })
         .onConflictDoUpdate({ target: chatSlackRegistrations.endpointId, set: values }).returning();
       await audit(row, actor, "creation_started");
+      let createdAppId: string;
       try {
         const result = await api("apps.manifest.create", { manifest: JSON.stringify(manifest) }, input.credentials.configurationToken);
         const credentials = object(result.credentials);
@@ -159,14 +161,18 @@ export function slackChatRegistrationService(db: Db, options: {
         await endpoint(endpointId, actor);
         await saveSecrets(row, { signingSecret: credentials.signing_secret, clientSecret: credentials.client_secret }, actor, lease,
           { appId: result.app_id, clientId: credentials.client_id, status: "install", errorCode: null });
-        await audit({ ...row, appId: result.app_id }, actor, "app_created");
+        createdAppId = result.app_id;
       } catch (error) {
         // Only documented rejection responses prove that creation did not happen.
         const code = object(object(error).details).code;
         const rejected = typeof code === "string" && Object.values(knownProviderErrors).includes(code);
         await setFailure(row, rejected ? "failed" : "uncertain", rejected ? code : "slack_creation_uncertain", lease);
         await audit(row, actor, "creation_failed", rejected ? code : "slack_creation_uncertain");
+        return;
       }
+      // The app and credentials are durable. An audit outage cannot change that outcome.
+      try { await audit({ ...row, appId: createdAppId }, actor, "app_created"); }
+      catch { logger.warn({ endpointId, appId: createdAppId }, "Slack app creation activity could not be recorded"); }
     });
   }
   async function install(endpointId: string, actor: SlackSetupActor) {

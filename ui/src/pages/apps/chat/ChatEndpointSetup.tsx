@@ -184,6 +184,7 @@ function ChatSdkEndpointSetup() {
   const [slackCredentialsReady, setSlackCredentialsReady] = useState(params.get("stage") === "credentials");
   const [viewedStep, setViewedStep] = useState<number | null>(null);
   const [slackIdentityReady, setSlackIdentityReady] = useState(false);
+  const [automaticBusy, setAutomaticBusy] = useState(false);
   const [endpoint, setEndpoint] = useState<ChatEndpoint | null>(null);
   const [credentials, setCredentials] = useState<Record<string, string>>({});
   const [generatedWebhookSecret, setGeneratedWebhookSecret] = useState("");
@@ -484,7 +485,7 @@ function ChatSdkEndpointSetup() {
         labels={isSlack ? ["Choose agent", "Create Slack app", automaticSlack ? "Install Slack app" : "Add credentials", "Verify Slack connection", "Add avatar", "Connect your Slack account", "Try it"] : undefined}
         step={step}
         availableStep={availableStep}
-        disabled={createEndpoint.isPending || setupAction.isPending || generateSetupSecret.isPending || testConnection.isPending}
+        disabled={automaticBusy || createEndpoint.isPending || setupAction.isPending || generateSetupSecret.isPending || testConnection.isPending}
         onSelect={setViewedStep}
       />
       <div className="min-w-0 space-y-6">
@@ -556,6 +557,8 @@ function ChatSdkEndpointSetup() {
               setCredentials={setCredentials}
               repairing={repairing}
               pending={setupAction.isPending}
+              automaticBusy={automaticBusy}
+              onAutomaticBusy={setAutomaticBusy}
               generatedWebhookSecret={generatedWebhookSecret}
               generatingSetupSecret={generateSetupSecret.isPending}
               onGenerateSetupSecret={() => generateSetupSecret.mutate()}
@@ -641,6 +644,8 @@ function ProviderConnectStep({
   setCredentials,
   repairing,
   pending,
+  automaticBusy,
+  onAutomaticBusy,
   onEndpointSaved,
   generatedWebhookSecret,
   generatingSetupSecret,
@@ -659,6 +664,8 @@ function ProviderConnectStep({
   setCredentials: Dispatch<SetStateAction<Record<string, string>>>;
   repairing: boolean;
   pending: boolean;
+  automaticBusy: boolean;
+  onAutomaticBusy: (busy: boolean) => void;
   onEndpointSaved: (endpoint: ChatEndpoint) => void;
   generatedWebhookSecret: string;
   generatingSetupSecret: boolean;
@@ -795,7 +802,6 @@ function ProviderConnectStep({
       command: defaultSlackCommand,
     },
   );
-  const [automaticBusy, setAutomaticBusy] = useState(false);
   const automaticSlack = endpoint.setup?.slackSetupMethod === "automatic";
   const registrationLocked = Boolean(endpoint.setup?.slackRegistration && endpoint.setup.slackRegistration.status !== "failed");
   const slackDetailsEditable = endpoint.status === "draft" && !endpoint.botExternalId && !registrationLocked && !automaticBusy;
@@ -1667,7 +1673,7 @@ function ProviderConnectStep({
         key={`${endpoint.id}:${slackStage}`}
         endpoint={endpoint} stage={slackStage} disabled={!endpoint.setup?.webhookUrl || !endpoint.setup?.slackOAuthCallbackUri?.startsWith("https://") || !slackValidation.success || saveSlackApp.isPending}
         saveDetails={ensureSlackAppSaved}
-        onBusy={setAutomaticBusy} onSaved={onEndpointSaved} onContinue={onSlackAppCreated}
+        onBusy={onAutomaticBusy} onSaved={onEndpointSaved} onContinue={onSlackAppCreated}
         onManual={async existing => {
           if (!registrationLocked && slackValidation.success) await saveSlackApp.mutateAsync(slackValidation.data);
           onEndpointSaved(await chatEndpointsApi.update(endpoint.id, { slackSetupMethod: existing ? "existing" : "manual" }));
