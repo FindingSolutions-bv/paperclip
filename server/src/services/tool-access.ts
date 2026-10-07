@@ -1,5 +1,5 @@
 import { chatCredentialMutationLease } from "./chat-credential-mutation-lease.js";
-import { removeSlackRegistration } from "./chat-slack-registration.js";
+import { removeSlackRegistration } from "./chat-slack-registration-cleanup.js";
 import { chatEndpoints } from "@paperclipai/db";
 import { AGGREGATOR_NAMES, isAppAggregator, type AggregatorAppsResponse, type ArcadeDiscoverySetupInput } from "@paperclipai/shared/aggregator-apps";
 import { resolveAggregatorApp, type AppCatalogAggregator } from "@paperclipai/shared/aggregator-app-catalog";

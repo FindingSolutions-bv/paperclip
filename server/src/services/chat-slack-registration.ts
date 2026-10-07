@@ -1,3 +1,4 @@
+import { removeSlackRegistration } from "./chat-slack-registration-cleanup.js";
 import { createHash, randomBytes } from "node:crypto";
 import { and, eq, gt, like } from "drizzle-orm";
 import { agents, chatEndpoints, chatSlackRegistrations, companies, toolConnections, toolOauthStates, type Db } from "@paperclipai/db";
@@ -324,16 +325,3 @@ export function slackChatRegistrationService(db: Db, options: {
   return { create, install, pending, expiredReturn, complete, cleanup, returnPath, registration,
     resume: (endpointId: string, actor: SlackSetupActor) => options.withLock(endpointId, lease => resumeLocked(endpointId, actor, lease)) };
 }
-
-export async function removeSlackRegistration(db: Db, endpointId: string, lease: CredentialMutationLeaseGuard) {
-    const vault = secretService(db);
-    const [row] = await db.select().from(chatSlackRegistrations).where(eq(chatSlackRegistrations.endpointId, endpointId));
-    if (!row) return;
-    await lease.assertOwned();
-    await db.update(chatSlackRegistrations).set({ status: "removed", updatedAt: new Date() }).where(eq(chatSlackRegistrations.endpointId, endpointId));
-    const [current] = await db.select().from(chatEndpoints).where(eq(chatEndpoints.id, endpointId));
-    if (current) await db.delete(toolOauthStates).where(and(eq(toolOauthStates.connectionId, current.connectionId), like(toolOauthStates.state, `${prefix}%`)));
-    for (const id of Object.values(row.secretIds)) { await lease.assertOwned(); await vault.remove(id); }
-    await lease.assertOwned();
-    await db.update(chatSlackRegistrations).set({ secretIds: {} }).where(eq(chatSlackRegistrations.endpointId, endpointId));
-  }
