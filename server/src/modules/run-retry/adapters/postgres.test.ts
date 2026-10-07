@@ -122,8 +122,6 @@ describePostgres("run-retry postgres adapter", () => {
       responsibleUserId: null,
       sessionBefore: null,
       continuationRetryIdempotencyKey: null,
-      legacyReconciliationBlocked: false,
-      legacyReconciliationEvidence: { sourceRunId: source.runId },
       ...overrides,
     };
   }

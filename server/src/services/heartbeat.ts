@@ -555,18 +555,15 @@ import {
   isResolvedInteractionContinuationWakeContext,
 } from "../modules/run-dispatch/index.js";
 import {
-  applyRetryNotBeforeOverride,
   BOUNDED_TRANSIENT_HEARTBEAT_RETRY_DELAYS_MS,
   BOUNDED_TRANSIENT_HEARTBEAT_RETRY_MAX_ATTEMPTS,
   BOUNDED_TRANSIENT_HEARTBEAT_RETRY_REASON,
   BOUNDED_TRANSIENT_HEARTBEAT_RETRY_WAKE_REASON,
   computeBoundedTransientHeartbeatRetrySchedule,
+  createRunRetry,
   decideBoundedRetrySchedule,
-  decideCodexTransientFallbackMode,
   decideHardRetryExclusion,
-  createPostgresRunRetryAdapter,
-  isBoundedTransientRetryReason,
-  type CodexTransientFallbackMode,
+  type RunRetryEffect,
 } from "../modules/run-retry/index.js";
 import {
   createWakeQueue,
@@ -9394,6 +9391,8 @@ export type HeartbeatEnvironmentRuntime = ReturnType<
 >;
 
 export interface HeartbeatServiceOptions {
+  /** Test seam for a failure after the retry decision returns its effects. */
+  runRetryEffectsApplier?: (run: typeof heartbeatRuns.$inferSelect, effects: RunRetryEffect[]) => Promise<void>;
   /** Test seam before the atomic native runtime handoff. */
   beforeNativeRuntimeSelection?: (runId: string) => Promise<void>;
   /** Test seam immediately before the durable chat-control admission check. */
@@ -9662,7 +9661,11 @@ export function heartbeatService(
       BOUNDED_TRANSIENT_HEARTBEAT_RETRY_MAX_ATTEMPTS,
   });
   const runDispatch = createRunDispatch(db);
-  const runRetry = createPostgresRunRetryAdapter(db);
+  const runRetry = createRunRetry(db, {
+    resolveSessionBeforeForWakeup,
+    resolveResponsibleUserIdForRunContext,
+    evaluateScheduledRetryGate: (input) => runDispatch.evaluateScheduledRetryGate(input),
+  });
 
   // Applies the post-commit effects a run-dispatch operation returns, on a
   // best-effort basis, exactly as this service publishes them for every
@@ -15412,6 +15415,40 @@ export function heartbeatService(
     };
   }
 
+  async function applyRunRetryEffects(
+    run: typeof heartbeatRuns.$inferSelect,
+    effects: RunRetryEffect[],
+  ) {
+    for (const effect of effects) {
+      if (effect.kind === "plan_approval_exhaustion_escalated") {
+        await escalatePlanApprovalResumeFailureNeedsAttention({
+          run,
+          issueId: effect.issueId,
+          attempt: effect.attempt,
+          maxAttempts: effect.maxAttempts,
+        }).catch((error) => {
+          logger.warn(
+            { err: error, runId: run.id, issueId: effect.issueId },
+            "failed to escalate exhausted plan-approval resume failure",
+          );
+        });
+      } else {
+        await recordPlanApprovalResumeFailureRetry({
+          run,
+          issueId: effect.issueId,
+          retryRunId: effect.retryRunId,
+          attempt: effect.attempt,
+          maxAttempts: effect.maxAttempts,
+        }).catch((error) => {
+          logger.warn(
+            { err: error, runId: run.id, issueId: effect.issueId, retryRunId: effect.retryRunId },
+            "failed to record plan-approval resume retry failure",
+          );
+        });
+      }
+    }
+  }
+
   async function scheduleBoundedRetryForRun(
     run: typeof heartbeatRuns.$inferSelect,
     agent: typeof agents.$inferSelect,
@@ -15424,378 +15461,72 @@ export function heartbeatService(
       delayMs?: number;
     },
   ) {
-    const hardExclusion = decideHardRetryExclusion({
-      errorCode: run.errorCode,
-      hasChatCompletionDeliveryIds:
-        Array.isArray(run.contextSnapshot?.chatCompletionDeliveryIds) &&
-        run.contextSnapshot.chatCompletionDeliveryIds.some((id) => typeof id === "string"),
-    });
-    if (hardExclusion.excluded) {
-      return {
-        outcome: "not_scheduled" as const,
-        reason: hardExclusion.reason,
-        ...("errorCode" in hardExclusion ? { errorCode: hardExclusion.errorCode } : {}),
-        issueId: readNonEmptyString(run.contextSnapshot?.issueId),
-      };
-    }
     const now = opts?.now ?? new Date();
-    const retryReason =
-      opts?.retryReason ?? BOUNDED_TRANSIENT_HEARTBEAT_RETRY_REASON;
-    const wakeReason =
-      opts?.wakeReason ?? BOUNDED_TRANSIENT_HEARTBEAT_RETRY_WAKE_REASON;
+    const retryReason = opts?.retryReason ?? BOUNDED_TRANSIENT_HEARTBEAT_RETRY_REASON;
+    const wakeReason = opts?.wakeReason ?? BOUNDED_TRANSIENT_HEARTBEAT_RETRY_WAKE_REASON;
     const consumedAttempts = executionRetryAttemptCount(run, retryReason);
-    const nextAttempt = consumedAttempts + 1;
-    const { maxAttempts, schedule: baseSchedule } = decideBoundedRetrySchedule({
+    const excluded = decideHardRetryExclusion({
+      errorCode: run.errorCode,
+      hasChatCompletionDeliveryIds: Array.isArray(run.contextSnapshot?.chatCompletionDeliveryIds) &&
+        run.contextSnapshot.chatCompletionDeliveryIds.some((id) => typeof id === "string"),
+    }).excluded;
+    const hasRetrySchedule = !excluded && decideBoundedRetrySchedule({
       consumedAttempts,
       maxAttempts: opts?.maxAttempts,
       delayMs: opts?.delayMs,
       now,
+      random: () => 0,
+    }).schedule !== null;
+    const legacyReconciliationBlocked = hasRetrySchedule
+      ? await legacyExecutionNeedsReconciliationWithEvidence(db, run)
+      : false;
+    const result = await runRetry.scheduleRunRetry({
+      run,
+      agent,
+      now,
       random: opts?.random ?? Math.random,
-    });
-    const transientRecovery =
-      isBoundedTransientRetryReason(retryReason)
-        ? readTransientRecoveryContractFromRun(run)
-        : null;
-    const codexTransientFallbackMode: CodexTransientFallbackMode | null =
-      decideCodexTransientFallbackMode({
-        isCodexLocalAdapter: agent.adapterType === "codex_local",
-        isTransientUpstreamErrorFamily:
-          transientRecovery?.errorFamily === "transient_upstream",
-        attempt: nextAttempt,
-      });
-    const transientRetryNotBefore = transientRecovery?.retryNotBefore ?? null;
-    const contextSnapshot = parseObject(run.contextSnapshot);
-    const issueId = readNonEmptyString(contextSnapshot.issueId);
-
-    if (!baseSchedule) {
-      const exhaustion = {
-        retryReason,
-        scheduledRetryAttempt: consumedAttempts,
-        maxAttempts,
-      };
-      await appendRunEvent(run, {
-        eventType: "lifecycle",
-        stream: "system",
-        level: "warn",
-        message: `Bounded retry exhausted after ${consumedAttempts} scheduled attempts; no further automatic retry will be queued`,
-        payload: exhaustion,
-        retryExhaustion: exhaustion,
-      });
-      if (retryReason === INTERACTION_CONTINUATION_INFRA_RETRY_REASON) {
-        await escalatePlanApprovalResumeFailureNeedsAttention({
-          run,
-          issueId,
-          attempt: Math.min(
-            consumedAttempts,
-            maxAttempts,
-          ),
-          maxAttempts,
-        }).catch((error) => {
-          logger.warn(
-            { err: error, runId: run.id, issueId },
-            "failed to escalate exhausted plan-approval resume failure",
-          );
-        });
-      }
-      return {
-        outcome: "retry_exhausted" as const,
-        attempt: nextAttempt,
-        maxAttempts,
-      };
-    }
-
-    const legacyReconciliationBlocked = await legacyExecutionNeedsReconciliationWithEvidence(db, run);
-    if (legacyReconciliationBlocked) {
-      return {
-        outcome: "not_scheduled" as const,
-        reason:
-          "Reconcile the previous execution before retrying; safe provider recovery is unavailable.",
-        errorCode: "legacy_execution_requires_reconciliation" as const,
-        issueId: readNonEmptyString(run.contextSnapshot?.issueId),
-      };
-    }
-    if (retryReason !== MAX_TURN_CONTINUATION_RETRY_REASON) {
-      const invokability = await runRetry.checkAgentInvokability({ companyId: run.companyId, now, agent });
-      if (!invokability.invokable) {
-        await appendRunEvent(run, {
-          eventType: "lifecycle",
-          stream: "system",
-          level: "warn",
-          message:
-            "Scheduled retry suppressed because the agent is not invokable",
-          payload: {
-            retryReason,
-            scheduledRetryAttempt: nextAttempt,
-            maxAttempts,
-            reason: invokability.reason,
-            invalidOrgChain: invokability.invalidOrgChain,
-            ...invokability.details,
-          },
-        });
-        return {
-          outcome: "not_scheduled" as const,
-          reason:
-            "Scheduled retry suppressed because the agent is not invokable",
-          errorCode: "agent_not_invokable" as const,
-          issueId,
-        };
-      }
-    }
-
-    const schedule = applyRetryNotBeforeOverride(
-      baseSchedule,
-      transientRetryNotBefore,
-      now,
-    );
-
-    const requiresIssueGate =
-      isTransientWorkspaceGitScanCode(run.errorCode) ||
-      hasConversationContinuationPolicy(run.resultJson) ||
-      (retryReason === AI_CONNECTION_BUSY_RETRY_REASON || retryReason === AI_CONNECTION_POOL_WAIT_RETRY_REASON) ||
-      retryReason === MAX_TURN_CONTINUATION_RETRY_REASON ||
-      retryReason === INTERACTION_CONTINUATION_INFRA_RETRY_REASON;
-    if (requiresIssueGate) {
-      const gate = await runDispatch.evaluateScheduledRetryGate({
-        runId: run.id,
-        companyId: run.companyId,
-        retryReasonOverride: retryReason,
-        now,
-      });
-      if (!gate.allowed) {
-        await appendRunEvent(run, {
-          eventType: "lifecycle",
-          stream: "system",
-          level: "warn",
-          message: gate.reason,
-          payload: {
-            retryReason,
-            scheduledRetryAttempt: nextAttempt,
-            maxAttempts,
-            ...gate.details,
-          },
-        });
-        return {
-          outcome: "not_scheduled" as const,
-          reason: gate.reason,
-          errorCode: gate.errorCode,
-          issueId: gate.issueId,
-        };
-      }
-    }
-    const taskKey = deriveTaskKeyWithHeartbeatFallback(contextSnapshot, null);
-    const sessionBefore = await resolveSessionBeforeForWakeup(agent, taskKey);
-    const interactionContinuationPayload =
-      retryReason === INTERACTION_CONTINUATION_INFRA_RETRY_REASON
-        ? {
-            mutation: "interaction",
-            interactionId: readNonEmptyString(contextSnapshot.interactionId),
-            interactionKind: readNonEmptyString(
-              contextSnapshot.interactionKind,
-            ),
-            interactionStatus: readNonEmptyString(
-              contextSnapshot.interactionStatus,
-            ),
-            continuationPolicy: readNonEmptyString(
-              contextSnapshot.continuationPolicy,
-            ),
-          }
-        : {};
-    const workspaceValidationRetryPayload =
-      retryReason === INTERACTION_CONTINUATION_INFRA_RETRY_REASON &&
-      isWorkspaceValidationFailedRun(run)
-        ? readWorkspaceValidationPayloadFromRun(run)
-        : null;
-    const shouldQuarantineWorkspaceForRetry =
-      workspaceValidationRetryPayload !== null &&
-      Object.keys(workspaceValidationRetryPayload).length > 0;
-    const retryContextSnapshot: Record<string, unknown> = withRecoveryContext(
-      {
-        ...contextSnapshot,
-        executionRetryAccounting: accountingForScheduledRetry(run, retryReason, schedule.attempt),
-        retryOfRunId: run.id,
-        wakeReason,
-        retryReason,
-        ...(retryReason === WORKSPACE_BUSY_RETRY_REASON
-          ? {
-              failureRetriesBeforeWorkspaceWait:
-                executionFailureRetryCount(run),
-            }
-          : {}),
-        ...((retryReason === AI_CONNECTION_BUSY_RETRY_REASON || retryReason === AI_CONNECTION_POOL_WAIT_RETRY_REASON)
-          ? { failureRetriesBeforeAiConnectionWait: executionFailureRetryCount(run) }
-          : {}),
-        ...(shouldQuarantineWorkspaceForRetry
-          ? {
-              workspaceValidationRecovery: {
-                strategy: "quarantine_failed_workspace_and_retry_clean",
-                sourceRunId: run.id,
-                reason:
-                  readNonEmptyString(workspaceValidationRetryPayload?.reason) ??
-                  WORKSPACE_VALIDATION_FAILURE_CODE,
-                fingerprint: readNonEmptyString(
-                  workspaceValidationRetryPayload?.fingerprint,
-                ),
-                failedExecutionWorkspaceId: readNonEmptyString(
-                  workspaceValidationRetryPayload?.executionWorkspaceId,
-                ),
-              },
-            }
-          : {}),
-        ...(transientRecovery
-          ? { errorFamily: transientRecovery.errorFamily }
-          : {}),
-        scheduledRetryAttempt: schedule.attempt,
-        scheduledRetryAt: schedule.dueAt.toISOString(),
-        ...(transientRetryNotBefore
-          ? { transientRetryNotBefore: transientRetryNotBefore.toISOString() }
-          : {}),
-        ...(transientRecovery?.errorFamily === "provider_quota" &&
-        transientRetryNotBefore
-          ? {
-              providerQuotaRetryNotBefore:
-                transientRetryNotBefore.toISOString(),
-            }
-          : {}),
-        ...(codexTransientFallbackMode ? { codexTransientFallbackMode } : {}),
-      },
-      "normal_model",
-    );
-    const responsibleUserId = await resolveResponsibleUserIdForRunContext(
-      run,
-      retryContextSnapshot,
-    );
-    const continuationRetryIdempotencyKey =
-      retryReason === MAX_TURN_CONTINUATION_RETRY_REASON
-        ? `max-turn-continuation:${run.companyId}:${issueId ?? "no-issue"}:${run.id}:${schedule.attempt}`
-        : retryReason === INTERACTION_CONTINUATION_INFRA_RETRY_REASON
-          ? `interaction-continuation:${run.companyId}:${issueId ?? "no-issue"}:${run.id}:${schedule.attempt}`
-          : null;
-
-    const scheduleResult = await runRetry.scheduleRetry({
-      companyId: run.companyId,
-      now,
-      run,
-      agentName: agent.name,
       retryReason,
       wakeReason,
-      issueId,
-      contextSnapshot,
-      retryContextSnapshot,
-      schedule,
-      transientRecovery,
-      transientRetryNotBefore,
-      codexTransientFallbackMode,
-      interactionContinuationPayload,
-      workspaceValidationRetryPayload,
-      shouldQuarantineWorkspaceForRetry,
-      responsibleUserId,
-      sessionBefore,
-      continuationRetryIdempotencyKey,
+      consumedAttempts,
       legacyReconciliationBlocked,
-      legacyReconciliationEvidence: { sourceRunId: run.id },
+      maxAttempts: opts?.maxAttempts,
+      delayMs: opts?.delayMs,
     });
-
-    if (scheduleResult.outcome === "not_scheduled") {
+    if (result.event) {
       await appendRunEvent(run, {
         eventType: "lifecycle",
         stream: "system",
-        level: "warn",
-        message: scheduleResult.reason,
-        payload: {
-          retryReason,
-          scheduledRetryAttempt: nextAttempt,
-          maxAttempts,
-          ...scheduleResult.details,
-        },
+        level: result.event.level,
+        message: result.event.message,
+        payload: result.event.payload,
+        ...(result.event.retryExhaustion
+          ? { retryExhaustion: result.event.retryExhaustion }
+          : {}),
       });
+    }
+    await (options.runRetryEffectsApplier ?? applyRunRetryEffects)(run, result.effects);
+    if (result.outcome === "not_scheduled") {
       return {
         outcome: "not_scheduled" as const,
-        reason: scheduleResult.reason,
-        errorCode: scheduleResult.errorCode,
-        issueId: scheduleResult.issueId,
+        reason: result.reason,
+        ...(result.errorCode ? { errorCode: result.errorCode } : {}),
+        issueId: result.issueId,
       };
     }
-
-    const retryRun = scheduleResult.run;
-    const dueAt = retryRun.scheduledRetryAt
-      ? new Date(retryRun.scheduledRetryAt)
-      : schedule.dueAt;
-
-    if (scheduleResult.reusedExisting) {
-      await appendRunEvent(run, {
-        eventType: "lifecycle",
-        stream: "system",
-        level: "info",
-        message: `Reused existing continuation retry ${retryRun.scheduledRetryAttempt}/${schedule.maxAttempts}`,
-        payload: {
-          retryRunId: retryRun.id,
-          retryReason,
-          idempotencyKey: continuationRetryIdempotencyKey,
-          scheduledRetryAttempt: retryRun.scheduledRetryAttempt,
-          scheduledRetryAt: dueAt.toISOString(),
-        },
-      });
-
+    if (result.outcome === "retry_exhausted") {
       return {
-        outcome: "scheduled" as const,
-        run: retryRun,
-        dueAt,
-        attempt: retryRun.scheduledRetryAttempt,
-        maxAttempts: schedule.maxAttempts,
-        reusedExisting: true,
+        outcome: "retry_exhausted" as const,
+        attempt: result.attempt,
+        maxAttempts: result.maxAttempts,
       };
     }
-
-    await appendRunEvent(run, {
-      eventType: "lifecycle",
-      stream: "system",
-      level: "warn",
-      message: `Scheduled bounded retry ${schedule.attempt}/${schedule.maxAttempts} for ${schedule.dueAt.toISOString()}`,
-      payload: {
-        retryRunId: retryRun.id,
-        retryReason,
-        ...(transientRecovery
-          ? { errorFamily: transientRecovery.errorFamily }
-          : {}),
-        scheduledRetryAttempt: schedule.attempt,
-        scheduledRetryAt: schedule.dueAt.toISOString(),
-        baseDelayMs: schedule.baseDelayMs,
-        delayMs: schedule.delayMs,
-        ...(transientRetryNotBefore
-          ? { transientRetryNotBefore: transientRetryNotBefore.toISOString() }
-          : {}),
-        ...(transientRecovery?.errorFamily === "provider_quota" &&
-        transientRetryNotBefore
-          ? {
-              providerQuotaRetryNotBefore:
-                transientRetryNotBefore.toISOString(),
-            }
-          : {}),
-        ...(codexTransientFallbackMode ? { codexTransientFallbackMode } : {}),
-      },
-    });
-
-    if (retryReason === INTERACTION_CONTINUATION_INFRA_RETRY_REASON) {
-      await recordPlanApprovalResumeFailureRetry({
-        run,
-        issueId,
-        retryRunId: retryRun.id,
-        attempt: schedule.attempt,
-        maxAttempts: schedule.maxAttempts,
-      }).catch((error) => {
-        logger.warn(
-          { err: error, runId: run.id, issueId, retryRunId: retryRun.id },
-          "failed to record plan-approval resume retry failure",
-        );
-      });
-    }
-
     return {
       outcome: "scheduled" as const,
-      run: retryRun,
-      dueAt,
-      attempt: schedule.attempt,
-      maxAttempts: schedule.maxAttempts,
+      run: result.run,
+      dueAt: result.dueAt,
+      attempt: result.attempt,
+      maxAttempts: result.maxAttempts,
+      ...(result.reusedExisting ? { reusedExisting: true as const } : {}),
     };
   }
 

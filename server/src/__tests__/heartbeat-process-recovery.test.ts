@@ -5097,6 +5097,27 @@ describeEmbeddedPostgres("heartbeat orphaned process recovery", () => {
     mockAdapterExecute.mockClear();
   });
 
+  it("rejects when the retry effect applier rejects", async () => {
+    const { runId } = await seedQueuedIssueRunFixture();
+    await db.update(heartbeatRuns).set({
+      status: "failed",
+      scheduledRetryAttempt: 2,
+      scheduledRetryReason: INTERACTION_CONTINUATION_INFRA_RETRY_REASON,
+    }).where(eq(heartbeatRuns.id, runId));
+    const failure = new Error("retry effect failed");
+    const apply = vi.fn().mockRejectedValue(failure);
+    const heartbeat = heartbeatService(db, { runRetryEffectsApplier: apply });
+
+    await expect(heartbeat.scheduleBoundedRetry(runId, {
+      retryReason: INTERACTION_CONTINUATION_INFRA_RETRY_REASON,
+      maxAttempts: 2,
+    })).rejects.toBe(failure);
+    expect(apply).toHaveBeenCalledWith(
+      expect.objectContaining({ id: runId }),
+      [expect.objectContaining({ kind: "plan_approval_exhaustion_escalated" })],
+    );
+  });
+
   it("escalates exhausted plan approval resume failures with a system comment and recovery action", async () => {
     const { companyId, agentId, runId, issueId } =
       await seedQueuedIssueRunFixture();

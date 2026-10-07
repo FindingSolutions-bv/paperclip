@@ -20,8 +20,6 @@ export type RunRetryWriterInput<Run> = {
   responsibleUserId: string | null;
   sessionBefore: string | null;
   continuationRetryIdempotencyKey: string | null;
-  legacyReconciliationBlocked: boolean;
-  legacyReconciliationEvidence: { sourceRunId: string };
 };
 
 export type RunRetryWriterResult<Run> =
@@ -36,8 +34,7 @@ export type RunRetryWriterResult<Run> =
         | "issue_terminal_status"
         | "issue_not_in_progress"
         | "continuation_user_authorization_missing"
-        | "issue_execution_lock_changed"
-        | "legacy_execution_requires_reconciliation";
+        | "issue_execution_lock_changed";
       issueId: string | null;
       details: Record<string, unknown>;
     };
@@ -56,3 +53,49 @@ export type RunRetryInvokabilityResult =
       invalidOrgChain: boolean;
       details: Record<string, unknown>;
     };
+
+export type RunRetryEffect =
+  | { kind: "plan_approval_retry_recorded"; issueId: string | null; retryRunId: string; attempt: number; maxAttempts: number }
+  | { kind: "plan_approval_exhaustion_escalated"; issueId: string | null; attempt: number; maxAttempts: number };
+
+export type RunRetryRun = {
+  id: string;
+  companyId: string;
+  errorCode: string | null;
+  contextSnapshot: Record<string, unknown> | null;
+  resultJson: Record<string, unknown> | null;
+  scheduledRetryAttempt: number | null;
+  scheduledRetryReason: string | null;
+  scheduledRetryAt: Date | null;
+};
+
+export type RunRetryAgent = {
+  companyId: string;
+  name: string;
+  adapterType: string;
+};
+
+export type ScheduleRunRetryInput<Run, Agent> = {
+  run: Run;
+  agent: Agent;
+  now: Date;
+  random: () => number;
+  retryReason: string;
+  wakeReason: string;
+  consumedAttempts: number;
+  legacyReconciliationBlocked: boolean;
+  maxAttempts?: number;
+  delayMs?: number;
+};
+
+export type RunRetryEvent = {
+  level: "warn" | "info";
+  message: string;
+  payload: Record<string, unknown>;
+  retryExhaustion?: { retryReason: string; scheduledRetryAttempt: number; maxAttempts: number };
+};
+
+export type ScheduleRunRetryOutcome<Run> =
+  | { outcome: "not_scheduled"; reason: string; errorCode?: string; issueId: string | null; event?: RunRetryEvent; effects: RunRetryEffect[] }
+  | { outcome: "retry_exhausted"; attempt: number; maxAttempts: number; event: RunRetryEvent; effects: RunRetryEffect[] }
+  | { outcome: "scheduled"; run: Run; dueAt: Date; attempt: number | null; maxAttempts: number; reusedExisting?: true; event: RunRetryEvent; effects: RunRetryEffect[] };

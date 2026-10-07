@@ -1,8 +1,8 @@
 // Pure retry policy rules for the bounded heartbeat retry scheduler.
-// server/src/services/heartbeat.ts calls these functions, one decision at a
-// time, from inside its orchestration facade. This file never queries a
-// database, calls a service, or reads the system clock; the caller always
-// passes `now` and `random` as explicit values.
+// The use case calls these functions. The service also checks whether a
+// schedule can reach the legacy reconciliation check. This file never queries
+// a database, calls a service, or reads the system clock. The caller passes
+// `now` and `random` as explicit values.
 
 /** The fixed delay table for the default bounded transient-failure lane. */
 export const BOUNDED_TRANSIENT_HEARTBEAT_RETRY_DELAYS_MS = [

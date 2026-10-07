@@ -1,3 +1,34 @@
+import { agents, heartbeatRuns, type Db } from "@paperclipai/db";
+import type { GateDecision } from "../run-dispatch/index.js";
+import { createPostgresRunRetryAdapter } from "./adapters/postgres.js";
+import { createScheduleRunRetry } from "./application/use-cases.js";
+import type { RunRetryAgentInvokability, RunRetryWriter } from "./application/ports.js";
+
+type Run = typeof heartbeatRuns.$inferSelect;
+type Agent = typeof agents.$inferSelect;
+
+export type RunRetryDeps = {
+  resolveSessionBeforeForWakeup: (agent: Agent, taskKey: string | null) => Promise<string | null>;
+  resolveResponsibleUserIdForRunContext: (run: Run, context: Record<string, unknown>) => Promise<string | null>;
+  evaluateScheduledRetryGate: (input: { runId: string; companyId: string; retryReasonOverride: string; now: Date }) => Promise<GateDecision>;
+  adapter?: RunRetryWriter<Run> & RunRetryAgentInvokability<Agent>;
+};
+
+export function createRunRetry(db: Db, deps: RunRetryDeps) {
+  const adapter = deps.adapter ?? createPostgresRunRetryAdapter(db);
+  return {
+    scheduleRunRetry: createScheduleRunRetry({
+      writer: adapter,
+      invokability: adapter,
+      evaluateScheduledRetryGate: deps.evaluateScheduledRetryGate,
+      resolveSessionBeforeForWakeup: deps.resolveSessionBeforeForWakeup,
+      resolveResponsibleUserIdForRunContext: deps.resolveResponsibleUserIdForRunContext,
+    }),
+  };
+}
+
+export type { RunRetryEffect } from "./application/types.js";
+
 // The run-retry module's public seam. Code outside this module imports only
 // from this file, never from a file inside domain/, application/, or
 // adapters/ directly.
@@ -24,5 +55,3 @@ export type {
   HardRetryExclusionFacts,
   RetrySchedule,
 } from "./domain/policy.js";
-
-export { createPostgresRunRetryAdapter } from "./adapters/postgres.js";

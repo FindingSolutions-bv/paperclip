@@ -55,19 +55,10 @@ export function createPostgresRunRetryAdapter(db: Db): RunRetryWriter<Run> & Run
         transientRetryNotBefore, codexTransientFallbackMode,
         interactionContinuationPayload, workspaceValidationRetryPayload,
         shouldQuarantineWorkspaceForRetry, responsibleUserId, sessionBefore,
-        continuationRetryIdempotencyKey, legacyReconciliationBlocked,
+        continuationRetryIdempotencyKey,
       } = input;
       if (companyId !== run.companyId) {
         throw new Error("The run company does not match the retry company.");
-      }
-      if (legacyReconciliationBlocked) {
-        return {
-          outcome: "not_scheduled",
-          reason: "Reconcile the previous execution before retrying; safe provider recovery is unavailable.",
-          errorCode: "legacy_execution_requires_reconciliation",
-          issueId,
-          details: {},
-        };
       }
       return db.transaction(
         async (tx): Promise<RunRetryWriterResult<Run>> => {
