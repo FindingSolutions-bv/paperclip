@@ -789,7 +789,7 @@ const chatAdapterCapabilitiesResponseSchema = z
 const chatEndpointSetupResponseSchema = z
   .object({
     step: z.enum(["choose_agent", "provider_setup", "test", "complete"]),
-    slackSetupMethod: z.enum(["automatic", "manual"]).optional(),
+    slackSetupMethod: z.enum(["automatic", "manual", "existing"]).optional(),
     slackRegistration: slackRegistrationStateSchema.optional(),
     slackOAuthCallbackUri: z.string().nullable().optional(),
     slackApp: slackAppConfigurationSchema.optional(),

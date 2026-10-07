@@ -1,4 +1,5 @@
 import { oauthCallbackInterstitialHtml } from "../../server/src/lib/oauth-browser-return";
+import { createServer } from "node:http";
 import { readFile } from "node:fs/promises";
 import { expect, test, type Page } from "@playwright/test";
 
@@ -114,6 +115,28 @@ async function exerciseGitHubReviewSetup(page: Page, mock: ChatMock, seed: Seed,
  * chat-control-plane mock live in ./chat-adapters-ui.shared.ts; the
  * messaging-flow describes run in chat-adapters-ui-messaging.spec.ts.
  */
+test("Slack OAuth continuation reloads once from the callback origin without echoing the code", async ({ page }) => {
+  const sites: Array<string | undefined> = [];
+  const server = createServer((req, res) => {
+    sites.push(req.headers["sec-fetch-site"] as string | undefined);
+    res.setHeader("Content-Type", "text/html");
+    res.setHeader("Cache-Control", "no-store");
+    if (sites.length === 1) res.end(oauthCallbackInterstitialHtml());
+    else res.end("<h1>Callback completed</h1>");
+  });
+  await new Promise<void>(resolve => server.listen(0, "127.0.0.1", resolve));
+  try {
+    const address = server.address();
+    if (!address || typeof address === "string") throw new Error("Missing callback fixture listener");
+    const callback = `http://127.0.0.1:${address.port}/callback?code=fixture-code`;
+    await page.route("https://slack.test/consent", route => route.fulfill({ contentType: "text/html", body: `<a href="${callback}">Approve installation</a>` }));
+    await page.goto("https://slack.test/consent");
+    await page.getByRole("link", { name: "Approve installation" }).click();
+    await expect(page.getByRole("heading", { name: "Callback completed" })).toBeVisible();
+    expect(sites.slice(0, 2)).toEqual(["cross-site", "same-origin"]);
+  } finally { await new Promise<void>((resolve, reject) => server.close(error => error ? reject(error) : resolve())); }
+});
+
 test.describe.serial("native chat adapter UI", () => {
   test.setTimeout(180_000);
 
@@ -128,11 +151,10 @@ test.describe.serial("native chat adapter UI", () => {
     const mock = await installChatControlPlaneMock(page, slack, seed, { enableChatConnectors: true, automaticSlack: true });
     const rootUrl = new URL(`/${seed.prefix}/apps/chat/connect?provider=slack&purpose=chat&resume=endpoint-slack`, test.info().project.use.baseURL).href;
     const callbackUrl = new URL("/api/chat-slack/oauth/callback?state=fixture-state&code=fixture-code", rootUrl).href;
-    const callbackSites: string[] = [];
+    let callbackRequests = 0;
     await page.route("**/api/chat-slack/oauth/callback?**", async route => {
-      const site = route.request().headers()["sec-fetch-site"];
-      callbackSites.push(site);
-      if (site === "cross-site") {
+      callbackRequests += 1;
+      if (callbackRequests === 1) {
         const body = oauthCallbackInterstitialHtml();
         expect(body).not.toContain("fixture-code");
         await route.fulfill({ contentType: "text/html", body });
@@ -142,9 +164,7 @@ test.describe.serial("native chat adapter UI", () => {
       }
     });
     await page.route("https://slack.test/**", async route => {
-      if (route.request().url().endsWith("/approve")) {
-        await route.fulfill({ status: 302, headers: { location: callbackUrl } });
-      } else await route.fulfill({ contentType: "text/html", body: '<h1>Fixture Slack consent</h1><a href="https://slack.test/approve">Approve installation</a>' });
+      await route.fulfill({ contentType: "text/html", body: `<h1>Fixture Slack consent</h1><a href="${callbackUrl}">Approve installation</a>` });
     });
     await page.goto(`/${seed.prefix}/apps/chat/connect?provider=slack&purpose=chat&agentId=${seed.agentId}`);
     await page.getByRole("button", { name: "Continue", exact: true }).click();
@@ -172,7 +192,7 @@ test.describe.serial("native chat adapter UI", () => {
     await page.getByRole("button", { name: "Continue to message test", exact: true }).click();
     await expect(page.getByRole("heading", { name: "Try Maya in Slack", exact: true })).toBeVisible();
     expect(mock.slackCreations).toBe(1); expect(mock.slackInstallations).toBe(1);
-    expect(callbackSites).toEqual(["cross-site", "same-origin"]);
+    expect(callbackRequests).toBe(2);
     await page.screenshot({ path: test.info().outputPath("automatic-slack-identity-linked.png"), fullPage: true });
     await page.getByRole("button", { name: "Skip test and finish", exact: true }).click();
     await expect(page).toHaveURL(/\/apps\/chat\/endpoint-slack\/settings$/);
@@ -195,6 +215,7 @@ test.describe.serial("native chat adapter UI", () => {
     await page.getByRole("button", { name: "Use an existing app", exact: true }).click();
     await expect(page.getByRole("heading", { name: "Add Slack credentials", exact: true })).toBeVisible();
     await page.reload();
+    await expect(page.getByRole("heading", { name: "Add Slack credentials", exact: true })).toBeVisible();
     await expect(page.getByRole("heading", { name: "Add Slack credentials", exact: true })).toBeVisible();
     expect(mock.slackCreations).toBe(0);
   });

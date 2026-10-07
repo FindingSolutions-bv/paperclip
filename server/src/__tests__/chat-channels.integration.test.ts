@@ -4062,6 +4062,8 @@ describeEmbeddedPostgres("chat channel control-plane integration", () => {
       expect(await f.service.listPrincipals(f.endpoint.id)).toEqual([]);
       const [row] = await db.select().from(chatSlackRegistrations).where(eq(chatSlackRegistrations.endpointId, f.endpoint.id));
       expect(Object.keys(row.secretIds)).toEqual(["clientSecret"]);
+      await request(f.app).patch(`/api/chat-endpoints/${f.endpoint.id}`).send({ slackSetupMethod: "manual" }).expect(409);
+      expect((await f.service.slackRegistration.registration(f.endpoint.id))?.secretIds).toEqual(row.secretIds);
       const body = JSON.stringify({ type: "url_verification", challenge: "auto-challenge" });
       await f.service.handleWebhook(saved.publicId, "slack", signedSlackWebhookRequest({ url: saved.setup.webhookUrl!, body, contentType: "application/json", signingSecret }));
       expect((await f.service.get(f.endpoint.id)).setup.webhookVerifiedAt).toBeTruthy();

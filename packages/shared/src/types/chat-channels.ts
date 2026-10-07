@@ -188,7 +188,7 @@ export interface SlackAppConfiguration {
 }
 
 export interface ChatEndpointSetupState {
-  slackSetupMethod?: "automatic" | "manual";
+  slackSetupMethod?: "automatic" | "manual" | "existing";
   slackRegistration?: import("../slack-app-manifest.js").SlackRegistrationState;
   slackOAuthCallbackUri?: string | null;
   github?: {
@@ -485,7 +485,7 @@ export interface CreateChatEndpointInput {
 }
 
 export interface UpdateChatEndpointInput {
-  slackSetupMethod?: "automatic" | "manual";
+  slackSetupMethod?: "automatic" | "manual" | "existing";
   slackApp?: SlackAppConfiguration;
   communicationInstructions?: string;
   allowDirectMessages?: boolean;

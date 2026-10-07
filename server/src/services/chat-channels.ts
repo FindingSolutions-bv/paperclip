@@ -6076,6 +6076,9 @@ export function chatChannelService(db: Db, options: ChatChannelServiceOptions) {
           }
           values.communicationInstructions = input.communicationInstructions;
         }
+        if (input.slackSetupMethod && (existing.endpoint.provider !== "slack" || existing.endpoint.botExternalId || existing.endpoint.status !== "draft")) {
+          throw conflict("Setup method can only change before connecting the app");
+        }
         if (input.slackApp || input.slackSetupMethod) {
           const [registration] = await db.select().from(chatSlackRegistrations).where(eq(chatSlackRegistrations.endpointId, endpointId));
           if (registration && registration.status !== "failed") {
@@ -6085,8 +6088,6 @@ export function chatChannelService(db: Db, options: ChatChannelServiceOptions) {
           }
         }
         if (input.slackSetupMethod) {
-          if (existing.endpoint.provider !== "slack" || existing.endpoint.botExternalId || existing.endpoint.status !== "draft")
-            throw conflict("Setup method can only change before connecting the app");
           values.setup = { ...existing.endpoint.setup, slackSetupMethod: input.slackSetupMethod };
         }
         if (input.slackApp) {

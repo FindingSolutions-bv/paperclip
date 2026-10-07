@@ -34,7 +34,8 @@ the draft and all saved non-secret progress.
 
 **Create manually** uses the same generated manifest. **Use an existing app**
 keeps the existing credential-entry workflow. Both options remain available for
-recovery on the same draft. The setup prompt describes browser assistance and
+recovery on the same draft. The selected automatic, manual, or existing-app method
+is saved, so an existing-app draft reopens at credential entry. The setup prompt describes browser assistance and
 requires the user to enter the temporary token and handle login/admin approval.
 
 ## Deployment

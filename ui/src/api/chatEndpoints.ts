@@ -136,7 +136,7 @@ export interface ChatEndpoint {
     messagingEndpoint?: string | null;
     command?: string | null;
     slackApp?: SlackAppConfiguration;
-    slackSetupMethod?: "automatic" | "manual";
+    slackSetupMethod?: "automatic" | "manual" | "existing";
     slackRegistration?: SlackRegistrationState;
     slackOAuthCallbackUri?: string | null;
     webhookVerifiedAt?: string | null;

@@ -428,7 +428,7 @@ function ChatSdkEndpointSetup() {
         : tryStep
       : automaticSlack && endpoint.setup?.slackRegistration?.status === "credentials_saved" ? 2
       : isSlack && endpoint.providerAccountId && !repairing ? 3
-      : isSlack && (slackCredentialsReady || repairing || automaticSlack && endpoint.setup?.slackRegistration?.appId) ? 2 : 1
+      : isSlack && (slackCredentialsReady || repairing || endpoint.setup?.slackSetupMethod === "existing" || automaticSlack && endpoint.setup?.slackRegistration?.appId) ? 2 : 1
     : 0;
   const step = Math.min(viewedStep ?? availableStep, availableStep);
   const avatarAgent = useQuery({
@@ -1670,7 +1670,7 @@ function ProviderConnectStep({
         onBusy={setAutomaticBusy} onSaved={onEndpointSaved} onContinue={onSlackAppCreated}
         onManual={async existing => {
           if (!registrationLocked && slackValidation.success) await saveSlackApp.mutateAsync(slackValidation.data);
-          onEndpointSaved(await chatEndpointsApi.update(endpoint.id, { slackSetupMethod: "manual" }));
+          onEndpointSaved(await chatEndpointsApi.update(endpoint.id, { slackSetupMethod: existing ? "existing" : "manual" }));
           if (existing) onSlackAppCreated();
         }}
         onSaveExit={() => void saveSlackAndExit()}

@@ -281,7 +281,7 @@ export function endpointFixture(provider: ProviderCase, seed: Seed) {
       proactiveDirectMessages: false,
     },
     setup: {
-      slackSetupMethod: undefined as "automatic" | "manual" | undefined,
+      slackSetupMethod: undefined as "automatic" | "manual" | "existing" | undefined,
       slackRegistration: undefined as SlackRegistrationState | undefined,
       slackApp: undefined as SlackAppConfiguration | undefined,
       slackOAuthCallbackUri: "https://paperclip.example.test/api/chat-slack/oauth/callback",
@@ -509,7 +509,7 @@ export async function installChatControlPlaneMock(
       if (method === "PATCH") {
         const body = bodyOf(route);
         if (body.slackApp) endpoint.setup.slackApp = body.slackApp as SlackAppConfiguration;
-        if (body.slackSetupMethod) endpoint.setup.slackSetupMethod = body.slackSetupMethod as "automatic" | "manual";
+        if (body.slackSetupMethod) endpoint.setup.slackSetupMethod = body.slackSetupMethod as "automatic" | "manual" | "existing";
         if (typeof body.allowDirectMessages === "boolean")
           state.allowDirectMessages = body.allowDirectMessages;
         if (typeof body.allowGroupChats === "boolean")
