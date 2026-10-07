@@ -3,6 +3,7 @@ import {
   canonicalizeEffectiveRunConfigCategory,
   createEffectiveRunConfigFingerprints,
   diffEffectiveRunConfigFingerprints,
+  type EffectiveRunConfigSecretManifestEntry,
 } from "../services/effective-run-config-fingerprints.ts";
 
 describe("effective run config fingerprints", () => {
@@ -304,7 +305,7 @@ describe("effective run config fingerprints", () => {
 
 
 describe("configured Paperclip environment freshness", () => {
-  const fingerprint = (env: Record<string, unknown>, secretManifest?: any[]) =>
+  const fingerprint = (env: Record<string, unknown>, secretManifest?: EffectiveRunConfigSecretManifestEntry[]) =>
     createEffectiveRunConfigFingerprints({ session: { env }, secretManifest }).sessionFingerprint;
 
   it("detects additions, changes, and removals without recording values", () => {
@@ -315,8 +316,9 @@ describe("configured Paperclip environment freshness", () => {
     expect(changed.fingerprint).not.toBe(first.fingerprint);
     expect(fingerprint({}).fingerprint).toBe(absent.fingerprint);
     expect(first.canonicalJson).not.toContain("first-bucket");
-    expect(fingerprint({ PAPERCLIP_RUN_ID: "first" }).fingerprint)
-      .toBe(fingerprint({ PAPERCLIP_RUN_ID: "second" }).fingerprint);
+    for (const key of ["PAPERCLIP_RUN_ID", "PAPERCLIP_RUNNER_EXTERNAL_SANDBOX", "PAPERCLIP_NORMALIZED_SESSION_ID"]) {
+      expect(fingerprint({ [key]: "first" }).fingerprint).toBe(fingerprint({ [key]: "second" }).fingerprint);
+    }
   });
 
   it("detects custom namespaced secret version changes", () => {
