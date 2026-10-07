@@ -892,6 +892,9 @@ Seed modes:
 The CLI and managed runtime provisioner honor it even when a registered source
 instance is present. An explicit successful `worktree reseed`, or a replacement
 `worktree init --force` without `--empty`, clears the choice.
+While that marker exists, startup uses the instance's saved JWT and tool-action
+signing keys even if the shell inherited another instance's keys. Better Auth
+uses its saved key or the fresh instance JWT key. Missing saved keys stop startup.
 
 Seeded worktree instances quarantine copied live execution by default for both `minimal` and `full` seeds. During restore, Paperclip disables copied agent timer heartbeats, resets copied `running` agents to `idle`, blocks and unassigns copied agent-owned `in_progress` issues, and unassigns copied agent-owned `todo`/`in_review` issues. This keeps a freshly booted worktree from starting agents for work already owned by the source instance. Pass `--preserve-live-work` only when you intentionally want the isolated worktree to resume copied assignments.
 
