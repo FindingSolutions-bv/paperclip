@@ -22,7 +22,8 @@ const { createCapabilityRunnerdCodexTransport } = await import(pathToFileURL(joi
 const { QUALIFIED_ACPX_PROFILES } = await import(pathToFileURL(join(server, 'dist/vendor/paperclip-runner/drivers/acpx/qualified-profiles.js')));
 assert.equal(QUALIFIED_ACPX_PROFILES.pi.agentProfileVersion, 16);
 assert.equal(QUALIFIED_ACPX_PROFILES.pi.commandDigest, 'sha256:28eefeccb2556d2668e20aee2f12a90d1fef50b9be954d5f6dd97c757e2e945e');
-assert.equal(QUALIFIED_ACPX_PROFILES.pi.qualificationModel, 'openrouter/deepseek/deepseek-v4-flash-0731');
+assert.equal(Object.hasOwn(QUALIFIED_ACPX_PROFILES.pi, 'qualificationModel'), false);
+assert.equal(Object.hasOwn(QUALIFIED_ACPX_PROFILES.pi, 'reportedModelId'), false);
 const daemon = resolvePaperclipRunnerBinary();
 assert.equal(await realpath(daemon), join(server, 'dist/vendor/paperclip-runner/bin/paperclip-runnerd'));
 const root = await mkdtemp(join(tmpdir(), 'pi-public-install-probe-'));
