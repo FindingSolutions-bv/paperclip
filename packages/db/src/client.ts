@@ -494,7 +494,14 @@ async function applyPendingMigrationsManually(
 
       await runInTransaction(sql, async () => {
         for (const statement of splitMigrationStatements(migrationContent)) {
-          await sql.unsafe(statement);
+          // Older dev schemas can already lack a constraint that the next
+          // migration replaces. Keep the published SQL/hash intact and let
+          // that harmless drop proceed; the replacement still runs normally.
+          const executable = statement.replace(
+            /^(\s*ALTER TABLE "[^"]+" DROP CONSTRAINT) (?!IF EXISTS\b)/i,
+            "$1 IF EXISTS ",
+          );
+          await sql.unsafe(executable);
         }
 
         await recordMigrationHistoryEntry(
