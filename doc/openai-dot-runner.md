@@ -155,3 +155,12 @@ an unexpected exit. A real Rust regression reproduces the failing order and
 passes with the fix. Four driver tests and 11 integration/pairing tests passed,
 including a failed connection refresh after successful revocation. Revocation
 clears the cached binding before refetch so that failure cannot restore it.
+
+Visual review uses the production `DotRunnerConnection` component in the
+`Assistant connections/Dot Runner` Storybook stories. Pairing, event-test
+waiting and revocation were exercised in the browser with synthetic API
+responses. These screenshots show preview data, not a qualified Dot account:
+
+![Synthetic pairing preview](screenshots/openai-dot-runner/pairing.jpg)
+
+![Synthetic connected preview](screenshots/openai-dot-runner/connected.jpg)
