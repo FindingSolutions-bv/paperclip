@@ -653,13 +653,22 @@ export async function testCodexAcpEnvironment(
     // a stale sandbox image is named here, before a run fails on every turn
     // with the backend's "not supported when using Codex with a ChatGPT
     // account" rejection. Models without a floor skip the probe.
+    //
+    // Remote ACP runs receive the adapter's string-valued env entries (see
+    // buildCodexAcpConfig), so the probe gets the same ones. An agent that
+    // selects its Codex install through PATH is then measured against that
+    // install rather than the image default.
+    const probeEnv: Record<string, string> = {};
+    for (const [key, value] of Object.entries(envConfig)) {
+      if (typeof value === "string") probeEnv[key] = value;
+    }
     const versionCheck = await checkCodexCliVersionForModel({
       runId: `codex-acp-envtest-${Date.now()}-${Math.random().toString(16).slice(2)}`,
       model: asString(config.model, ""),
       command: "codex",
       target,
       cwd: resolveAdapterExecutionTargetCwd(target, asString(config.cwd, ""), process.cwd()),
-      env: {},
+      env: probeEnv,
     });
     if (versionCheck) checks.push(versionCheck.check);
   }
