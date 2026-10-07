@@ -64,7 +64,7 @@ describe("automatic Slack setup actions", () => {
   it("requires an explicit checked-no-app confirmation before retrying an uncertain result", async () => {
     render({ ...endpoint, setup: { ...endpoint.setup!, slackRegistration: { status: "uncertain", errorCode: "slack_creation_uncertain" } } });
     expect(container.querySelector("input[type=password]")).toBeNull();
-    flushSync(() => container.querySelector<HTMLInputElement>("input[type=checkbox]")!.click());
+    flushSync(() => container.querySelector<HTMLButtonElement>('[role="checkbox"]')!.click());
     enter("new-token"); click("Create Slack app"); await settle();
     expect(api.createSlackApp.mock.calls[0][1]).toMatchObject({ confirmedNoAppCreated: true });
   });
