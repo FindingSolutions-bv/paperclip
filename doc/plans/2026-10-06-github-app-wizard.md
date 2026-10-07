@@ -86,8 +86,9 @@ signature. Cloud applies bounded ingress, queue and wake limits to unverified
 traffic. Deduplication includes the original body and signature to prevent forged
 delivery identifiers from suppressing valid events.
 
-The additive capability is controlled by `CLOUD_HARNESS_GITHUB_APPS_ENABLED=1`
-and advertises version 2. Deploy the additive Cloud migration and gateway before
+The additive capability is available by default with the Cloud connector broker
+and advertises version 2; no separate enable flag is required. Deploy the additive
+Cloud migration and gateway before
 the synchronized instance wizard. Existing shared-App account connections keep
 their provider-specific broker behavior and secret-store requirements.
 
@@ -163,8 +164,8 @@ reported rather than treated
 as a green run. The current PR heads require fresh CI and review. No real
 provider calls or deployments were used for this revision.
 
-Before rollout, apply the additive Cloud migration, enable the dedicated-App
-capability, then deploy the synchronized instance migration and wizard through
+Before rollout, apply the additive Cloud migration and deploy the gateway,
+then deploy the synchronized instance migration and wizard through
 the existing connector rollout control. A real personal and organization
 registration, installation, consent, signed delivery and bot response remain
 required. No deployment, real App creation, installation, runtime provisioning,
