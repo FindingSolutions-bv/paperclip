@@ -41,7 +41,7 @@ role. Device codes and browser requests stay bound to their original resource
 and organization. The gateway's Connections invitations remain personal
 assistant invitations; use the agent's Dot connection panel for Runner pairing.
 
-Database migration `0311_known_inertia.sql` adds only Dot tables and extensions
+Database migration `0312_broken_sentinels.sql` adds only Dot tables and extensions
 after the merged gateway migrations. It is safe to reapply. The earlier
 prototype migration number is retired; published master migrations are intact.
 

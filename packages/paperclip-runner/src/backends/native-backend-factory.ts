@@ -24,6 +24,7 @@ export interface NativeBackendFactoryOptions extends Omit<
 > {
   dotRunnerOptions?: Omit<RunnerdDotDriverOptions, "execution" | "dynamicTools" | "dynamicToolHandler" | "completionFeedback" | "onSpawn">;
   codexTransportFactory?: (context?: {
+    baseInstructions?: string;
     providerRecoveryPolicy?: PersistedNativeSession["providerRecoveryPolicy"];
     persistedSession?: Pick<
       PersistedHarnessSession,

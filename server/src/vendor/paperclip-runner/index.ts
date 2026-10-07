@@ -123,11 +123,15 @@ export const parseCodexTurnDiff = runner.parseCodexTurnDiff;
 export const parseHarnessRuntimeRequestResolution =
   runner.parseHarnessRuntimeRequestResolution;
 export const parseNativeExecutionInput = runner.parseNativeExecutionInput;
+export const isProviderMode = runner.isProviderMode;
 export const parseNativeRuntimeContext = runner.parseNativeRuntimeContext;
 export const parsePaperclipQuestionSet = runner.parsePaperclipQuestionSet;
 export const parsePaperclipQuestionResponse =
   runner.parsePaperclipQuestionResponse;
 export const resolveQualifiedAcpxProfile = runner.resolveQualifiedAcpxProfile;
+export const QUALIFIED_ACPX_PROFILES = runner.QUALIFIED_ACPX_PROFILES;
+export const QUALIFIED_ACPX_VERSION = runner.QUALIFIED_ACPX_VERSION;
+export const CURSOR_DISTRIBUTION_PINS = runner.CURSOR_DISTRIBUTION_PINS;
 export const resolveSourceCodexHome = runner.resolveSourceCodexHome;
 export const validatePrpEvent = runner.validatePrpEvent;
 export const validatePrpStructuredRunResult =
@@ -140,3 +144,5 @@ export const completeTerminatedRemoteNativeSessionCleanup = runner.completeTermi
 export const completeTerminatedLocalNativeSessionCleanup = runner.completeTerminatedLocalNativeSessionCleanup;
 
 export const externalOperationDigest = runner.externalOperationDigest;
+export const bundledRemoteProviderPackManifestPath = runner.bundledRemoteProviderPackManifestPath;
+export const bundledRemoteRunnerBinary = runner.bundledRemoteRunnerBinary;

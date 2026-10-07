@@ -122,7 +122,7 @@ describe("durable Dot Runner integration", () => {
   }
 
   it("reapplies the Dot-only migration after the merged gateway schema", async () => {
-    const migration = await readFile(new URL("../../../packages/db/src/migrations/0311_known_inertia.sql", import.meta.url), "utf8");
+    const migration = await readFile(new URL("../../../packages/db/src/migrations/0312_broken_sentinels.sql", import.meta.url), "utf8");
     for (const statement of migration.split("--> statement-breakpoint")) {
       if (statement.trim()) await db.execute(sql.raw(statement));
     }

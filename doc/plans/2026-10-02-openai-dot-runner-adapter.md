@@ -71,7 +71,7 @@ Verified client metadata, durable verification quotas, event secret rotation,
 subscription refresh races and warm-standby gates use the merged implementation.
 Personal and Dot event workers consume their own subscription resources.
 
-The generated Dot-only migration is now `0311_known_inertia.sql`, after the
+The generated Dot-only migration is now `0312_broken_sentinels.sql`, after the
 published master migrations. Its table, column, index and constraint additions
 are safe to reapply. Both consent UIs retain the merged organization branding
 and request layout while explaining agent access. Runner provider selection
