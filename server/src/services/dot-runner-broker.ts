@@ -9,9 +9,9 @@ import { McpOAuthError, type McpPrincipal } from "./public-mcp/oauth.js";
 import type { PublicMcpToolExtension } from "./public-mcp/dot-runner.js";
 import { boardAuthService } from "./board-auth.js";
 import { logActivity } from "./activity-log.js";
+import { instanceSettingsService } from "./instance-settings.js";
 
 const hash = (text: string) => createHash("sha256").update(text).digest("hex");
-const enabled = () => process.env.PAPERCLIP_ENABLE_OPENAI_DOT === "1";
 const fail = (message: string) => new McpOAuthError("access_denied", message, 409);
 const instances = new WeakMap<Db, ReturnType<typeof createBroker>>();
 export function dotRunnerBroker(db: Db) {
@@ -21,6 +21,11 @@ export function dotRunnerBroker(db: Db) {
 }
 
 function createBroker(db: Db) {
+  const settings = instanceSettingsService(db);
+  async function enabled() {
+    const experimental = await settings.getExperimental();
+    return experimental.enableOpenAiDot && experimental.enableNativeRunner && experimental.enablePublicMcp;
+  }
   const ports = new Map<string, { token: symbol; send: (op: ExternalProviderOperation) => Promise<void>; revoke?: () => Promise<void> }>();
   async function principalBinding(principal: McpPrincipal, requireReady = true, allowPaused = false) {
     if (principal.grant.purpose !== "agent" || !principal.grant.scopes.includes("paperclip:agent")) throw fail("Use the dedicated Dot agent connection.");
@@ -87,7 +92,7 @@ function createBroker(db: Db) {
   return {
     enabled,
     async createPairing(input: { companyId: string; agentId: string; operatorId: string; dotUrl?: string }) {
-      if (!enabled()) throw fail("OpenAI Dot is disabled on this instance.");
+      if (!await enabled()) throw fail("Enable OpenAI Dot, Paperclip Runner, and Assistant connections (MCP) in experimental settings.");
       if (input.dotUrl && !/^https:\/\/chatgpt\.com\/dots\/[A-Za-z0-9-]+$/.test(input.dotUrl)) throw fail("Use the Dot's ChatGPT URL.");
       const code = randomBytes(24).toString("base64url");
       const binding = await db.transaction(async tx => {
@@ -104,7 +109,7 @@ function createBroker(db: Db) {
         instructions: "Connect the private Paperclip Dot plugin at /mcp/runner, approve agent access, then call paperclip_dot_pair with this code. Subscribe to paperclip.dot.mailbox_updated for the returned binding. Run the event test before assigning work." };
     },
     async pair(principal: McpPrincipal, code: string) {
-      if (!enabled() || principal.grant.purpose !== "agent" || !principal.grant.scopes.includes("paperclip:agent")) throw fail("A dedicated Dot agent grant is required.");
+      if (!await enabled() || principal.grant.purpose !== "agent" || !principal.grant.scopes.includes("paperclip:agent")) throw fail("A dedicated Dot agent grant is required.");
       return db.transaction(async tx => {
         const [b] = await tx.select().from(bindings).where(and(eq(bindings.pairingCodeHash, hash(code)),
           eq(bindings.companyId, principal.grant.companyId), eq(bindings.operatorId, principal.grant.userId), isNull(bindings.revokedAt))).for("update");
@@ -135,7 +140,7 @@ function createBroker(db: Db) {
         assignment: active ? { ...active, attentionRequired: active.status === "accepted" && active.lastActivityAt.getTime() < Date.now() - 15 * 60_000 } : null };
     },
     async snapshot(companyId: string, agentId: string, bindingId: string): Promise<DotBindingSnapshot> {
-      if (!enabled()) throw fail("OpenAI Dot is disabled for new work.");
+      if (!await enabled()) throw fail("OpenAI Dot is disabled for new work.");
       const state = await this.bindingForAgent(companyId, agentId);
       if (!state || state.id !== bindingId || state.status !== "ready" || !state.subscriptionVerified) throw fail("Dot must be paired with a verified event subscription and a completed event test.");
       const [binding] = await db.select().from(bindings).where(eq(bindings.id, bindingId));
@@ -196,7 +201,7 @@ function createBroker(db: Db) {
     async requestWork(principal: McpPrincipal, issueId: string, requestId: string) {
       const b = await principalBinding(principal);
       if (!z.uuid().safeParse(requestId).success) throw fail("Use a stable UUID requestId.");
-      if (!enabled() || !(await this.bindingForAgent(b.companyId, b.agentId))?.subscriptionVerified) throw fail("Dot admission is unavailable.");
+      if (!await enabled() || !(await this.bindingForAgent(b.companyId, b.agentId))?.subscriptionVerified) throw fail("Dot admission is unavailable.");
       const [issue] = await db.select().from(issues).where(and(eq(issues.companyId, b.companyId), eq(issues.id, issueId), eq(issues.assigneeAgentId, b.agentId)));
       if (!issue || !["todo", "in_progress"].includes(issue.status)) throw fail("Request work only for an eligible task assigned to this agent.");
       const key = `dot-work:${b.id}:${b.generation}:${requestId}`;
@@ -237,7 +242,7 @@ function createBroker(db: Db) {
     },
     async challenge(companyId: string, agentId: string) {
       const state = await this.bindingForAgent(companyId, agentId);
-      if (!enabled() || !state || !state.subscriptionVerified) throw fail("Connect and subscribe the Dot first.");
+      if (!await enabled() || !state || !state.subscriptionVerified) throw fail("Connect and subscribe the Dot first.");
       const nonce = randomBytes(24).toString("base64url");
       await db.transaction(async tx => {
         const [b] = await tx.select().from(bindings).where(eq(bindings.id, state.id)).for("update");

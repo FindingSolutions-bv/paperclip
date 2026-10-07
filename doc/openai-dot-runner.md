@@ -13,8 +13,10 @@ controller deployments are not qualified. The feature is off by default.
 ## Enable and pair
 
 1. Configure `PAPERCLIP_PUBLIC_URL` to the instance's stable HTTPS origin and
-   enable Public MCP and Paperclip Runner in experimental settings. Set
-   `PAPERCLIP_ENABLE_OPENAI_DOT=1` on the server.
+   enable **Assistant connections (MCP)**, **Paperclip Runner**, and **OpenAI Dot**
+   in **Instance settings → Experimental**. The instance must use authenticated
+   sign-in. These settings are saved and take effect without a restart; the old
+   `PAPERCLIP_ENABLE_OPENAI_DOT` environment flag no longer enables the provider.
 2. Create an approved Paperclip Runner agent with provider **OpenAI Dot**.
    Acknowledge that its provider billing is external and unmetered. Save it.
 3. In the agent configuration, choose **Pair Dot**. Connect a private ChatGPT

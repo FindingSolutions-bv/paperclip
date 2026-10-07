@@ -966,6 +966,9 @@ export function AgentConfigForm(props: AgentConfigFormProps) {
     // every adapter without a per-adapter edit.
     hideInstructionsFile: hideInstructionsFile || hideHostPaths || isDotRunner,
     managedSandboxOnly: hideHostPaths || isDotRunner,
+    openAiDotEnabled: experimentalSettings?.enableOpenAiDot === true
+      && experimentalSettings?.enablePublicMcp === true
+      && experimentalSettings?.enableNativeRunner === true,
   };
 
   // Section toggle state — advanced always starts collapsed

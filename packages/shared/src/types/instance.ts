@@ -73,6 +73,8 @@ export interface InstanceExperimentalSettings {
   enableChatConnectors: boolean;
   /** Allow person-authorized assistant tools and task event delivery. */
   enablePublicMcp: boolean;
+  /** Enable the experimental OpenAI Dot provider and its dedicated agent MCP connection. */
+  enableOpenAiDot: boolean;
   /** @deprecated Compatibility key only. MCP aggregators are always enabled. */
   enableMcpAggregators: boolean;
   /** Show experimental memory connection setup. Existing connections remain usable. */

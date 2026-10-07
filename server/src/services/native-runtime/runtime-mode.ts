@@ -97,6 +97,7 @@ function ineligible(
 
 export function resolveNativeRuntimeMode(input: {
   enabled: boolean;
+  dotEnabled?: boolean;
   runtimeConfig: unknown;
   adapterConfig?: unknown;
   agent: { id?: string; status: string; adapterType: string | null };
@@ -131,7 +132,7 @@ export function resolveNativeRuntimeMode(input: {
     }
     throw error;
   }
-  if (runnerProfile.provider === "openai_dot" && process.env.PAPERCLIP_ENABLE_OPENAI_DOT !== "1") throw ineligible("paperclip_runner_dot_disabled", "OpenAI Dot is disabled for new work on this instance.");
+  if (runnerProfile.provider === "openai_dot" && input.dotEnabled !== true) throw ineligible("paperclip_runner_dot_disabled", "Enable OpenAI Dot and Assistant connections (MCP) in experimental settings before assigning new work.");
   if (
     input.agent.adapterType !== "paperclip_runner"
     || input.agent.status !== "active" && input.agent.status !== "running"
@@ -183,6 +184,7 @@ export function resolveHeartbeatRuntimeMode(input: {
     runtimeModeResolvedAt: Date | null;
   };
   enabled: boolean;
+  dotEnabled?: boolean;
   adapterType: string | null;
   adapterConfig: unknown;
   agentStatus: string;
@@ -209,6 +211,7 @@ export function resolveHeartbeatRuntimeMode(input: {
   try {
     resolution = resolveNativeRuntimeMode({
       enabled: input.enabled,
+      dotEnabled: input.dotEnabled,
       runtimeConfig: {},
       adapterConfig: input.adapterConfig,
       agent: {
@@ -264,6 +267,7 @@ export function resolveHeartbeatNativeRuntimeMode(input: {
     driverKind?: string | null;
   };
   enabled: boolean;
+  dotEnabled?: boolean;
   runtimeConfig: unknown;
   adapterConfig?: unknown;
   agent: { id?: string; status: string; adapterType: string | null };

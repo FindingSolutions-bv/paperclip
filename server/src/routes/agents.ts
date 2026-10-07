@@ -3602,11 +3602,12 @@ export function agentRoutes(
           : inputAdapterConfig;
       }
       if (type === "paperclip_runner" && inputAdapterConfig.provider === "openai_dot") {
+        const dotEnabled = await dotRunnerBroker(db).enabled();
         const binding = savedAgentId ? await dotRunnerBroker(db).bindingForAgent(companyId, savedAgentId) : null;
         let resource: ReturnType<typeof publicMcpConfig> = null;
         try { resource = publicMcpConfig(process.env); } catch { /* diagnostic below */ }
         const checks: AdapterEnvironmentCheck[] = [
-          { code: "dot_enabled", level: dotRunnerBroker(db).enabled() ? "info" : "error", message: dotRunnerBroker(db).enabled() ? "Dot is enabled." : "Enable PAPERCLIP_ENABLE_OPENAI_DOT=1 on the server." },
+          { code: "dot_enabled", level: dotEnabled ? "info" : "error", message: dotEnabled ? "Dot is enabled." : "Enable OpenAI Dot, Paperclip Runner, and Assistant connections (MCP) in experimental settings." },
           { code: "dot_public_endpoint", level: resource?.origin.startsWith("https://") ? "info" : "error", message: resource?.origin.startsWith("https://") ? "Public HTTPS MCP origin is configured." : "Configure a stable public HTTPS PAPERCLIP_PUBLIC_URL." },
           { code: "dot_unmetered", level: inputAdapterConfig.allowUnmeteredProvider === true ? "info" : "error", message: "Dot usage and provider cost are unavailable. Explicit externally billed provider acknowledgement is required." },
           { code: "dot_binding", level: binding?.status === "ready" && binding.subscriptionVerified && binding.id === inputAdapterConfig.dotBindingId ? "info" : "warn", message: binding?.status === "ready" && binding.subscriptionVerified ? "Binding has a verified event subscription and completed readiness challenge." : "Save this agent, pair it, subscribe to mailbox events and complete the event test." },

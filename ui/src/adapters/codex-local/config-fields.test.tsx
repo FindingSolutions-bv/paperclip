@@ -25,7 +25,7 @@ async function renderMarkup(node: ReactNode, expand?: string): Promise<string> {
   return html;
 }
 
-async function renderRunner(config: Record<string, unknown>, expand?: string): Promise<string> {
+async function renderRunner(config: Record<string, unknown>, expand?: string, openAiDotEnabled = false): Promise<string> {
   return renderMarkup(
     <TooltipProvider>
       <CodexLocalConfigFields
@@ -39,6 +39,7 @@ async function renderRunner(config: Record<string, unknown>, expand?: string): P
         mark={() => undefined}
         models={[]}
         hideInstructionsFile
+        openAiDotEnabled={openAiDotEnabled}
       />
     </TooltipProvider>,
     expand,
@@ -46,6 +47,10 @@ async function renderRunner(config: Record<string, unknown>, expand?: string): P
 }
 
 describe("Paperclip Runner Codex configuration", () => {
+  it("only offers Dot for new selections when its prerequisites are enabled", async () => {
+    expect(await renderRunner({ provider: "codex" }, "Harness")).not.toContain("OpenAI Dot");
+    expect(await renderRunner({ provider: "codex" }, "Harness", true)).toContain("OpenAI Dot");
+  });
   it.each([
     [undefined, "Full auto (approve all)"],
     ["approve-paperclip", "Automatic Paperclip actions"],

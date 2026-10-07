@@ -71,7 +71,10 @@ export function createPublicMcpOAuth(db: Db, config: PublicMcpConfig, options: {
   const issuer = agentConnection ? config.origin + DOT_RUNNER_MCP_PATH + "/oauth" : config.origin;
   const resolveMetadata = createClientMetadataResolver(options.metadataFetch);
   const settings = instanceSettingsService(db);
-  const isEnabled = async (queryDb: Db = db) => (!agentConnection || process.env.PAPERCLIP_ENABLE_OPENAI_DOT === "1") && (await (queryDb === db ? settings : instanceSettingsService(queryDb)).getExperimental()).enablePublicMcp === true;
+  const isEnabled = async (queryDb: Db = db) => {
+    const experimental = await (queryDb === db ? settings : instanceSettingsService(queryDb)).getExperimental();
+    return experimental.enablePublicMcp && (!agentConnection || experimental.enableOpenAiDot);
+  };
   async function assertEnabled(queryDb: Db = db) {
     if (!await isEnabled(queryDb)) throw new PublicMcpDisabledError();
   }

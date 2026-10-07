@@ -23710,6 +23710,8 @@ export function heartbeatService(
           persisted: run,
           enabled:
             resolvedInstanceSettings.experimental.enableNativeRunner === true,
+          dotEnabled: resolvedInstanceSettings.experimental.enableOpenAiDot === true
+            && resolvedInstanceSettings.experimental.enablePublicMcp === true,
           runtimeConfig: agent.runtimeConfig,
           adapterConfig: agent.adapterConfig,
           agent: {

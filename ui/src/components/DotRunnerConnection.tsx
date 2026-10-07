@@ -41,7 +41,7 @@ export function DotRunnerConnection({ companyId, agentId, bindingId, onBinding }
   const b = state.data?.binding;
   return <div className="space-y-3">
     <p className="text-sm text-muted-foreground">Dot manages its model and external tools. Paperclip supplies task tools through a dedicated agent connection. Provider usage and cost are unavailable; stopping a Paperclip run revokes access without confirming an external stop.</p>
-    {state.data && !state.data.enabled && <p className="text-sm text-muted-foreground">This instance has not enabled OpenAI Dot.</p>}
+    {state.data && !state.data.enabled && <p className="text-sm text-muted-foreground">Enable OpenAI Dot, Paperclip Runner, and Assistant connections (MCP) in experimental settings.</p>}
     {state.data?.resourceUrl && <p className="text-sm break-all">Private plugin MCP URL: <code>{state.data.resourceUrl}</code></p>}
     {b && <p className="text-sm">Connection: {b.status}. Event subscription: {b.subscriptionVerified ? "verified" : "required"}.</p>}
     {b?.assignment && <p className="text-sm">Assignment: {b.assignment.status === "offered" ? "waiting for Dot to accept" : "accepted by Dot"}.</p>}

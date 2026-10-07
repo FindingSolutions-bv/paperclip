@@ -26,6 +26,7 @@ import { executePaperclipNativeSession } from "../services/native-runtime/native
 import { documentService } from "../services/documents.js";
 import { setupRunnerPrpWebSocketServer } from "../realtime/runner-prp-ws.js";
 import { finalizeNativeRun } from "../services/native-runtime/native-run-finalizer.js";
+import { resolveHeartbeatNativeRuntimeMode, resolveNativeRuntimeMode } from "../services/native-runtime/runtime-mode.js";
 
 describe("durable Dot Runner integration", () => {
   let temporary: Awaited<ReturnType<typeof startEmbeddedPostgresTestDatabase>>;
@@ -37,13 +38,44 @@ describe("durable Dot Runner integration", () => {
     temporary = await startEmbeddedPostgresTestDatabase("paperclip-dot-runner-");
     db = createDb(temporary.connectionString);
     root = await mkdtemp(join(tmpdir(), "paperclip-dot-state-"));
-    vi.stubEnv("PAPERCLIP_ENABLE_OPENAI_DOT", "1");
     vi.stubEnv("PAPERCLIP_RUNNER_BINARY", join(runnerRoot, "runner/target/release", process.platform === "win32" ? "paperclip-runnerd.exe" : "paperclip-runnerd"));
     vi.stubEnv("PAPERCLIP_RUNNER_STATE_DIR", join(root, "runner-state"));
     vi.stubEnv("PAPERCLIP_SECRETS_MASTER_KEY", randomBytes(32).toString("base64"));
-    await instanceSettingsService(db).updateExperimental({ enablePublicMcp: true });
+    await instanceSettingsService(db).updateExperimental({ enablePublicMcp: true, enableOpenAiDot: true, enableNativeRunner: true });
   }, 360000);
   afterAll(async () => { await temporary?.cleanup(); await rm(root, { recursive: true, force: true }); vi.unstubAllEnvs(); });
+
+  it("requires each persisted prerequisite for pairing and new work without relying on the retired environment flag", async () => {
+    const settings = instanceSettingsService(db);
+    const broker = dotRunnerBroker(db);
+    for (const key of ["enableOpenAiDot", "enablePublicMcp", "enableNativeRunner"] as const) {
+      await settings.updateExperimental({ [key]: false });
+      try {
+        vi.stubEnv("PAPERCLIP_ENABLE_OPENAI_DOT", "1");
+        expect(await broker.enabled()).toBe(false);
+        await expect(broker.createPairing({ companyId: randomUUID(), agentId: randomUUID(), operatorId: randomUUID() })).rejects.toThrow("experimental settings");
+      } finally { await settings.updateExperimental({ [key]: true }); }
+    }
+    vi.stubEnv("PAPERCLIP_ENABLE_OPENAI_DOT", "0");
+    expect(await broker.enabled()).toBe(true);
+  });
+
+  it("gates fresh Dot runtime selection while preserving the existing run recovery path", () => {
+    const input = {
+      enabled: true,
+      runtimeConfig: {},
+      adapterConfig: { provider: "openai_dot", dotBindingId: randomUUID(), allowUnmeteredProvider: true },
+      agent: { status: "active", adapterType: "paperclip_runner" },
+      issue: { id: randomUUID(), workMode: "standard" },
+      target: { kind: "local" },
+      workspaceId: null,
+    };
+    expect(() => resolveNativeRuntimeMode(input)).toThrow("experimental settings");
+    expect(resolveNativeRuntimeMode({ ...input, dotEnabled: true })).toMatchObject({ kind: "native", profile: { backend: "openai_dot_mcp" } });
+    expect(resolveHeartbeatNativeRuntimeMode({ ...input, enabled: false, dotEnabled: false,
+      persisted: { runtimeMode: "native", runtimeModeReason: null, runtimeModeResolvedAt: new Date(), driverKind: "openai_dot_mcp" },
+    })).toMatchObject({ kind: "native", profile: { backend: "openai_dot_mcp" } });
+  });
 
   async function fixture() {
     const userId = randomUUID();
@@ -240,11 +272,11 @@ describe("durable Dot Runner integration", () => {
     const renewed = await f.oauth.token({ grant_type: "refresh_token", client_id: client.client_id, resource: f.oauth.config.resource, refresh_token: tokens.refresh_token });
     expect((await f.oauth.authenticate(renewed.access_token)).grant.purpose).toBe("agent");
     await expect(f.oauth.token(exchange)).rejects.toMatchObject({ code: "invalid_grant" });
-    vi.stubEnv("PAPERCLIP_ENABLE_OPENAI_DOT", "0");
+    await instanceSettingsService(db).updateExperimental({ enableOpenAiDot: false });
     try {
       expect((await request(app).get("/.well-known/oauth-protected-resource/mcp/runner")).status).toBe(503);
       expect((await request(app).get("/.well-known/oauth-protected-resource/mcp/paperclip")).status).toBe(200);
-    } finally { vi.stubEnv("PAPERCLIP_ENABLE_OPENAI_DOT", "1"); }
+    } finally { await instanceSettingsService(db).updateExperimental({ enableOpenAiDot: true }); }
     await f.events.unsubscribe(f.principal, f.subscription);
   }, 30000);
 

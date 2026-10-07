@@ -63,6 +63,7 @@ export function CodexLocalConfigFields({
   models,
   hideInstructionsFile,
   managedSandboxOnly,
+  openAiDotEnabled,
 }: AdapterConfigFieldsProps) {
   const runnerManaged = adapterType === "paperclip_runner";
   // The execution engine picks which binary runs on the execution host, and the
@@ -252,7 +253,7 @@ export function CodexLocalConfigFields({
           >
             <SelectTrigger className="w-full" aria-label="Harness"><SelectValue /></SelectTrigger>
             <SelectContent>
-              {runnerHarnessOptions.map((option) => (
+              {runnerHarnessOptions.filter((option) => option.value !== "openai_dot" || openAiDotEnabled || runnerProvider === "openai_dot").map((option) => (
                 <SelectItem key={option.value} value={option.value}>
                   <AdapterMark type={option.adapter} className="size-4" />
                   {option.label}
