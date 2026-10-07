@@ -5,6 +5,7 @@ import {
   decideHardRetryExclusion,
   isBoundedTransientRetryReason,
 } from "../domain/policy.js";
+import { accountingForScheduledRetry, executionFailureRetryCount, executionRetryAttemptCount } from "../domain/retry-accounting.js";
 import {
   AI_CONNECTION_BUSY_RETRY_REASON,
   AI_CONNECTION_POOL_WAIT_RETRY_REASON,
@@ -48,50 +49,6 @@ function readTransientRecovery(run: RunRetryRun) {
   };
 }
 
-type RetryAccounting = { version: 1; failureRetries: number; maxTurnContinuations: number };
-
-function count(value: unknown): number | null {
-  return typeof value === "number" && Number.isSafeInteger(value) && value >= 0 ? value : null;
-}
-
-function retryAccounting(run: RunRetryRun): RetryAccounting {
-  const savedValue = parseObject(run.contextSnapshot?.executionRetryAccounting);
-  const savedFailureRetries = count(savedValue.failureRetries);
-  const savedMaxTurnContinuations = count(savedValue.maxTurnContinuations);
-  const saved = savedValue.version === 1 && savedFailureRetries !== null && savedMaxTurnContinuations !== null
-    ? { failureRetries: savedFailureRetries, maxTurnContinuations: savedMaxTurnContinuations } : null;
-  const nonFailureLane = ["max_turns_continuation", "issue_disposition_repair", "workspace_busy", "ai_connection_busy", "ai_connection_pool_wait"].includes(run.scheduledRetryReason ?? "");
-  let historicalFailureCount = 0;
-  if (run.scheduledRetryReason === "max_turns_continuation" || run.scheduledRetryReason === "issue_disposition_repair") {
-    historicalFailureCount = 0;
-  } else if (run.scheduledRetryReason === "ai_connection_busy" || run.scheduledRetryReason === "ai_connection_pool_wait") {
-    historicalFailureCount = count(run.contextSnapshot?.failureRetriesBeforeAiConnectionWait) ?? count(run.scheduledRetryAttempt) ?? 0;
-  } else if (run.scheduledRetryReason === "workspace_busy") {
-    historicalFailureCount = count(run.contextSnapshot?.failureRetriesBeforeWorkspaceWait) ?? count(run.scheduledRetryAttempt) ?? 0;
-  } else {
-    historicalFailureCount = count(run.scheduledRetryAttempt) ?? 0;
-  }
-  return {
-    version: 1,
-    failureRetries: Math.max(saved?.failureRetries ?? 0, saved && nonFailureLane ? 0 : historicalFailureCount),
-    maxTurnContinuations: Math.max(saved?.maxTurnContinuations ?? 0,
-      run.scheduledRetryReason === "max_turns_continuation" ? count(run.scheduledRetryAttempt) ?? 0 : 0),
-  };
-}
-
-function accountingForScheduledRetry(run: RunRetryRun, reason: string, attempt: number): RetryAccounting {
-  const accounting = retryAccounting(run);
-  if (reason === MAX_TURN_CONTINUATION_RETRY_REASON) accounting.maxTurnContinuations = attempt;
-  else if (reason !== WORKSPACE_BUSY_RETRY_REASON && reason !== AI_CONNECTION_BUSY_RETRY_REASON && reason !== AI_CONNECTION_POOL_WAIT_RETRY_REASON) accounting.failureRetries = attempt;
-  return accounting;
-}
-
-function normalRecoveryContext(input: Record<string, unknown>): Record<string, unknown> {
-  const output = { ...input };
-  for (const key of ["modelProfile", "paperclipModelProfile", "recoveryIntent", "allowDeliverableWork", "allowDocumentUpdates", "resumeRequiresNormalModel"]) delete output[key];
-  return output;
-}
-
 function taskKeyForRetry(context: Record<string, unknown>): string | null {
   return readNonEmptyString(context.taskKey) ?? readNonEmptyString(context.taskId) ??
     readNonEmptyString(context.issueId) ??
@@ -104,9 +61,11 @@ export function createScheduleRunRetry<Run extends RunRetryRun, Agent extends Ru
   evaluateScheduledRetryGate: (input: { runId: string; companyId: string; retryReasonOverride: string; now: Date }) => Promise<GateDecision>;
   resolveSessionBeforeForWakeup: (agent: Agent, taskKey: string | null) => Promise<string | null>;
   resolveResponsibleUserIdForRunContext: (run: Run, context: Record<string, unknown>) => Promise<string | null>;
+  isLegacyReconciliationBlocked: (run: Run) => Promise<boolean>;
+  normalizeRetryContext: (context: Record<string, unknown>) => Record<string, unknown>;
 }) {
   return async (input: ScheduleRunRetryInput<Run, Agent>): Promise<ScheduleRunRetryOutcome<Run>> => {
-    const { run, agent, now, retryReason, wakeReason, consumedAttempts } = input;
+    const { run, agent, now, retryReason, wakeReason } = input;
     const hardExclusion = decideHardRetryExclusion({
       errorCode: run.errorCode,
       hasChatCompletionDeliveryIds: Array.isArray(run.contextSnapshot?.chatCompletionDeliveryIds) &&
@@ -122,6 +81,7 @@ export function createScheduleRunRetry<Run extends RunRetryRun, Agent extends Ru
       };
     }
 
+    const consumedAttempts = executionRetryAttemptCount(run, retryReason);
     const nextAttempt = consumedAttempts + 1;
     const { maxAttempts, schedule: baseSchedule } = decideBoundedRetrySchedule({
       consumedAttempts,
@@ -158,7 +118,7 @@ export function createScheduleRunRetry<Run extends RunRetryRun, Agent extends Ru
       };
     }
 
-    if (input.legacyReconciliationBlocked) {
+    if (await deps.isLegacyReconciliationBlocked(run)) {
       return {
         outcome: "not_scheduled",
         reason: "Reconcile the previous execution before retrying; safe provider recovery is unavailable.",
@@ -214,8 +174,8 @@ export function createScheduleRunRetry<Run extends RunRetryRun, Agent extends Ru
     const workspaceValidationRetryPayload = retryReason === INTERACTION_CONTINUATION_INFRA_RETRY_REASON && run.errorCode === "workspace_validation_failed"
       ? parseObject(parseObject(run.resultJson).workspaceValidation) : null;
     const shouldQuarantineWorkspaceForRetry = workspaceValidationRetryPayload !== null && Object.keys(workspaceValidationRetryPayload).length > 0;
-    const failureRetries = retryAccounting(run).failureRetries;
-    const retryContextSnapshot = normalRecoveryContext({
+    const failureRetries = executionFailureRetryCount(run);
+    const retryContextSnapshot = deps.normalizeRetryContext({
       ...contextSnapshot,
       executionRetryAccounting: accountingForScheduledRetry(run, retryReason, schedule.attempt),
       retryOfRunId: run.id,

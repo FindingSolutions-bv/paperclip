@@ -1,5 +1,5 @@
 import { settleSlackConversation } from "../slack-conversation-lifecycle.js";
-import { executionFailureRetryCount } from "../execution-recovery-attempt.js";
+import { executionFailureRetryCount } from "../../modules/run-retry/index.js";
 import { readPersistedNativeProviderFailure } from "./native-provider-failure-evidence.js";
 import { dismissAutomaticCompletionReviews } from "./automatic-completion-reviews.js";
 import { getNativeReviewAssignment, readNativeReviewAssignmentContext } from "./native-review-participant.js";

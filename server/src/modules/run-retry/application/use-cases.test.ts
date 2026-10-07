@@ -36,12 +36,18 @@ function fixture() {
     calls.push("user");
     return null;
   });
+  const isLegacyReconciliationBlocked = vi.fn(async () => {
+    calls.push("legacy");
+    return false;
+  });
+  const normalizeRetryContext = vi.fn((context: Record<string, unknown>) => context);
   const scheduleRunRetry = createScheduleRunRetry({
     writer, invokability, evaluateScheduledRetryGate,
     resolveSessionBeforeForWakeup, resolveResponsibleUserIdForRunContext,
+    isLegacyReconciliationBlocked, normalizeRetryContext,
   });
-  const input = { run, agent, now, random: () => 0.5, retryReason: "transient_failure", wakeReason: "transient_failure_retry", consumedAttempts: 0, legacyReconciliationBlocked: false };
-  return { calls, run, agent, retryRun, writer, invokability, evaluateScheduledRetryGate, resolveSessionBeforeForWakeup, resolveResponsibleUserIdForRunContext, scheduleRunRetry, input };
+  const input = { run, agent, now, random: () => 0.5, retryReason: "transient_failure", wakeReason: "transient_failure_retry" };
+  return { calls, run, agent, retryRun, writer, invokability, evaluateScheduledRetryGate, resolveSessionBeforeForWakeup, resolveResponsibleUserIdForRunContext, isLegacyReconciliationBlocked, normalizeRetryContext, scheduleRunRetry, input };
 }
 
 describe("createScheduleRunRetry", () => {
@@ -54,17 +60,43 @@ describe("createScheduleRunRetry", () => {
   });
   it("stops at exhaustion before it calls a retry port", async () => {
     const test = fixture();
-    const result = await test.scheduleRunRetry({ ...test.input, retryReason: "interaction_continuation_infra_retry", consumedAttempts: 2, maxAttempts: 2 });
+    test.run.scheduledRetryReason = "interaction_continuation_infra_retry";
+    test.run.scheduledRetryAttempt = 2;
+    const result = await test.scheduleRunRetry({ ...test.input, retryReason: "interaction_continuation_infra_retry", maxAttempts: 2 });
     expect(result).toMatchObject({ outcome: "retry_exhausted", attempt: 3, maxAttempts: 2,
       effects: [{ kind: "plan_approval_exhaustion_escalated", issueId: "issue-1", attempt: 2, maxAttempts: 2 }] });
     expect(test.calls).toEqual([]);
   });
 
+  it("does not check legacy reconciliation after retry exhaustion", async () => {
+    const test = fixture();
+    test.run.scheduledRetryReason = "transient_failure";
+    test.run.scheduledRetryAttempt = 2;
+    const result = await test.scheduleRunRetry({ ...test.input, maxAttempts: 2 });
+    expect(result.outcome).toBe("retry_exhausted");
+    expect(test.isLegacyReconciliationBlocked).not.toHaveBeenCalled();
+  });
+
   it("stops before invokability when legacy reconciliation is blocked", async () => {
     const test = fixture();
-    const result = await test.scheduleRunRetry({ ...test.input, legacyReconciliationBlocked: true });
+    test.isLegacyReconciliationBlocked.mockImplementationOnce(async () => {
+      test.calls.push("legacy");
+      return true;
+    });
+    const result = await test.scheduleRunRetry(test.input);
     expect(result).toMatchObject({ outcome: "not_scheduled", errorCode: "legacy_execution_requires_reconciliation", issueId: "issue-1", effects: [] });
-    expect(test.calls).toEqual([]);
+    expect(test.calls).toEqual(["legacy"]);
+    expect(test.invokability.checkAgentInvokability).not.toHaveBeenCalled();
+    expect(test.writer.scheduleRetry).not.toHaveBeenCalled();
+  });
+
+  it("does not call retry ports when legacy reconciliation is blocked", async () => {
+    const test = fixture();
+    test.isLegacyReconciliationBlocked.mockResolvedValueOnce(true);
+    const result = await test.scheduleRunRetry(test.input);
+    expect(result.outcome).toBe("not_scheduled");
+    expect(test.invokability.checkAgentInvokability).not.toHaveBeenCalled();
+    expect(test.writer.scheduleRetry).not.toHaveBeenCalled();
   });
 
   it("stops when the invokability port denies the agent", async () => {
@@ -76,7 +108,7 @@ describe("createScheduleRunRetry", () => {
     const result = await test.scheduleRunRetry(test.input);
     expect(result).toMatchObject({ outcome: "not_scheduled", errorCode: "agent_not_invokable", issueId: "issue-1", effects: [] });
     expect(result.event?.payload).toMatchObject({ reason: "paused", state: "paused" });
-    expect(test.calls).toEqual(["invokability"]);
+    expect(test.calls).toEqual(["legacy", "invokability"]);
   });
 
   it("stops when the scheduled retry gate denies the run", async () => {
@@ -89,14 +121,14 @@ describe("createScheduleRunRetry", () => {
     const result = await test.scheduleRunRetry(test.input);
     expect(result).toMatchObject({ outcome: "not_scheduled", reason: "issue blocked", errorCode: "issue_blocked", effects: [] });
     expect(result.event?.payload).toMatchObject({ blockers: 1 });
-    expect(test.calls).toEqual(["invokability", "gate"]);
+    expect(test.calls).toEqual(["legacy", "invokability", "gate"]);
   });
 
   it("calls the ports in order and returns the scheduled run", async () => {
     const test = fixture();
     test.run.errorCode = "workspace_git_scan_timeout";
     const result = await test.scheduleRunRetry(test.input);
-    expect(test.calls).toEqual(["invokability", "gate", "session", "user", "writer"]);
+    expect(test.calls).toEqual(["legacy", "invokability", "gate", "session", "user", "writer"]);
     expect(result).toMatchObject({ outcome: "scheduled", run: test.retryRun, dueAt: test.retryRun.scheduledRetryAt, attempt: 1, maxAttempts: 2, effects: [] });
     expect(test.writer.scheduleRetry).toHaveBeenCalledWith(expect.objectContaining({ run: test.run, agentName: "Agent", issueId: "issue-1", sessionBefore: null,
       retryContextSnapshot: expect.objectContaining({ retryOfRunId: "run-1", scheduledRetryAttempt: 1 }) }));
@@ -105,7 +137,7 @@ describe("createScheduleRunRetry", () => {
   it("returns one reporter effect after a plan approval retry", async () => {
     const test = fixture();
     const result = await test.scheduleRunRetry({ ...test.input, retryReason: "interaction_continuation_infra_retry" });
-    expect(test.calls).toEqual(["invokability", "gate", "session", "user", "writer"]);
+    expect(test.calls).toEqual(["legacy", "invokability", "gate", "session", "user", "writer"]);
     expect(result).toMatchObject({ outcome: "scheduled", effects: [{ kind: "plan_approval_retry_recorded", issueId: "issue-1", retryRunId: "run-2", attempt: 1, maxAttempts: 2 }] });
   });
 

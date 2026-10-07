@@ -1,7 +1,7 @@
 import { randomUUID } from "node:crypto";
 import { and, eq } from "drizzle-orm";
 import { agentWakeupRequests, heartbeatRuns, type Db } from "@paperclipai/db";
-import { accountingForScheduledRetry, executionFailureRetryCount } from "../execution-recovery-attempt.js";
+import { accountingForScheduledRetry, executionFailureRetryCount } from "../../modules/run-retry/index.js";
 import { NATIVE_PROVIDER_CAPACITY_MAX_RETRIES, NATIVE_PROVIDER_OVERLOADED_CODE, NATIVE_PROVIDER_OVERLOADED_MESSAGE } from "./native-provider-failure.js";
 
 /** Called under the finalizer's issue/coordinator locks, in the status-effect transaction. */

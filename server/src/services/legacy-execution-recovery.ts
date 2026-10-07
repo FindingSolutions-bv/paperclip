@@ -7,7 +7,7 @@ import { and, eq, inArray, isNull, or, sql } from "drizzle-orm";
 import { environmentLeases, heartbeatRuns, issueRecoveryActions, issues, nativeRunFinalizations, type Db } from "@paperclipai/db";
 import { issueRecoveryActionService } from "./issue-recovery-actions.js";
 import { parseIssueExecutionState } from "./issue-execution-policy.js";
-import { executionFailureRetryCount } from "./execution-recovery-attempt.js";
+import { executionFailureRetryCount } from "../modules/run-retry/index.js";
 import { logActivity } from "./activity-log.js";
 import { isSupersededConversationRun } from "./agent-conversations.js";
 import { issueService } from "./issues.js";

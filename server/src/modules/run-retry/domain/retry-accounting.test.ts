@@ -1,5 +1,5 @@
 import { describe, expect, it } from "vitest";
-import { executionFailureRetryCount } from "./execution-recovery-attempt.js";
+import { executionFailureRetryCount } from "./retry-accounting.js";
 
 describe("failure attempts across resource waits", () => {
   it("preserves prior failures through subscription waits without trusting unrelated context", () => {

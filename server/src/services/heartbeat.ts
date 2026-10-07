@@ -63,7 +63,6 @@ import {
   registerAdapterExecutionControl,
   waitForAdapterStop,
 } from "./adapter-execution-control.js";
-import { executionFailureRetryCount, executionRetryAttemptCount, accountingForScheduledRetry } from "./execution-recovery-attempt.js";
 import { buildHeartbeatRunStatusLiveEventPayload } from "./heartbeat-run-status-payload.js";
 export { buildHeartbeatRunStatusLiveEventPayload } from "./heartbeat-run-status-payload.js";
 import { buildExecutionContinuation, StaleExecutionContinuationError } from "./execution-continuation.js";
@@ -561,8 +560,7 @@ import {
   BOUNDED_TRANSIENT_HEARTBEAT_RETRY_WAKE_REASON,
   computeBoundedTransientHeartbeatRetrySchedule,
   createRunRetry,
-  decideBoundedRetrySchedule,
-  decideHardRetryExclusion,
+  executionFailureRetryCount,
   type RunRetryEffect,
 } from "../modules/run-retry/index.js";
 import {
@@ -9665,6 +9663,8 @@ export function heartbeatService(
     resolveSessionBeforeForWakeup,
     resolveResponsibleUserIdForRunContext,
     evaluateScheduledRetryGate: (input) => runDispatch.evaluateScheduledRetryGate(input),
+    isLegacyReconciliationBlocked: (run) => legacyExecutionNeedsReconciliationWithEvidence(db, run),
+    normalizeRetryContext: (context) => withRecoveryContext(context, "normal_model"),
   });
 
   // Applies the post-commit effects a run-dispatch operation returns, on a
@@ -15464,22 +15464,6 @@ export function heartbeatService(
     const now = opts?.now ?? new Date();
     const retryReason = opts?.retryReason ?? BOUNDED_TRANSIENT_HEARTBEAT_RETRY_REASON;
     const wakeReason = opts?.wakeReason ?? BOUNDED_TRANSIENT_HEARTBEAT_RETRY_WAKE_REASON;
-    const consumedAttempts = executionRetryAttemptCount(run, retryReason);
-    const excluded = decideHardRetryExclusion({
-      errorCode: run.errorCode,
-      hasChatCompletionDeliveryIds: Array.isArray(run.contextSnapshot?.chatCompletionDeliveryIds) &&
-        run.contextSnapshot.chatCompletionDeliveryIds.some((id) => typeof id === "string"),
-    }).excluded;
-    const hasRetrySchedule = !excluded && decideBoundedRetrySchedule({
-      consumedAttempts,
-      maxAttempts: opts?.maxAttempts,
-      delayMs: opts?.delayMs,
-      now,
-      random: () => 0,
-    }).schedule !== null;
-    const legacyReconciliationBlocked = hasRetrySchedule
-      ? await legacyExecutionNeedsReconciliationWithEvidence(db, run)
-      : false;
     const result = await runRetry.scheduleRunRetry({
       run,
       agent,
@@ -15487,8 +15471,6 @@ export function heartbeatService(
       random: opts?.random ?? Math.random,
       retryReason,
       wakeReason,
-      consumedAttempts,
-      legacyReconciliationBlocked,
       maxAttempts: opts?.maxAttempts,
       delayMs: opts?.delayMs,
     });

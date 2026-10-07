@@ -8,7 +8,7 @@ import {
 } from "@paperclipai/db";
 import type { ExecutionProjection } from "@paperclipai/shared";
 import { EXECUTION_CONTROL_DEADLINE_MS } from "./execution-control-deadline.js";
-import { executionFailureRetryCount } from "./execution-recovery-attempt.js";
+import { executionFailureRetryCount } from "../modules/run-retry/index.js";
 import { retryIdempotentDatabaseOperation } from "../database-retry.js";
 const text = (v: unknown) => (typeof v === "string" ? v : null);
 const executionRunColumns = {

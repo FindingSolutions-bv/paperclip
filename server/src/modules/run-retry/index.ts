@@ -11,6 +11,8 @@ export type RunRetryDeps = {
   resolveSessionBeforeForWakeup: (agent: Agent, taskKey: string | null) => Promise<string | null>;
   resolveResponsibleUserIdForRunContext: (run: Run, context: Record<string, unknown>) => Promise<string | null>;
   evaluateScheduledRetryGate: (input: { runId: string; companyId: string; retryReasonOverride: string; now: Date }) => Promise<GateDecision>;
+  isLegacyReconciliationBlocked: (run: Run) => Promise<boolean>;
+  normalizeRetryContext: (context: Record<string, unknown>) => Record<string, unknown>;
   adapter?: RunRetryWriter<Run> & RunRetryAgentInvokability<Agent>;
 };
 
@@ -21,6 +23,8 @@ export function createRunRetry(db: Db, deps: RunRetryDeps) {
       writer: adapter,
       invokability: adapter,
       evaluateScheduledRetryGate: deps.evaluateScheduledRetryGate,
+      isLegacyReconciliationBlocked: deps.isLegacyReconciliationBlocked,
+      normalizeRetryContext: deps.normalizeRetryContext,
       resolveSessionBeforeForWakeup: deps.resolveSessionBeforeForWakeup,
       resolveResponsibleUserIdForRunContext: deps.resolveResponsibleUserIdForRunContext,
     }),
@@ -28,6 +32,13 @@ export function createRunRetry(db: Db, deps: RunRetryDeps) {
 }
 
 export type { RunRetryEffect } from "./application/types.js";
+export {
+  accountingForScheduledRetry,
+  executionFailureRetryCount,
+  executionRetryAccounting,
+  executionRetryAttemptCount,
+} from "./domain/retry-accounting.js";
+export type { ExecutionRetryAccounting } from "./domain/retry-accounting.js";
 
 // The run-retry module's public seam. Code outside this module imports only
 // from this file, never from a file inside domain/, application/, or

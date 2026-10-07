@@ -82,8 +82,6 @@ export type ScheduleRunRetryInput<Run, Agent> = {
   random: () => number;
   retryReason: string;
   wakeReason: string;
-  consumedAttempts: number;
-  legacyReconciliationBlocked: boolean;
   maxAttempts?: number;
   delayMs?: number;
 };
