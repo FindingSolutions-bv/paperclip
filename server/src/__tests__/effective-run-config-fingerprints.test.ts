@@ -301,3 +301,28 @@ describe("effective run config fingerprints", () => {
     });
   });
 });
+
+
+describe("configured Paperclip environment freshness", () => {
+  const fingerprint = (env: Record<string, unknown>, secretManifest?: any[]) =>
+    createEffectiveRunConfigFingerprints({ session: { env }, secretManifest }).sessionFingerprint;
+
+  it("detects additions, changes, and removals without recording values", () => {
+    const absent = fingerprint({});
+    const first = fingerprint({ PAPERCLIP_PAGE_BUCKET: "first-bucket" });
+    const changed = fingerprint({ PAPERCLIP_PAGE_BUCKET: "second-bucket" });
+    expect(first.fingerprint).not.toBe(absent.fingerprint);
+    expect(changed.fingerprint).not.toBe(first.fingerprint);
+    expect(fingerprint({}).fingerprint).toBe(absent.fingerprint);
+    expect(first.canonicalJson).not.toContain("first-bucket");
+    expect(fingerprint({ PAPERCLIP_RUN_ID: "first" }).fingerprint)
+      .toBe(fingerprint({ PAPERCLIP_RUN_ID: "second" }).fingerprint);
+  });
+
+  it("detects custom namespaced secret version changes", () => {
+    const env = { PAPERCLIP_PAGE_AWS_SECRET_ACCESS_KEY: { type: "secret_ref", secretId: "pages-key" } };
+    const manifest = (version: number) => [{ configPath: "env.PAPERCLIP_PAGE_AWS_SECRET_ACCESS_KEY", envKey: "PAPERCLIP_PAGE_AWS_SECRET_ACCESS_KEY", secretId: "pages-key", version }];
+    expect(fingerprint(env, manifest(1)).fingerprint).not.toBe(fingerprint(env, manifest(2)).fingerprint);
+    expect(fingerprint(env, manifest(1)).canonicalJson).toContain("pages-key");
+  });
+});
