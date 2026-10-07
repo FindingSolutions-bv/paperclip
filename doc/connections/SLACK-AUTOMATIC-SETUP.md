@@ -67,7 +67,7 @@ the browser cannot supply a manifest, scopes, or callback destination.
 | Creation uncertain after timeout/restart | Inspect Slack app settings. Recover an existing app manually on this draft. Start another creation only after explicitly confirming that no app exists. |
 | App created; installation declined/pending | Install the saved app again. No configuration token is needed. |
 | Authorization expired or code exchange uncertain | Start fresh installation authorization. Used codes are never replayed. |
-| Credentials saved; connection check failed | Use Retry connecting. Paperclip reuses vaulted credentials. |
+| Credentials saved; connection check failed | Use Retry connecting. Paperclip reuses vaulted credentials. If Slack access changed or the token was revoked, use Authorize in Slack again for the same app. |
 | Wrong app/workspace/bot or missing scopes | Correct the installation of this app. Activation remains blocked. |
 | Removed connection | Pending state and app-registration secrets are invalidated. Remove the customer's app separately through its Slack management link if desired. |
 

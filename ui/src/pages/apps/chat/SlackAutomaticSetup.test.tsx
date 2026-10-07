@@ -74,5 +74,9 @@ describe("automatic Slack setup actions", () => {
     api.resumeSlackInstallation.mockResolvedValue(saved);
     click("Retry connecting"); await settle();
     expect(api.resumeSlackInstallation).toHaveBeenCalledWith("endpoint"); expect(api.createSlackApp).not.toHaveBeenCalled();
+    api.installSlackApp.mockRejectedValue(new Error("Authorization unavailable"));
+    click("Authorize in Slack again"); await settle();
+    expect(api.installSlackApp).toHaveBeenCalledWith("endpoint");
+    expect(api.createSlackApp).not.toHaveBeenCalled();
   });
 });

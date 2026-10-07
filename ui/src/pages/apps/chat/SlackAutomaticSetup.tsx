@@ -72,6 +72,12 @@ export function SlackAutomaticSetup({ endpoint, stage, disabled, saveDetails, on
     } finally { token = ""; }
   }
 
+  async function authorize() {
+    const result = await chatEndpointsApi.installSlackApp(endpoint.id);
+    // Current-tab navigation avoids popup blockers. The callback resumes this saved draft.
+    window.location.assign(result.authorizationUrl);
+  }
+
   return <div className="space-y-5">
     {error || registration?.errorCode ? <p role="alert" className="text-sm text-destructive">
       {error ?? slackRegistrationErrorMessage(registration!.errorCode!)}
@@ -101,7 +107,10 @@ export function SlackAutomaticSetup({ endpoint, stage, disabled, saveDetails, on
       {stage === "credentials" && " Approve its installation in Slack. Paperclip will save the credentials and continue here automatically."}
       {registration?.managementUrl && <> <a className="underline underline-offset-4" href={registration.managementUrl} target="_blank" rel="noopener noreferrer">Open Slack app settings <ExternalLink className="inline size-3" /></a></>}
     </p>}
-    {stage === "credentials" && registration?.status === "credentials_saved" && <p className="text-sm text-muted-foreground">Your installation credentials are saved. Retry connecting to finish setup.</p>}
+    {stage === "credentials" && registration?.status === "credentials_saved" && <div className="space-y-2">
+      <p className="text-sm text-muted-foreground">Your installation credentials are saved. Retry connecting to finish setup. If Slack access has changed, authorize the same app again.</p>
+      <Button variant="link" className="h-auto p-0" disabled={busy || disabled} onClick={() => void run(authorize)}>Authorize in Slack again</Button>
+    </div>}
     {stage === "app" && <div className="flex flex-wrap gap-4 text-sm">
       <Button variant="link" className="h-auto p-0" disabled={busy || creating} onClick={() => void run(() => onManual(false))}>Create manually</Button>
       <Button variant="link" className="h-auto p-0" disabled={busy || creating} onClick={() => void run(() => onManual(true))}>Use an existing app</Button>
@@ -112,11 +121,7 @@ export function SlackAutomaticSetup({ endpoint, stage, disabled, saveDetails, on
         {busy && <Loader2 className="size-4 animate-spin" />}{created ? "Continue to installation" : "Create Slack app"}
       </Button> : registration?.status === "credentials_saved" ? <Button disabled={busy} onClick={() => void run(async () => onSaved(await chatEndpointsApi.resumeSlackInstallation(endpoint.id)))}>
         {busy && <Loader2 className="size-4 animate-spin" />}Retry connecting
-      </Button> : <Button disabled={busy || !created || disabled} onClick={() => void run(async () => {
-        const result = await chatEndpointsApi.installSlackApp(endpoint.id);
-        // Current-tab navigation avoids popup blockers. The callback resumes this saved draft.
-        window.location.assign(result.authorizationUrl);
-      })}>
+      </Button> : <Button disabled={busy || !created || disabled} onClick={() => void run(authorize)}>
         {busy ? <Loader2 className="size-4 animate-spin" /> : <ExternalLink className="size-4" />}Install in Slack
       </Button>}
     </SetupWizardFooter>
