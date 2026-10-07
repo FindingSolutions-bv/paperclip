@@ -5,6 +5,51 @@ set of release gates. Pi remains a candidate until every required gate passes.
 Do not expand this work to additional models, widgets, images, Cursor or Copilot
 qualification. The existing draft stack must be reviewed in dependency order.
 
+## Immediate execution focus — 2026-10-06
+
+The operator has re-centered this work on getting Pi to run through the new
+Runner. Use the already admitted native Linux package/image path for real task
+acceptance. Additional Mac installation coverage is deferred to a separate
+follow-up. It does not block work on this Linux path. Keep the remaining scope
+on accepted task behavior, permissions, recovery and cleanup. Preserve all
+failed evidence and the frozen model, low thinking, budget caps and zero
+automatic retries.
+
+## Real Linux Pi task acceptance — 2026-10-06
+
+The current installed runtime passes
+`extended-harnesses.runner-acpx-pi.local.file-edit-validate` in **52.680 seconds**.
+It uses native Pi 1.0.0 with the frozen model and low thinking. Pi reads the
+seeded file, performs one native edit, runs the exact validation command once,
+registers a real downloadable attachment, and finishes the task. Independent
+workspace and downloaded bytes match, including the newline. All seven
+canonical matchers and the strict file-evidence grader pass. The validation
+has a native structured output receipt with exit code zero; the distinct typed
+exit-code field remains null and is not invented.
+
+The durable events contain `turn.completed`, an accepted completion claim, and
+a genuine `run.terminal` with state `succeeded`. Canonical cleanup passes.
+Independent SDK checks confirm that the launcher, recorded Runner and Pi
+provider processes, temporary fixture root, and uploaded credential file are
+absent. The attempt has zero automatic retries. No held failed case is retried.
+
+The Linux task-acceptance freeze is
+`sha256:ac66edb3a6c1804dfea1ce9c58cb2fcf1aced9170e84b7da5868a334f2290d8f`.
+It binds current source, all 18 installed public archives, the immutable Linux
+image, unchanged grading definitions, full package graphs and credential-free
+admission. It does not certify other platforms or transfer historical passes.
+The canonical result hash is
+`8f75adabe5bdc4a4c2dba98775b52fd14622abe338b9f0910084aa838926adda`;
+the strict file receipt records matching workspace and download hash
+`83bfa78170b1bdd48a58ec2172e95c212b8fab4e0edead571ac18367507b8f77`.
+
+Current qualified coverage is **1/26 Product and 0/7 Runner**. Pi demonstrably
+runs on this path; the remaining accepted behavioral cases still need evidence
+before a full production-readiness claim. The later key snapshot reports
+provisional total usage of **$0.383058202**, **$4.616941798** remaining, no reset
+and zero BYOK usage. The observed increase for this attempt is $0.003865352;
+it is not a final invoice. The $5 key cap and $100 campaign ceiling remain.
+
 ## Current corrected source — 2026-10-06
 
 Shipping source `46ffa7aa3a8b219f5508448cffe297c09e38d810` contains the
@@ -30,8 +75,8 @@ records repeated thermal-emergency sleeps during this attempt. That correlation
 does not prove which cancellation source fired. The original setup deadlines
 remain unchanged, and no unchanged retry runs. Darwin x64 compilation passes;
 normal x64 installation and physical Intel hardware proof remain outstanding.
-Host stability and an available physical Intel Mac or Intel Mac CI host have
-been requested from the operator.
+These Mac observations are historical installation work. Additional Mac
+coverage is deferred under the immediate execution focus above.
 
 Prerequisite #14922 now has 52 successful checks. Prerequisites #14923 and
 #14924 each have 53 successful checks and two skips. Only their specific
@@ -40,10 +85,11 @@ the original cancelled attempts remain preserved. All three have no open
 review threads. The premature-admission finding on #14921 remains open until
 the complete live qualification proves readiness.
 
-The new set has **0/26 Product and 0/7 Runner qualified passes**. Its final
-freeze and normal platform admission are incomplete. Prior-set 8/26 Product
-and 5/7 Runner passes remain historical. No new paid model attempt runs during
-these corrections. Memory, steering, semantic tool-call and terminal failures
+The new set now has **1/26 Product and 0/7 Runner qualified passes**, through
+the real Linux task above. Additional platform coverage is deferred. Prior-set
+8/26 Product and 5/7 Runner passes remain historical. The corrections and
+installation checks use no model calls; the task above is the one new paid
+attempt. Memory, steering, semantic tool-call and terminal failures
 still require their own evidence-backed corrections before retries. Keep the
 dedicated key's $5 lifetime cap and the $100 campaign ceiling. The frozen
 model and low thinking remain unchanged. Production, merge and release remain
