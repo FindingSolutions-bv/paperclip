@@ -1876,6 +1876,7 @@ describeEmbeddedPostgres("chat channel control-plane integration", () => {
     > & { wakeup?: ChatChannelServiceOptions["heartbeat"]["wakeup"] } = {},
     useVerifiedAppId = false,
     registerWithManifest = false,
+    connectExistingApp = false,
   ) {
     let setupComplete = false;
     const deferredSchedule = overrides.scheduleDeferredWork;
@@ -2051,6 +2052,10 @@ describeEmbeddedPostgres("chat channel control-plane integration", () => {
     );
     if (registerWithManifest)
       await context.service.startGitHubRegistration(endpoint.id, "owner-user", "Maya");
+    if (connectExistingApp)
+      await context.service.storeGitHubApp(endpoint.id, "owner-user", {
+        appId: String(appRegistrationId), privateKey, webhookSecret,
+      });
     await context.service.configure(
       endpoint.id,
       {
@@ -2069,7 +2074,7 @@ describeEmbeddedPostgres("chat channel control-plane integration", () => {
       await db.transaction((tx) => syncGitHubBotTools(tx, configured!, "owner-user", true));
     }
     const resources = await context.service.listResources(endpoint.id);
-    if (!registerWithManifest)
+    if (!registerWithManifest && !connectExistingApp)
       await context.service.replaceResources(endpoint.id, [
         { id: resources[0]!.id, enabled: true },
       ]);
@@ -2873,11 +2878,13 @@ describeEmbeddedPostgres("chat channel control-plane integration", () => {
       expect(session!.handoff?.identityLeaseId).toBeUndefined();
       expect(writes).toBe(2);
     });
-    it("imports initial GitHub access without a second picker and leaves later additions disabled", async () => {
+    it.each(["manifest", "existing"] as const)("imports initial GitHub access for a %s App without a second picker and leaves later additions disabled", async (method) => {
       const f = await seedCompany();
-      const context = await configuredGitHubEndpoint(f, {}, true, true);
+      const context = await configuredGitHubEndpoint(f, {}, true, method === "manifest", method === "existing");
       const current = await context.service.get(context.endpoint.id);
       expect(current.setup.github?.initialRepositoryImportPending).toBe(true);
+      const registrations = await db.select().from(chatGitHubRegistrations).where(eq(chatGitHubRegistrations.endpointId, current.id));
+      expect(registrations).toHaveLength(method === "manifest" ? 1 : 0);
       await db.update(chatGitHubRegistrations).set({ status: "completed" })
         .where(eq(chatGitHubRegistrations.endpointId, current.id));
       const result = await context.service.githubWizard.advance(
@@ -2928,6 +2935,44 @@ describeEmbeddedPostgres("chat channel control-plane integration", () => {
           (resource) => resource.id === later!.id,
         )?.enabled,
       ).toBe(false);
+    });
+    it("manual App setup resumes tool initialization after an interrupted repository import", async () => {
+      const f = await seedCompany();
+      const context = await configuredGitHubEndpoint(f, {}, true, false, true);
+      const wizard = githubChatWizardService(db, {
+        origin: () => "https://reviews.example.test",
+        fetch: context.providerFetch,
+        startDirect: context.service.startGitHubRegistration,
+        storeApp: context.service.storeGitHubApp,
+        storeCredentials: async () => {},
+        refreshRepositories: context.service.refreshGitHubRepositories,
+        resources: context.service.listResources,
+        replaceResources: async (...args) => {
+          await context.service.replaceResources(...args);
+          throw new Error("Interrupted after repository import");
+        },
+        configure: async () => {},
+        finish: async () => {},
+      });
+      await expect(wizard.advance(context.endpoint.id, "owner-user")).rejects.toThrow("Interrupted after repository import");
+      expect((await context.service.get(context.endpoint.id)).setup.github).toMatchObject({ initialSetupPending: true, initialRepositoryImportPending: false });
+      await context.service.githubWizard.advance(context.endpoint.id, "owner-user");
+      expect((await githubChatManagementService(db, context.providerFetch).configuration(context.endpoint.id, "owner-user")).configuration.toolsEnabled).toBe(true);
+      expect((await context.service.get(context.endpoint.id)).setup.github).toMatchObject({ initialRepositoriesImported: true, initialSetupPending: false });
+    });
+    it("manual App setup preserves explicitly disabled repositories and tools", async () => {
+      const f = await seedCompany();
+      const context = await configuredGitHubEndpoint(f, {}, true, false, true);
+      const management = githubChatManagementService(db, context.providerFetch);
+      const saved = await management.configuration(context.endpoint.id, "owner-user");
+      await management.saveConfiguration(context.endpoint.id, {
+        expectedRevision: saved.revision,
+        configuration: { ...saved.configuration, toolsEnabled: false },
+      }, "owner-user");
+      await context.service.replaceResources(context.endpoint.id, [], "owner-user");
+      await context.service.githubWizard.advance(context.endpoint.id, "owner-user");
+      expect((await context.service.listResources(context.endpoint.id)).every(resource => !resource.enabled)).toBe(true);
+      expect(await management.configuration(context.endpoint.id, "owner-user")).toMatchObject({ revision: 1, configuration: { toolsEnabled: false } });
     });
     it("Cloud bot delivery cannot enter another company's endpoint or a different agent binding", async () => {
       const f = await reviewBotFixture();

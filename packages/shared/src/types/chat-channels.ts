@@ -201,6 +201,7 @@ export interface ChatEndpointSetupState {
     initialRepositoriesImported?: boolean;
     repositorySelectionSaved?: boolean;
     initialRepositoryImportPending?: boolean;
+    initialSetupPending?: boolean;
   };
   step: "choose_agent" | "provider_setup" | "test" | "complete";
   /** Server-generated boundary; only provider events at or after this time can complete setup. */

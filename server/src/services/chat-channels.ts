@@ -38224,7 +38224,14 @@ export function chatChannelService(db: Db, options: ChatChannelServiceOptions) {
         try {
           await db.transaction(async tx => {
             await credentialLease.assertOwned(tx);
-            const claimed = await tx.update(chatEndpoints).set({ status: "attention", botExternalId: identity.botExternalId, botUsername: identity.botUsername, providerAccountId: identity.providerAccountId, providerAccountLabel: identity.providerAccountLabel, healthMessage: "Complete GitHub App setup", updatedAt: new Date() }).where(and(eq(chatEndpoints.id, endpointId), isNull(chatEndpoints.botExternalId))).returning({ id: chatEndpoints.id });
+            const [current] = await tx.select({ setup: chatEndpoints.setup }).from(chatEndpoints).where(eq(chatEndpoints.id, endpointId)).for("update");
+            const [resource] = await tx.select({ id: chatEndpointResources.id }).from(chatEndpointResources).where(eq(chatEndpointResources.endpointId, endpointId)).limit(1);
+            // A fresh manual App has no registration session. Record its first
+            // import before vault writes so interrupted credential storage can resume.
+            const initialImport = !current?.setup.github?.repositorySelectionSaved && !resource;
+            const claimed = await tx.update(chatEndpoints).set({ status: "attention", botExternalId: identity.botExternalId, botUsername: identity.botUsername, providerAccountId: identity.providerAccountId, providerAccountLabel: identity.providerAccountLabel,
+              setup: sql`jsonb_set(${chatEndpoints.setup}, '{github}', coalesce(${chatEndpoints.setup}->'github', '{}'::jsonb) || ${JSON.stringify({ initialSetupPending: true, ...(initialImport ? { initialRepositoryImportPending: true } : {}) })}::jsonb)`,
+              healthMessage: "Complete GitHub App setup", updatedAt: new Date() }).where(and(eq(chatEndpoints.id, endpointId), isNull(chatEndpoints.botExternalId))).returning({ id: chatEndpoints.id });
             if (claimed.length !== 1) throw conflict("The bot changed during registration");
           });
         } catch (error) {
@@ -38237,10 +38244,12 @@ export function chatChannelService(db: Db, options: ChatChannelServiceOptions) {
       if (!slug || !/^[a-z0-9-]+$/.test(slug)) throw unprocessable("GitHub did not identify this App");
       await db.transaction(async tx => {
         await credentialLease.assertOwned(tx);
+        const [current] = await tx.select({ setup: chatEndpoints.setup, status: chatEndpoints.status }).from(chatEndpoints).where(eq(chatEndpoints.id, endpointId)).for("update");
+        if (!current || ["archived", "active", "paused"].includes(current.status)) throw conflict("Use the reconnect flow for an existing active bot");
         await tx.update(chatEndpoints).set({
           status: "attention", botExternalId: identity.botExternalId, botUsername: identity.botUsername,
           botDisplayName: identity.botLabel, providerAccountId: identity.providerAccountId, providerAccountLabel: identity.providerAccountLabel,
-          setup: { ...record.endpoint.setup, github: { ...record.endpoint.setup.github, stage: "install", appSlug: slug, installationUrl: `https://github.com/apps/${slug}/installations/new`, registrationStatus: "completed" } },
+          setup: { ...current.setup, github: { ...current.setup.github, stage: "install", appSlug: slug, installationUrl: `https://github.com/apps/${slug}/installations/new`, registrationStatus: "completed" } },
           healthMessage: "Install the App on GitHub to continue", updatedAt: new Date(),
         }).where(eq(chatEndpoints.id, endpointId));
         await logActivity(tx as unknown as Db, { companyId: record.endpoint.companyId, actorType: "user", actorId: userId, action: "chat_github.app_connected", entityType: "tool_connection", entityId: record.endpoint.connectionId, details: { endpointId, appId: identity.botExternalId } });

@@ -720,9 +720,11 @@ export function githubChatWizardService(
     const saved = await management.configuration(id, userId);
     if (!bot.setup.github?.initialRepositoriesImported) {
       const resources = await options.resources(id);
-      // Existing saved selections/behavior belong to the user. Only a fresh registration imports GitHub's choices.
+      // Fresh manifest and manual Apps import GitHub's initial choices. Saved
+      // selections and configuration still belong to the user on recovery.
+      const initializeApp = !!session || bot.setup.github?.initialSetupPending === true;
       if (
-        session &&
+        initializeApp &&
         bot.status !== "active" &&
         saved.revision === 0 &&
         bot.setup.github?.initialRepositoryImportPending === true &&
@@ -738,7 +740,7 @@ export function githubChatWizardService(
           { initialGitHubImport: true },
         );
       }
-      if (session && saved.revision === 0 && bot.status !== "active")
+      if (initializeApp && saved.revision === 0 && bot.status !== "active")
         await management.saveConfiguration(
           id,
           {
@@ -755,7 +757,7 @@ export function githubChatWizardService(
           },
           userId,
         );
-      await setup(bot, { initialRepositoriesImported: true });
+      await setup(bot, { initialRepositoriesImported: true, initialSetupPending: false });
     }
     if (bot.status !== "active" && bot.status !== "verifying")
       await options.configure(id, userId);
