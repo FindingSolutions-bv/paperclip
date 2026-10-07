@@ -235,7 +235,7 @@ fn assigned_gateway_binding_reaches_qualified_sidecar_without_unrelated_secrets(
             .env("UNRELATED_EVAL_SECRET", "must-not-cross-boundary")
             .env(
                 "PAPERCLIP_ACPX_CREDENTIAL_BINDING",
-                r#"{"schema":"paperclip.acpx_credential_binding.v1","agent":"pi","sessionId":"session-1","names":["OPENROUTER_API_KEY","GEMINI_API_KEY","MY_PI_SERVICE_KEY","PAPERCLIP_PI_PROVIDERS"]}"#,
+                r#"{"schema":"paperclip.acpx_credential_binding.v1","agent":"pi","sessionId":"session-1","names":["OPENROUTER_API_KEY","GEMINI_API_KEY","MY_PI_SERVICE_KEY","LD_API_KEY","DYLD_API_KEY","PAPERCLIP_PI_PROVIDERS"]}"#,
             )
             .envs(
                 [
@@ -246,6 +246,8 @@ fn assigned_gateway_binding_reaches_qualified_sidecar_without_unrelated_secrets(
                     "OPENROUTER_API_KEY",
                     "GEMINI_API_KEY",
                     "MY_PI_SERVICE_KEY",
+                    "LD_API_KEY",
+                    "DYLD_API_KEY",
                     "PAPERCLIP_PI_PROVIDERS",
                     "CURSOR_API_KEY",
                     "CURSOR_AUTH_TOKEN",
@@ -290,6 +292,8 @@ fn assigned_gateway_binding_reaches_qualified_sidecar_without_unrelated_secrets(
                 "OPENROUTER_API_KEY",
                 "GEMINI_API_KEY",
                 "MY_PI_SERVICE_KEY",
+                "LD_API_KEY",
+                "DYLD_API_KEY",
                 "PAPERCLIP_PI_PROVIDERS",
             ],
             "cursor" => vec!["CURSOR_API_KEY", "CURSOR_AUTH_TOKEN"],
@@ -301,7 +305,7 @@ fn assigned_gateway_binding_reaches_qualified_sidecar_without_unrelated_secrets(
             response["credentialBinding"],
             if matches!(agent, "pi" | "cursor" | "copilot") {
                 json!(
-                    r#"{"schema":"paperclip.acpx_credential_binding.v1","agent":"pi","sessionId":"session-1","names":["OPENROUTER_API_KEY","GEMINI_API_KEY","MY_PI_SERVICE_KEY","PAPERCLIP_PI_PROVIDERS"]}"#
+                    r#"{"schema":"paperclip.acpx_credential_binding.v1","agent":"pi","sessionId":"session-1","names":["OPENROUTER_API_KEY","GEMINI_API_KEY","MY_PI_SERVICE_KEY","LD_API_KEY","DYLD_API_KEY","PAPERCLIP_PI_PROVIDERS"]}"#
                 )
             } else {
                 serde_json::Value::Null

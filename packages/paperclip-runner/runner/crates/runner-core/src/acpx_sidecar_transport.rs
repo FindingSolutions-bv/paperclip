@@ -131,14 +131,14 @@ fn pi_credential_environment_keys(binding: Option<&str>) -> Result<Vec<String>, 
             && name
                 .bytes()
                 .all(|c| c.is_ascii_uppercase() || c.is_ascii_digit() || c == b'_');
+        // Match pi-provider-config.ts: prefixes such as LD_API_KEY are valid
+        // credentials; only the reserved process controls are rejected.
         let protected_name = (name.starts_with("PAPERCLIP_") && name != "PAPERCLIP_PI_PROVIDERS")
             || name.starts_with("NODE_")
             || name.starts_with("NPM_")
-            || name.starts_with("DYLD_")
-            || name.starts_with("LD_")
             || matches!(
                 name.as_str(),
-                "PATH" | "HOME" | "SHELL" | "TMPDIR" | "BASH_ENV" | "ENV" | "ZDOTDIR"
+                "PATH" | "HOME" | "SHELL" | "TMPDIR" | "LD_PRELOAD" | "DYLD_INSERT_LIBRARIES"
             );
         if !valid_name || protected_name || !seen.insert(name) {
             return Err(invalid());
@@ -888,10 +888,6 @@ mod tests {
             "PATH",
             "HOME",
             "LD_PRELOAD",
-            "LD_LIBRARY_PATH",
-            "BASH_ENV",
-            "ENV",
-            "ZDOTDIR",
             "DYLD_INSERT_LIBRARIES",
             "PAPERCLIP_NATIVE_MCP_TOKEN",
             "INVALID-NAME",
@@ -908,6 +904,16 @@ mod tests {
             assert!(pi_credential_environment_keys(Some(&binding.to_string())).is_err());
         }
         assert!(pi_credential_environment_keys(Some(&"x".repeat(4_097))).is_err());
+    }
+
+    #[test]
+    fn pi_custom_credential_names_follow_the_controller_contract() {
+        let names = vec!["LD_API_KEY", "DYLD_API_KEY", "MY_PI_SERVICE_KEY"];
+        let binding = json!({"schema":"paperclip.acpx_credential_binding.v1", "agent":"pi", "sessionId":"session-1", "names":names});
+        assert_eq!(
+            pi_credential_environment_keys(Some(&binding.to_string())).unwrap(),
+            names
+        );
     }
 
     #[test]

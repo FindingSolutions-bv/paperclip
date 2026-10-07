@@ -5,6 +5,26 @@ set of release gates. Pi remains a candidate until every required gate passes.
 Keep behavioral qualification on the accepted fixtures. Do not expand it to
 widgets, images, Cursor or Copilot qualification. The existing draft stack must be reviewed in dependency order.
 
+## Production qualification state — 2026-10-07
+
+The final target is native Linux with Pi profile 16. All 26 accepted Product
+cells and seven Runner cases still require passes on the final source and
+installed artifact set. Mac coverage is deferred. Historical passes below do
+not transfer to the corrected source.
+
+Review of `aa67de311` found that Rust rejected custom credential names such as
+`LD_API_KEY` although the controller accepted them. The launcher now matches
+`pi-provider-config.ts`: the same reserved names and prefixes are rejected,
+while ordinary custom names are forwarded only through the authenticated Pi
+session binding. Unit and real child-process tests cover `LD_API_KEY` and
+`DYLD_API_KEY`, unrelated-secret exclusion and rejected reserved names. Pi's
+provider closure is unchanged, so its profile remains 16.
+
+The normal native Linux build of `aa67de311` passed. This credential-contract
+correction requires a new source pin, normal package build/install and fresh
+qualification. It introduces no model roster, fallback or default. The accepted
+model and low thinking remain test inputs.
+
 ## Final fixture reconciliation — 2026-10-07
 
 Fresh Linux CI passed the server, database, UI and package checks. It exposed
@@ -1015,33 +1035,30 @@ local tests and release review are still required.
 
 - Pi: `@earendil-works/pi-coding-agent@1.0.0`.
 - Wrapper: `pi-acp@0.0.33`; ACPX: `0.13.1`; Node: `24.21.0`.
-- New candidate Pi profile: 15. Historical paid runtime profile: 14.
-  Model: `openrouter/deepseek/deepseek-v4-flash-0731`.
-- Profile 14 binds the corrected outbound ACPX client patch. Profile 13 remains
-  historical evidence. Cursor 11 and Copilot 15 also bind that shared patch;
-  both remain pending and receive no new paid qualification in this work.
+- Candidate Pi profile: 16. Historical paid runtime profiles: 14 and 15.
+  Accepted fixture model: `openrouter/deepseek/deepseek-v4-flash-0731`.
+- Pi/Copilot profile 16 and Cursor profile 15 bind the current shared ACPX patch.
+  Earlier profiles remain historical evidence. Cursor and Copilot receive no
+  new paid qualification in this work.
 - Reasoning: native-confirmed `low`. No silent model or thinking fallback.
 - Exact source, suite definition, installed package integrity, runner digest,
   environment and cost evidence must accompany each attempt.
 
 ## Release gates
 
-Use the current corrected-source section above for the current status. The
-following detailed results describe frozen shipping source `c0eba7f4d` and its package/image
-manifest `e15b2b70cad3890555e422a82e62718d1eadf55c3557920a662d6108b596cf2b`.
-The failed reusable-lease correction changes shipping inputs. These results are
-historical until the corrected set is rebuilt and independently qualified.
-All final-set checks and all 33 live cases remain required.
+These gates describe the final corrected source. Source pins and artifact hashes
+must be recorded before live attempts. Earlier detailed results are retained in
+the dated history above and below.
 
 | Gate | Acceptance evidence | Current result |
 | --- | --- | --- |
-| Runtime identity and admission | Exact runtime/profile/model; verified effective thinking; startup below the 60-second admission limit; unsupported configuration fails before a prompt | Rebuilt profile-15 admission passes without credentials or provider calls: ARM Mac 15.069 seconds, x64 under Rosetta 33.518 seconds, native Linux 8.016 seconds. All seven Runner pre-service requests pass; profile 14 is rejected. The frozen model and low thinking remain pinned. Native low thinking is confirmed in the current packaged Runner task-context artifact. Keep per-case native confirmation for remaining live measurements. |
-| Live lifecycle | Pending native question survives controller restart in the original process; one creation and resolution; stale answer after provider death rejected; Stop retires owned processes; three warm turns keep process identity | Corrected local and fresh Daytona pending-question restarts pass all six unchanged matchers each. They retain the original native request, run, turn, session and producer and deliver one exact browser answer. Canonical cleanup and independent launcher/root/credential absence pass; the Daytona child independently returns 404. Local pending-permission Stop passes with canonical and actual cleanup. Provider-death, Daytona Stop, steering and warm continuity remain required; the fresh local steering prerequisite failure stays failed. Prior-set grades remain historical. |
-| Product workflows | All 26 explicit Pi Product E2E cells (13 local, 13 Daytona); screenshots, public state, independent artifacts, terminal and cleanup evidence | Previous frozen-set count 8/26: six local cases, Daytona hello-complete and Daytona pending-question restart pass with preserved evidence and actual cleanup. Rebuild, package checks and all 1,847 fixture tests pass. The other 18 cells were unqualified, including held local steering and the Daytona Stop cleanup failure. All 26 must pass on the corrected final set. The historical memory failure records 32 bytes without LF before its unchanged deadline; its cause still needs a proven correction. No unchanged paid retries. |
-| Runner protocol | Pi roster passes through the native packaged runner and authenticated mock control plane; lifecycle/denial/control cases remain distinct from Product tests | Previous frozen-set count 5/7. All seven must pass on the corrected final set. Task-context, context-before-action, document creation, context/document/progress and governed wait pass every unchanged check with native-confirmed low thinking and actual process absence. The installed Runner matches all 1,334 freshly packed distribution files and passes all seven free admission checks. Private definitions `dc97fdcb`, profile 15, exact model and low thinking stay pinned. Human confirmation fails with a tool invocation rendered as assistant text before any actual operation. It and finish-task remain required. Finish-task stays held for a proven correction to its historical terminal timeout. |
-| Installed distribution | Public CLI/server tars on ARM Mac, Intel Mac and Linux; normal Pi setup; exact Linux companion and immutable Daytona image imported without binary override | All 18 public packages and immutable Linux image are rebuilt and frozen. Anonymous image verification, normal ARM Mac, Rosetta and native Linux install/setup/admission pass without binary overrides. The Linux admission sandbox is independently verified absent. The evaluation consumer matches 722 packages and 79,367 files with zero mismatches. Physical Intel hardware remains unverified. The fresh evaluation controller completes preparation, installed graph checks, Linux controls, browser argument controls, fixture regressions, admission and collection of all 26 cases without provider calls. |
-| Governance and spend | Company isolation, human-only permission, duplicate/stale answers, Stop and budget hard stop; pricing estimates never become claimed bills | Local human permission denial and restrictive denial pass, including negative file-effect checks through process retirement. Company isolation, duplicate/stale answers, Daytona Stop and Paperclip budget hard stop still need fresh shipping qualification. Local pending-permission Stop passes. Keep the dedicated $5 lifetime key and $100 campaign caps with no reset or BYOK. The 2026-10-06 21:01:14 UTC pre-attempt snapshot records $0.378666789 used and $4.621333211 remaining, with zero BYOK usage; delayed settlement is possible. |
-| Integration and rollout | Review each prerequisite; final-head typecheck, tests, build and CI pass; no unresolved review; exact artifacts; rollback recorded | Frozen-source full build, recursive typecheck, harness typecheck and 53 successful CI checks pass, with two CI skips. Targeted ownership/recovery checks pass, including nine Linux birth-reader tests without skips. The current-source canonical full workspace command finishes failed: 14,976 tests pass, two tests fail and one additional suite fails. Two unchanged suites pass in an isolated diagnostic; the five-minute Mac Git streaming timeout and cleanup removal failure remain. The prior-source Linux full command fails one inherited Git-environment assertion; the unchanged file passes a separate credential-free control after omitting that driver-only setting. The prior review head fails one chat-retry browser scenario. Its navigation-wait correction passes all nine unchanged scenarios on the frozen installed UI. Review head 7b674113e passes 53 checks with two skips, Greptile 5/5 and no unresolved threads. The shipping cleanup correction needs rebuilt packages/image, all 33 live passes and its own checks and review. Prerequisite #14921 retains its valid premature-admission finding. Complete all qualification and reviews before release; drain active native Linux runs across the birth-format change. No merge or release is authorized. |
+| Runtime identity and admission | Exact runtime/profile/model; native thinking; startup below 60 seconds; unsupported configuration fails before prompting | Profile 16. Final corrected source needs normal installed Linux admission. Admission on `efd4` is historical. |
+| Live lifecycle | Restart preserves the original pending request and process; stale answer rejected; Stop retires owned processes; three warm turns retain identity | Pending on the final artifact set. Preserve original failures; no unchanged paid retries. |
+| Product workflows | All 26 accepted cells, 13 local and 13 Daytona; public state, artifacts, terminal and cleanup evidence | Final set 0/26. The first `efd4` file-edit attempt failed before prompting with cleanup confirmed; the completed-cache disk correction is independently demonstrated. |
+| Runner protocol | All seven accepted cases through the normal packaged native Runner and authenticated mock control plane | Final set 0/7. Historical 5/7 belongs to the older profile-15 set. Definition source must bind the corrected shipping revision. |
+| Installed distribution | Normal public Linux CLI/server install, Pi setup, package graph integrity and immutable final Daytona image | Final credential-contract correction needs rebuilt packages. The owned native Linux build host is available; final image publication is held on the explicitly requested workflow exception. Mac coverage is deferred. |
+| Governance and spend | Isolation, human permissions, stale/duplicate answers, Stop and hard budget stop; estimated cost stays distinct from billing | Final behavioral evidence pending. The $5 lifetime qualification key and $100 total token ceiling remain. Read-only snapshot at 2026-10-07 14:02 UTC: $0.460818195 usage, $4.539181805 remaining, no reset or BYOK usage. Delayed settlement or other key use may contribute. All 72 BYOK rows were unconfigured. |
+| Integration and rollout | Final-head typecheck/tests/build/CI, current review, exact artifacts, rollback | `aa67de311` passed the Linux CI lanes but its Greptile review found the credential-name mismatch corrected here. New-head review and checks remain required. Full Rust validation on `aa67` passed 687 tests with two ignored; final contract unit and 15 process tests pass. Local full database integration remains blocked by host shared-memory exhaustion. No merge or deployment is authorized. |
 
 ## Bounded execution
 
@@ -2213,7 +2230,8 @@ all failed release evidence.
   bindings while excluding unrelated credentials; malformed/duplicate bindings
   and process-control names are rejected. Full Rust validation passed 687
   tests (two ignored), plus the final binding guard and 15 process-transport
-  tests after tightening loader/shell variable exclusions. Runtime declarations and fixture
+  tests. The follow-up above aligns reserved names with the controller contract.
+  Runtime declarations and fixture
   membership are unchanged; the new shipping source must be frozen and rebuilt.
 - The owned image workflow `37621428993`, pinned to `efd4`, remained unassigned
   on the EC2 fleet. A concrete GitHub-hosted Linux fallback patch is prepared,
