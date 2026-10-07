@@ -196,7 +196,7 @@ it.each([false, true])("explains Dot agent consent and requires an operator in b
     await vi.waitFor(() => expect(connect().disabled).toBe(false));
     flushSync(() => connect().click());
     await vi.waitFor(() => expect(api.post).toHaveBeenCalledWith(device ? "/mcp/device/consent" : "/mcp/requests/request-one/consent", {
-      decision: "approve", companyId: "company-one", allowWrites: false, ...(device ? { userCode: "MIST-YPED" } : {}),
+      decision: "approve", companyId: "company-one", allowWrites: false, allowConfiguration: false, ...(device ? { userCode: "MIST-YPED" } : {}),
     }));
   } finally { page.cleanup(); }
 });
