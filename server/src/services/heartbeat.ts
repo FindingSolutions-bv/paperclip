@@ -24214,6 +24214,7 @@ export function heartbeatService(
             getNativeFreshSessionHandoff = nativeReviewRequest ? undefined : getFreshSessionHandoff;
             const buildExecution = ({ normalizedSessionId, resumedSession }: { normalizedSessionId: string; resumedSession: boolean }) =>
                   buildNativeExecutionInput({
+                    hermesConnectionFingerprint: readNonEmptyString(resolvedConfig.hermesConnectionFingerprint) ?? undefined,
                     agentKeyId: agentIdentity?.keyId,
                     companyId: agent.companyId,
                     runId: run.id,
@@ -24296,7 +24297,7 @@ export function heartbeatService(
                             issueAssigneeOverrides?.adapterConfig,
                             managedAiRuntime ? readNonEmptyString(resolvedConfig.model) ?? undefined : undefined,
                           )
-                        : agent.adapterConfig,
+                        : resolvedConfig.acpxAgent === "hermes" ? resolvedConfig : agent.adapterConfig,
                       managedProfile,
                       agentCoreProfile,
                     }),
