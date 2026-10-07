@@ -464,7 +464,7 @@ export async function prepareAcpxRuntimeSandbox(input: {
             ...taskEnvironmentKeys,
             // Unselected provider/config secrets keep Codex's default shell exclusions;
             // only Paperclip's scoped API token is required by Bash/curl skills.
-            ...Object.keys(input.environment).filter(key => key === "PAPERCLIP_API_KEY" || !/key|secret|token/i.test(key)),
+            ...Object.keys(input.environment ?? {}).filter(key => key === "PAPERCLIP_API_KEY" || !/key|secret|token/i.test(key)),
           ])])}`,
         ] : []),
         "",
