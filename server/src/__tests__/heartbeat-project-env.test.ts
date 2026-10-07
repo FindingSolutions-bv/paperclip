@@ -21,7 +21,17 @@ import type { AuthorizationActor, AuthorizationDecision } from "../services/auth
 import { resolveManagedProjectWorkspaceDir } from "../home-paths.ts";
 
 describe("resolveExecutionRunAdapterConfig", () => {
-  it("mints task environment names after scoped resolution and rejects configured markers", async () => {
+  it.each(["many variables", "large value"])("keeps legacy adapter configuration compatible with %s", async kind => {
+    const env = kind === "many variables"
+      ? Object.fromEntries(Array.from({ length: 129 }, (_, index) => [`CUSTOM_${index}`, "value"]))
+      : { CUSTOM_VALUE: "x".repeat(65_536) };
+    const result = await resolveExecutionRunAdapterConfig({ companyId: "company-1", adapterType: "process", executionRunConfig: { env }, secretsSvc: {
+      resolveAdapterConfigForRuntime: vi.fn(async (_companyId, config) => ({ config, secretKeys: new Set(), manifest: [] })),
+    } as any });
+    expect(result.resolvedConfig.env).toEqual(env);
+  });
+
+  it("captures scoped resolved task values and rejects configured markers", async () => {
     const key = "PAPERCLIP_CONFIGURED_ENV_KEYS";
     const secret = { type: "secret_ref", secretId: "pages-secret" };
     const result = await resolveExecutionRunAdapterConfig({
@@ -44,10 +54,10 @@ describe("resolveExecutionRunAdapterConfig", () => {
       } as any,
     });
     expect(result.configuredTaskEnvironment).toEqual({
-      [key]: '["PAPERCLIP_PAGE_AWS_SECRET_ACCESS_KEY","SHARED"]',
       PAPERCLIP_PAGE_AWS_SECRET_ACCESS_KEY: "resolved-task-secret", SHARED: "routine",
     });
     expect(result.resolvedConfig.env).not.toHaveProperty(key);
+    expect(result.configuredTaskEnvironment).not.toHaveProperty(key);
   });
 
   it("does not preflight or resolve legacy GitHub token bindings for managed executions", async () => {

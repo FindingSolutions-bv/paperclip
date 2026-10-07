@@ -1952,8 +1952,10 @@ export async function resolveExecutionRunAdapterConfig(input: {
   }
   return {
     resolvedConfig,
-    configuredTaskEnvironment: configuredEnvironmentProjection(
-      Object.fromEntries(Object.entries(parseObject(resolvedConfig.env)).filter((entry): entry is [string, string] => typeof entry[1] === "string")),
+    // Capture resolved task values before provider credential injection or host
+    // inheritance. Native-only launch limits are checked at native dispatch.
+    configuredTaskEnvironment: Object.fromEntries(
+      Object.entries(parseObject(resolvedConfig.env)).filter((entry): entry is [string, string] => typeof entry[1] === "string"),
     ),
     secretKeys,
     secretManifest: [
@@ -24996,7 +24998,7 @@ export function heartbeatService(
                     managedAiCredentialIdentity: managedAiRuntime?.identity,
                     managedAiCredentialHome: managedAiRuntime ? String((managedAiRuntime.config.env as Record<string, unknown>).CODEX_HOME) : undefined,
                     runnerEnvironment: {
-                      ...configuredTaskEnvironment,
+                      ...configuredEnvironmentProjection(configuredTaskEnvironment),
                       ...buildNativeProviderEnvironment(
                         adapterEnv,
                         process.env,
