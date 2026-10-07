@@ -176,6 +176,9 @@ export async function nativeCompletionFeedback(
       summary: result.summary,
       attentionRequests: signals.actionableAttentionRequests.filter(request => request.kind === "approval" && request.ownerClass === "human"),
       blocker: result.blocker,
+      // An unmet criterion can name the action still being requested. Completed
+      // evidence elsewhere in the report is not authority to suppress a review.
+      unmetCriteria: result.completionClaim.criteria.filter(criterion => criterion.status === "not_satisfied"),
       continuation: result.continuation,
       // The existing response-wake contract also names its card through evidence.
       evidence: result.reportedWorkDisposition === "yielded" && result.continuation?.kind === "response_wake" ? result.evidence : [],

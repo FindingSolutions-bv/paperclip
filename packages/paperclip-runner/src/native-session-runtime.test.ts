@@ -4637,7 +4637,7 @@ describe("executeNativeSession recovery", () => {
     expect(retainedSessions.at(-1)).toBeNull();
   });
 
-  it("retains a reusable session while a semantic terminal releases its remote subscription", async () => {
+  it.each([false, true])("retains a reusable session while terminal teardown settles (governed=%s)", async (governed) => {
     const close = vi.fn(async () => undefined);
     const retainedSessions: Array<NativeSession | null> = [];
     const session: NativeSession = {
@@ -4653,9 +4653,9 @@ describe("executeNativeSession recovery", () => {
       },
       async *events() {
         try {
-          yield runnerEvent(1, "run.result.proposed", result);
+          yield { ...runnerEvent(1, governed ? "item.completed" : "run.result.proposed", governed ? { kind: "dynamicToolCall" } : result), turnId: "turn-recovery" };
           yield {
-            ...runnerEvent(2, "turn.completed"),
+            ...runnerEvent(2, governed ? "turn.interrupted" : "turn.completed"),
             turnId: "turn-recovery",
           };
         } finally {
@@ -4680,6 +4680,7 @@ describe("executeNativeSession recovery", () => {
           lineage: [],
         };
       },
+      cancel: () => ({ cleanup: Promise.resolve() }),
       close,
     };
     const backend: NativeSessionBackend = {
@@ -4720,10 +4721,11 @@ describe("executeNativeSession recovery", () => {
         controlPlane: port,
         runnerInstanceId: "runner-recovery",
         controlPlaneInstanceId: "control-recovery",
+        resolveGovernedWait: governed ? () => yieldedResult : undefined,
         keepSessionOpen: true,
         onSession: (current) => retainedSessions.push(current),
       }),
-    ).resolves.toMatchObject({ result, terminal });
+    ).resolves.toMatchObject({ result: governed ? yieldedResult : result });
 
     expect(close).not.toHaveBeenCalled();
     expect(retainedSessions).toEqual([session]);
@@ -7641,7 +7643,9 @@ describe("executeNativeSession recovery", () => {
     ]);
   });
 
-  it("parks immediately but retains shutdown usage before finalizing a governed wait", async () => {
+  it.each([0, 6_000, 12_000])("retains actual shutdown usage after %s ms before finalizing a governed wait", async (receiptDelayMs) => {
+    vi.useFakeTimers();
+    try {
     const yielded: PrpStructuredRunResult = {
       schema: "paperclip.run_result.v1",
       reportedWorkDisposition: "yielded",
@@ -7711,6 +7715,7 @@ describe("executeNativeSession recovery", () => {
       async *events() {
         yield itemCompleted;
         await cancelled;
+        await new Promise<void>(resolve => setTimeout(resolve, receiptDelayMs));
         yield { ...itemCompleted, sourceSeq: 2, sourceEventId: "provider-recovery:2",
           payload: { kind: "usage", usage: { runDelta: { inputTokens: 7, outputTokens: 3 }, runDeltaComplete: true } } };
         yield turnInterrupted;
@@ -7780,7 +7785,7 @@ describe("executeNativeSession recovery", () => {
       completeRun,
     };
 
-    const completed = await executeNativeSession({
+    const execution = executeNativeSession({
       input,
       backend,
       controlPlane: port,
@@ -7790,6 +7795,8 @@ describe("executeNativeSession recovery", () => {
         event.eventType === "item.completed" ? yielded : null,
     });
 
+    await vi.advanceTimersByTimeAsync(receiptDelayMs + 1);
+    const completed = await execution;
     expect(cancel).toHaveBeenCalledOnce();
     expect(events.find(event => event.payload.kind === "usage")?.payload.usage).toMatchObject({ runDelta: { inputTokens: 7, outputTokens: 3 } });
     expect(completed).toMatchObject({
@@ -7807,6 +7814,7 @@ describe("executeNativeSession recovery", () => {
       "run.result.accepted",
       "run.terminal",
     ]);
+     } finally { vi.useRealTimers(); }
   });
 
   it("hands a committed structured input to the durable wait after its live window", async () => {

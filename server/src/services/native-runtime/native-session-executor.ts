@@ -7986,6 +7986,11 @@ async function executePaperclipNativeSessionWithinScope(
     }
   };
   let completedConversationReply: PrpEvent | null = null;
+  const assertControllerActive = () => {
+    if (nativeRunsDetachingForRestart.has(input.execution.binding.runId)) {
+      throw new NativeControllerDetachedForRestartError();
+    }
+  };
   const controlPlane = new PaperclipControlPlanePort(
     input.db,
     {
@@ -8001,6 +8006,7 @@ async function executePaperclipNativeSessionWithinScope(
     },
     {
       privateKeyPem: input.runnerEnvironment?.PAPERCLIP_AGENT_PRIVATE_KEY,
+      assertControllerActive,
       onCommittedEvent: async (event) => {
         await observeAccountingEvent(event);
         await toolTrace.observe(event);
@@ -8530,8 +8536,10 @@ async function executePaperclipNativeSessionWithinScope(
             controlPlane,
             runnerInstanceId: effectiveRunnerInstanceId,
             controlPlaneInstanceId,
-            resolveGovernedWait: ({ event }) =>
-              governedWaitObservation.consume(event),
+            resolveGovernedWait: ({ event }) => {
+              assertControllerActive();
+              return governedWaitObservation.consume(event);
+            },
             resolveMissingResult: async ({ terminalEvent }) => {
               // Governed waits take precedence over an ordinary chat reply.
               // Execution tasks still require their normal semantic finish.
@@ -8762,6 +8770,9 @@ async function executePaperclipNativeSessionWithinScope(
       },
       { parentName: "task.run" },
     );
+    // A detached consumer can resolve successfully after its stream closes.
+    // Only the replacement controller may settle the run or certify accounting.
+    assertControllerActive();
     // Persist provider accounting before any workspace/issue finalization. A
     // detached controller or failed finalizer must not lose a completed turn.
     // session.usage() may be an attachment baseline, a partial report, or a

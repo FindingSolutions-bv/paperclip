@@ -55,11 +55,11 @@ describe("native final-response feedback", () => {
     await expect(nativeCompletionFeedback(db, value.runId, waiting)).resolves.toContain("Completion report accepted");
   });
   it.each(["blocked", "needs_review", "yielded"] as const)("rejects a %s approval report bound to an already declined invocation", async (disposition) => {
-    const value = await fixture(), interactionId = randomUUID(), invocationId = randomUUID();
+    const value = await fixture(), interactionId = randomUUID(), invocationId = randomUUID(), actionRequestId = randomUUID();
     await db.insert(issueThreadInteractions).values({ id: interactionId, companyId: value.companyId, issueId: value.issueId,
       sourceRunId: value.runId, createdByAgentId: value.agentId, kind: "request_confirmation", status: "rejected",
       continuationPolicy: "wake_assignee", result: { version: 1, outcome: "rejected" },
-      payload: { version: 1, prompt: "Approve service read", toolAction: { version: 1, actionRequestId: randomUUID(), invocationId, toolName: "pages.read", toolDisplayName: "Read pages", connectionId: null, applicationId: null, appDisplayName: null, risk: "read", previewMarkdown: "Read pages", argumentsSummaryJson: "{}", argumentsHash: "test-hash", expiresAt: "2026-10-07T12:00:00Z" } },
+      payload: { version: 1, prompt: "Approve service read", toolAction: { version: 1, actionRequestId, invocationId, toolName: "pages.read", toolDisplayName: "Read pages", connectionId: null, applicationId: null, appDisplayName: null, risk: "read", previewMarkdown: "Read pages", argumentsSummaryJson: "{}", argumentsHash: "test-hash", expiresAt: "2026-10-07T12:00:00Z" } },
     });
     // The provider can name its exact invocation in the summary without citing
     // an interaction evidence ref, as in the retained OpenCode failure.
@@ -71,6 +71,16 @@ describe("native final-response feedback", () => {
       ...(disposition === "yielded" ? { continuation: { kind: "response_wake" as const, idempotencyKey: "wait", summary: "Wait for approval" } } : {}),
     };
     await expect(nativeCompletionFeedback(db, value.runId, report)).rejects.toThrow("already resolved");
+    // A blocked report may name the exact action only in an unmet criterion.
+    const criterionOnly: PrpStructuredRunResult = { ...report, blocker: undefined,
+      summary: "Await the requested approval", evidence: [{ ref: `approval:${actionRequestId}` }],
+      completionClaim: { ...report.completionClaim, criteria: [{ criterionId: "objective", status: "not_satisfied", evidenceRefs: [`approval:${actionRequestId}`] }] },
+    };
+    await expect(nativeCompletionFeedback(db, value.runId, criterionOnly)).rejects.toThrow("already resolved");
+    // Satisfied historical evidence does not bind the independent review target.
+    if (disposition !== "yielded") await expect(nativeCompletionFeedback(db, value.runId, {
+      ...criterionOnly, completionClaim: { ...criterionOnly.completionClaim, criteria: [{ criterionId: "past-action", status: "satisfied", evidenceRefs: [`approval:${actionRequestId}`] }] },
+    })).resolves.toContain("report accepted");
     // Completed-action evidence is not the target of an independent review.
     if (disposition !== "yielded") await expect(nativeCompletionFeedback(db, value.runId, {
       ...report, blocker: undefined, summary: "Review a separate deliverable", evidence: [{ ref: `interaction:${interactionId}` }],

@@ -47,6 +47,11 @@ const FAILED_OPERATION_SETTLEMENT_GRACE_MS = 100;
 // bounded by the transport. Other iterator and handoff cleanup keeps the short
 // fail-closed quarantine boundary below.
 const REUSABLE_SESSION_CANCELLATION_SETTLEMENT_GRACE_MS = 10_000;
+// Governed cancellation can traverse the ACPX turn cancellation (2s), host
+// cancellation (2s), protocol/TERM/KILL shutdown (7s), and final status read
+// (1s). Allow that bounded settlement plus transport scheduling; never treat
+// elapsed time or a cancellation acknowledgement as usage/terminal evidence.
+const GOVERNED_ACCOUNTING_DRAIN_MS = 15_000;
 const DEFAULT_NATIVE_CHECKPOINT_TIMEOUT_MS = 30_000;
 type NativeSessionCleanupDomain = string;
 
@@ -876,6 +881,7 @@ async function consumeTurn(
   const governedCleanupOperations = new Set<Promise<unknown>>();
   let governedCancellationCommitted = false;
   let semanticResultObserved = false;
+  let governedProviderTerminalObserved = false;
   let deferredGovernedCleanupSettlement: Promise<unknown> | null = null;
   let deferredSessionCancellationSettlement: Promise<unknown> | null = null;
   const inputTimers = new Map<string, ReturnType<typeof setTimeout>>();
@@ -947,7 +953,7 @@ async function consumeTurn(
       const drainAbort = new AbortController();
       const stopDrain = () => drainAbort.abort(appendAbort.signal.reason);
       appendAbort.signal.addEventListener("abort", stopDrain, { once: true });
-      const drainMs = Math.min(5_000, timeoutMs > 0 ? Math.max(1, Math.floor(timeoutMs / 4)) : 5_000);
+      const drainMs = Math.min(GOVERNED_ACCOUNTING_DRAIN_MS, timeoutMs > 0 ? Math.max(1, Math.floor(timeoutMs / 4)) : GOVERNED_ACCOUNTING_DRAIN_MS);
       let drainTimer: ReturnType<typeof setTimeout> | undefined;
       const drained = (async () => {
         while (!drainAbort.signal.aborted) {
@@ -961,7 +967,10 @@ async function consumeTurn(
             if (drainAbort.signal.aborted) return;
             eventCount += receipt.disposition === "committed" ? 1 : 0;
             highestContiguousSourceSeq = Math.max(highestContiguousSourceSeq, receipt.highestContiguousSourceSeq);
-            if (terminal) return;
+            if (terminal) {
+              governedProviderTerminalObserved = true;
+              return;
+            }
           }
         }
       })();
@@ -1346,15 +1355,14 @@ async function consumeTurn(
       );
     } else {
       // Iterator and provider cleanup own no control-plane mutation authority.
-      // A reusable session with a semantic result needs a longer bounded
-      // window for the remote event subscription to release. This applies
-      // after the provider terminal, which still crosses the remote PRP
-      // acknowledgement boundary and routinely takes longer than
-      // the generic local cleanup grace. Governed waits and unrelated stalled
-      // cleanup retain the short fail-closed boundary.
+      // A reusable session needs a bounded window for its remote terminal
+      // subscription to release. A governed wait qualifies only after its
+      // actual provider terminal was retained during the accounting drain.
+      // Missing terminal evidence and unrelated stalled cleanup retain the
+      // short fail-closed boundary.
       const teardownSettled = await settlesWithin(
         passiveTeardownSettlement,
-        semanticResultObserved
+        semanticResultObserved || governedProviderTerminalObserved
           ? reusableSessionCancellationGraceMs
           : FAILED_OPERATION_SETTLEMENT_GRACE_MS,
       );

@@ -5185,6 +5185,24 @@ describe("native startup restart detachment", () => {
     }
   });
 
+  it("rejects a governed completion returned successfully by an already detached controller", async () => {
+    const restarting = structuredClone(execution);
+    restarting.binding.runId = "restart-successful-old-consumer";
+    const detach = vi.fn(async () => undefined);
+    const onUsage = vi.fn(async () => undefined);
+    state.execute.mockReset().mockImplementationOnce(async options => {
+      await options.onSession({ detachControllerForRestart: detach });
+      await detachNativeSessionsForRestart([restarting.binding.runId]);
+      await options.onSession(null);
+      return { result: {},
+        terminal: { runTerminalState: "succeeded" }, usage: null };
+    });
+    await expect(executePaperclipNativeSession({ db: leaseDb(restarting), execution: restarting,
+      runnerInstanceId: "runner", onUsage })).rejects.toBeInstanceOf(NativeControllerDetachedForRestartError);
+    expect(detach).toHaveBeenCalledOnce();
+    expect(onUsage).not.toHaveBeenCalled();
+  });
+
   it.each([false, true])("settles failed startup without claiming detachment (deadline exceeded: %s)", async (exceedDeadline) => {
     const root = await mkdtemp(join(tmpdir(), "native-startup-failure-"));
     const previous = process.env.PAPERCLIP_RUNNER_STATE_DIR;
