@@ -1,7 +1,7 @@
 import { randomUUID } from "node:crypto";
 import { eq } from "drizzle-orm";
 import { afterAll, beforeAll, describe, expect, it } from "vitest";
-import { agents, companies, createDb, heartbeatRuns, issues, issueThreadInteractions } from "@paperclipai/db";
+import { agents, companies, createDb, heartbeatRuns, issues, issueThreadInteractions, issueDocuments } from "@paperclipai/db";
 import { startEmbeddedPostgresTestDatabase } from "../../__tests__/helpers/embedded-postgres.js";
 import type { PrpStructuredRunResult } from "../../vendor/paperclip-runner/index.js";
 import { documentService } from "../documents.js";
@@ -73,6 +73,31 @@ describe("native final-response feedback", () => {
     // The completed-action evidence alone is not permission to wait indefinitely.
     await db.update(issueThreadInteractions).set({ status: "answered" }).where(eq(issueThreadInteractions.id, questionId));
     await expect(nativeCompletionFeedback(db, value.runId, waiting)).rejects.toThrow("without a pending wait condition");
+  });
+  it("rejects completing a requested task document with only a workspace file", async () => {
+    const value = await fixture();
+    await db.delete(issueDocuments).where(eq(issueDocuments.issueId, value.issueId));
+    await db.update(issues).set({ description: "Create a short Markdown briefing document on this task." }).where(eq(issues.id, value.issueId));
+    await db.update(heartbeatRuns).set({ resultJson: {} }).where(eq(heartbeatRuns.id, value.runId));
+    const report = { ...done, summary: "Created briefing.md", evidence: [{ ref: "briefing.md" }] };
+    await expect(nativeCompletionFeedback(db, value.runId, report)).rejects.toThrow("write_document");
+    await expect(nativeCompletionFeedback(db, value.runId, { ...report, evidence: [] })).rejects.toThrow("write_document");
+    const authority = new PaperclipRunnerToolAuthority(db, { companyId: value.companyId, agentId: value.agentId, issueId: value.issueId, runId: value.runId });
+    await authority.execute({ tool: "write_document", callId: "briefing", arguments: {
+      idempotencyKey: "briefing", key: "briefing", title: "Briefing", body: "The retrieved page titles and verification code.", baseRevisionId: null,
+    } });
+    await expect(nativeCompletionFeedback(db, value.runId, done)).resolves.toContain("Saved document");
+  });
+  it("does not accept a stale task-document receipt or another task's document", async () => {
+    const value = await fixture(), foreign = await fixture();
+    await db.update(issues).set({ description: "Save a document on this task." }).where(eq(issues.id, value.issueId));
+    await documentService(db).upsertIssueDocument({ format: "markdown", issueId: value.issueId, key: "output", title: "Updated", body: "Replacement revision",
+      baseRevisionId: value.saved.document.latestRevisionId, createdByAgentId: value.agentId, createdByRunId: null });
+    await expect(nativeCompletionFeedback(db, value.runId, done)).rejects.toThrow("write_document");
+    await db.update(heartbeatRuns).set({ resultJson: { semanticToolReceipts: { fake: { operationId: "write_document", result: {
+      disposition: "applied", document: foreign.saved.document,
+    } } } } }).where(eq(heartbeatRuns.id, value.runId));
+    await expect(nativeCompletionFeedback(db, value.runId, done)).rejects.toThrow("write_document");
   });
   it("returns a concrete final-answer link without treating the document title as instructions", async () => {
     const value = await fixture();

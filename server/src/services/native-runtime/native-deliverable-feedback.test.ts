@@ -1,5 +1,5 @@
 import { describe, expect, it } from "vitest";
-import { explicitlyRequestsFileOutput } from "./native-deliverable-feedback.js";
+import { explicitlyRequestsFileOutput, explicitlyRequestsTaskDocumentOutput } from "./native-deliverable-feedback.js";
 
 describe("explicit file output requirements", () => {
   it.each([
@@ -33,5 +33,29 @@ describe("explicit file output requirements", () => {
     "Write a reply without any files.",
   ])("does not require a file for a text or source-review request: %s", objective => {
     expect(explicitlyRequestsFileOutput(objective)).toBe(false);
+  });
+});
+
+
+describe("explicit task-document output", () => {
+  it.each([
+    "Use the connected page service to find recent pages and create a short Markdown briefing document on this task. Include the titles and verification code returned by the service.",
+    "Save a document on this task.",
+    "Write a report document attached to the issue.",
+  ])("requires a published task document: %s", objective => {
+    expect(explicitlyRequestsTaskDocumentOutput(objective)).toBe(true);
+  });
+  it.each([
+    "Explain the document on this task.",
+    "Write a summary of the document on this task in chat.",
+    "Do not create a document on this task; reply inline.",
+    "Create no document on this task.",
+    "Write a response without a document on this task.",
+    "Create a document about this task in the repository.",
+    "Explain how to create a document on this task.",
+    "Create briefing.md in the workspace.",
+    "Connect HubSpot so you can read my recent contacts. If the contacts are unavailable, a brief explanation is enough instead of the contact list.",
+  ])("preserves other output scopes: %s", objective => {
+    expect(explicitlyRequestsTaskDocumentOutput(objective)).toBe(false);
   });
 });
