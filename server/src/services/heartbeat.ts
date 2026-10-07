@@ -9659,12 +9659,34 @@ export function heartbeatService(
       BOUNDED_TRANSIENT_HEARTBEAT_RETRY_MAX_ATTEMPTS,
   });
   const runDispatch = createRunDispatch(db);
+  const normalizeRetryContext = (context: Record<string, unknown>) => withRecoveryContext(context, "normal_model");
   const runRetry = createRunRetry(db, {
+    adapterHost: {
+      evaluateAgentInvokability: (agent) => evaluateAgentInvokabilityFromDb(db, agent),
+      admitExplicitContinuationRetry,
+      hasConversationContinuationPolicy,
+      conversationContinuationPolicy: CONVERSATION_CONTINUATION_POLICY,
+      normalizeRetryContext,
+      readContinuationAttempt,
+      recordWorkspaceQuarantineActivity: async (tx, input) => {
+        await logActivity(tx, {
+          companyId: input.companyId,
+          actorType: "system",
+          actorId: "heartbeat",
+          agentId: input.agentId,
+          runId: input.runId,
+          action: "execution_workspace.workspace_validation_quarantined",
+          entityType: "execution_workspace",
+          entityId: input.workspaceId,
+          details: input.details,
+        });
+      },
+    },
     resolveSessionBeforeForWakeup,
     resolveResponsibleUserIdForRunContext,
     evaluateScheduledRetryGate: (input) => runDispatch.evaluateScheduledRetryGate(input),
     isLegacyReconciliationBlocked: (run) => legacyExecutionNeedsReconciliationWithEvidence(db, run),
-    normalizeRetryContext: (context) => withRecoveryContext(context, "normal_model"),
+    normalizeRetryContext,
   });
 
   // Applies the post-commit effects a run-dispatch operation returns, on a

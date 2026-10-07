@@ -1,6 +1,7 @@
 import { agents, heartbeatRuns, type Db } from "@paperclipai/db";
 import type { GateDecision } from "../run-dispatch/index.js";
 import { createPostgresRunRetryAdapter } from "./adapters/postgres.js";
+import type { RunRetryAdapterHost } from "./adapters/postgres.js";
 import { createScheduleRunRetry } from "./application/use-cases.js";
 import type { RunRetryAgentInvokability, RunRetryWriter } from "./application/ports.js";
 
@@ -8,6 +9,7 @@ type Run = typeof heartbeatRuns.$inferSelect;
 type Agent = typeof agents.$inferSelect;
 
 export type RunRetryDeps = {
+  adapterHost: RunRetryAdapterHost;
   resolveSessionBeforeForWakeup: (agent: Agent, taskKey: string | null) => Promise<string | null>;
   resolveResponsibleUserIdForRunContext: (run: Run, context: Record<string, unknown>) => Promise<string | null>;
   evaluateScheduledRetryGate: (input: { runId: string; companyId: string; retryReasonOverride: string; now: Date }) => Promise<GateDecision>;
@@ -17,7 +19,7 @@ export type RunRetryDeps = {
 };
 
 export function createRunRetry(db: Db, deps: RunRetryDeps) {
-  const adapter = deps.adapter ?? createPostgresRunRetryAdapter(db);
+  const adapter = deps.adapter ?? createPostgresRunRetryAdapter(db, deps.adapterHost);
   return {
     scheduleRunRetry: createScheduleRunRetry({
       writer: adapter,

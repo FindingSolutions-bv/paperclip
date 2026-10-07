@@ -9,12 +9,6 @@ import {
   type Db,
 } from "@paperclipai/db";
 import { parseObject } from "../../../adapters/utils.js";
-import { evaluateAgentInvokabilityFromDb } from "../../../services/agent-invokability.js";
-import { admitExplicitContinuationRetry } from "../../../services/explicit-native-continuation.js";
-import { hasConversationContinuationPolicy, CONVERSATION_CONTINUATION_POLICY } from "../../../services/conversation-continuation.js";
-import { withRecoveryContext } from "../../../services/recovery/status-only-context.js";
-import { logActivity } from "../../../services/activity-log.js";
-import { readContinuationAttempt } from "../../../services/recovery/run-liveness-continuations.js";
 import {
   AI_CONNECTION_BUSY_RETRY_REASON,
   AI_CONNECTION_POOL_WAIT_RETRY_REASON,
@@ -23,10 +17,25 @@ import {
   isNonAssigneeWorkspaceBusyRetry,
 } from "../../run-dispatch/index.js";
 import type { RunRetryAgentInvokability, RunRetryWriter } from "../application/ports.js";
-import type { RunRetryWriterResult } from "../application/types.js";
+import type { RunRetryInvokabilityResult, RunRetryWriterResult } from "../application/types.js";
 
 type Run = typeof heartbeatRuns.$inferSelect;
 type Agent = typeof agents.$inferSelect;
+export type RunRetryAdapterHost = {
+  evaluateAgentInvokability: (agent: Agent) => Promise<RunRetryInvokabilityResult>;
+  admitExplicitContinuationRetry: (input: {
+    db: Db; companyId: string; issueId: string; agentId: string;
+    parentRunId: string; successorRunId: string; now: Date;
+  }) => Promise<{ previousRunId: string; commentId: string } | null>;
+  hasConversationContinuationPolicy: (result: Run["resultJson"]) => boolean;
+  conversationContinuationPolicy: string;
+  normalizeRetryContext: (context: Record<string, unknown>) => Record<string, unknown>;
+  readContinuationAttempt: (value: unknown) => number;
+  recordWorkspaceQuarantineActivity: (db: Db, input: {
+    companyId: string; agentId: string; runId: string; workspaceId: string;
+    details: Record<string, unknown>;
+  }) => Promise<void>;
+};
 const MAX_TURN_CONTINUATION_LIVE_RUN_STATUSES = ["scheduled_retry", "queued", "running"] as const;
 const WORKSPACE_VALIDATION_FAILURE_CODE = "workspace_validation_failed";
 
@@ -40,13 +49,13 @@ function normalizeAgentNameKey(value: string | null | undefined) {
   return normalized.length > 0 ? normalized : null;
 }
 
-export function createPostgresRunRetryAdapter(db: Db): RunRetryWriter<Run> & RunRetryAgentInvokability<Agent> {
+export function createPostgresRunRetryAdapter(db: Db, host: RunRetryAdapterHost): RunRetryWriter<Run> & RunRetryAgentInvokability<Agent> {
   return {
     async checkAgentInvokability(input) {
       if (input.companyId !== input.agent.companyId) {
         throw new Error("The agent company does not match the retry company.");
       }
-      return evaluateAgentInvokabilityFromDb(db, input.agent);
+      return host.evaluateAgentInvokability(input.agent);
     },
     async scheduleRetry(input) {
       const {
@@ -334,7 +343,7 @@ export function createPostgresRunRetryAdapter(db: Db): RunRetryWriter<Run> & Run
 
           const scheduledRunId = randomUUID();
           if (contextSnapshot.explicitUserContinuation) {
-            const continuation = issueId && retryReason === "transient_failure" ? await admitExplicitContinuationRetry({
+            const continuation = issueId && retryReason === "transient_failure" ? await host.admitExplicitContinuationRetry({
               db: tx as unknown as Db, companyId: companyId, issueId, agentId: run.agentId,
               parentRunId: run.id, successorRunId: scheduledRunId, now,
             }) : null;
@@ -356,7 +365,7 @@ export function createPostgresRunRetryAdapter(db: Db): RunRetryWriter<Run> & Run
               source: "automation",
               triggerDetail: "system",
               reason: wakeReason,
-              payload: withRecoveryContext(
+              payload: host.normalizeRetryContext(
                 {
                   ...(issueId ? { issueId } : {}),
                   retryOfRunId: run.id,
@@ -384,7 +393,6 @@ export function createPostgresRunRetryAdapter(db: Db): RunRetryWriter<Run> & Run
                     ? { codexTransientFallbackMode }
                     : {}),
                 },
-                "normal_model",
               ),
               status: "queued",
               requestedByActorType: "system",
@@ -406,15 +414,15 @@ export function createPostgresRunRetryAdapter(db: Db): RunRetryWriter<Run> & Run
               status: "scheduled_retry",
               wakeupRequestId: wakeupRequest.id,
               contextSnapshot: retryContextSnapshot,
-              ...(hasConversationContinuationPolicy(run.resultJson)
-                ? { resultJson: { conversationContinuation: CONVERSATION_CONTINUATION_POLICY } } : {}),
+              ...(host.hasConversationContinuationPolicy(run.resultJson)
+                ? { resultJson: { conversationContinuation: host.conversationContinuationPolicy } } : {}),
               responsibleUserId,
               sessionIdBefore: sessionBefore,
               retryOfRunId: run.id,
               scheduledRetryAt: schedule.dueAt,
               scheduledRetryAttempt: schedule.attempt,
               scheduledRetryReason: retryReason,
-              continuationAttempt: readContinuationAttempt(
+              continuationAttempt: host.readContinuationAttempt(
                 retryContextSnapshot.livenessContinuationAttempt,
               ),
               updatedAt: now,
@@ -508,16 +516,9 @@ export function createPostgresRunRetryAdapter(db: Db): RunRetryWriter<Run> & Run
                     ),
                   );
 
-                await logActivity(tx as unknown as Db, {
-                  companyId: companyId,
-                  actorType: "system",
-                  actorId: "heartbeat",
-                  agentId: run.agentId,
-                  runId: run.id,
-                  action: "execution_workspace.workspace_validation_quarantined",
-                  entityType: "execution_workspace",
-                  entityId: failedWorkspace.id,
-                  details: quarantine,
+                await host.recordWorkspaceQuarantineActivity(tx as unknown as Db, {
+                  companyId, agentId: run.agentId, runId: run.id,
+                  workspaceId: failedWorkspace.id, details: quarantine,
                 });
                 detachWorkspaceFromIssue =
                   issueWorkspace.executionWorkspaceId ===
