@@ -106,7 +106,7 @@ enrollment handoff passed. The test did not authorize Cloud enrollment or
 create a provider App.
 
 The focused wizard and retained clipboard/recovery UI suites pass (37 tests).
-Backend wizard coverage passes (14 cases), including both owner types,
+GitHub backend coverage passes (189 cases), including both owner types,
 interrupted registration and vault storage, empty saved repository selections,
 localhost configuration, concurrent identity attempts, enrolled-origin recovery,
 tenant binding, and legacy callbacks. The complete OpenAPI suite passes (13
@@ -115,16 +115,19 @@ browser journey passes through manual recovery, identity confirmation, automatic
 completion, settings, and reconnect.
 
 The full local Vitest run reported 16,080 passing tests, nine failing tests,
-and three suites with database-startup timeouts. Its failing suites are being
-rerun in isolation; this is not a claim of a green full suite. CI initially
+and three suites with database-startup timeouts. All ten failing suites passed
+in isolation (303 tests). The original full run remains a failed run; it is not
+a claim of a green full suite. CI initially
 identified outdated wizard expectations and missing API documentation, both now
-covered by the updated focused checks.
+covered by the updated focused checks. The full GitHub fixture also verifies
+installation permissions and preserved legacy tool authority. The browser
+report attaches screenshots of both wizard screens.
 
-Cloud's final standard `npm test` passes: 2,559 tests and 73 environment-dependent
+Cloud's final standard `npm test` passes: 2,561 tests and 73 environment-dependent
 skips. Dedicated-App regressions cover normalized concurrent starts, stale
 installation redeliveries, atomic inbox/state transitions, current enrolled
-callback destinations, PKCE consent and denial, expired claims, and webhook
-secret retirement. The Postgres concurrency case requires a disposable
+callback destinations after old hosts stop resolving, PKCE consent and denial, expired claims, and webhook
+secret retirement with nonblocking cleanup, including overlapping repairs. The Postgres concurrency case requires a disposable
 database and was not run here.
 
 Before rollout, apply the additive Cloud migration, enable the dedicated-App

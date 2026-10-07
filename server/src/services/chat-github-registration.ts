@@ -1,7 +1,8 @@
 import { createHash, randomBytes } from "node:crypto";
-import { and, eq, gt } from "drizzle-orm";
+import { and, eq, gt, sql } from "drizzle-orm";
 import {
   chatEndpoints,
+  chatEndpointResources,
   chatGitHubRegistrations,
   companies,
   companyMemberships,
@@ -111,11 +112,25 @@ export function githubChatRegistrationService(
     const state = randomBytes(32).toString("base64url");
     const expiresAt = new Date(Date.now() + 30 * 60_000);
     await db.transaction(async (tx) => {
-      await tx
-        .select({ id: chatEndpoints.id })
+      const [lockedEndpoint] = await tx
+        .select()
         .from(chatEndpoints)
         .where(eq(chatEndpoints.id, endpointId))
         .for("update");
+      if (!lockedEndpoint || lockedEndpoint.status === "archived")
+        throw notFound("GitHub bot not found");
+      if (lockedEndpoint.botExternalId)
+        throw conflict("This bot already has a GitHub App. Reconnect its existing credentials.");
+      const [existingResource] = await tx
+        .select({ id: chatEndpointResources.id })
+        .from(chatEndpointResources)
+        .where(eq(chatEndpointResources.endpointId, endpointId))
+        .limit(1);
+      if (!lockedEndpoint.setup.github?.repositorySelectionSaved && !existingResource)
+        await tx.update(chatEndpoints).set({
+          setup: sql`jsonb_set(${chatEndpoints.setup}, '{github}', coalesce(${chatEndpoints.setup}->'github', '{}'::jsonb) || '{"initialRepositoryImportPending":true}'::jsonb)`,
+          updatedAt: new Date(),
+        }).where(eq(chatEndpoints.id, endpointId));
       await tx
         .update(chatGitHubRegistrations)
         .set({ status: "failed", consumedAt: new Date() })

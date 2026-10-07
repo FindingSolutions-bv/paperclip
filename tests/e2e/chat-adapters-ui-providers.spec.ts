@@ -1,5 +1,5 @@
 import { readFile } from "node:fs/promises";
-import { expect, test, type Page } from "@playwright/test";
+import { expect, test, type Page, type TestInfo } from "@playwright/test";
 
 import {
   expectMinimumProviderSetup,
@@ -18,12 +18,13 @@ import {
   GITHUB_PRIVATE_KEY_PASTE_FIXTURE,
 } from "./chat-adapters-ui.shared";
 
-async function exerciseGitHubReviewSetup(page: Page, mock: ChatMock, seed: Seed, provider: ProviderCase) {
+async function exerciseGitHubReviewSetup(page: Page, mock: ChatMock, seed: Seed, provider: ProviderCase, testInfo: TestInfo) {
   await expect(page.getByRole("heading", { name: "Choose agent", exact: true })).toBeVisible();
   await page.getByRole("button", { name: "Select agent…", exact: true }).click();
   await page.getByRole("button", { name: "Select Maya", exact: true }).click();
   await expect(page.getByText("Maya is not configured for low-trust review")).toBeVisible();
   await expect(page.getByRole("link", { name: "Learn about low-trust agents" })).toHaveAttribute("href", /trust-and-low-trust-review/);
+  await testInfo.attach("Choose agent — inline low-trust warning", { body: await page.screenshot(), contentType: "image/png" });
   await page.getByRole("button", { name: "Change Maya to a low trust agent" }).click();
   await expect(page.getByText("Maya is not configured for low-trust review")).toHaveCount(0);
   await page.getByRole("button", { name: "Continue", exact: true }).click();
@@ -33,6 +34,7 @@ async function exerciseGitHubReviewSetup(page: Page, mock: ChatMock, seed: Seed,
   await expect(page.getByLabel("App name", { exact: true })).toHaveValue("Maya");
   await page.getByLabel("GitHub account").selectOption("organization");
   await page.getByLabel("Organization", { exact: true }).fill("paperclip-ai");
+  await testInfo.attach("Connect GitHub — organization", { body: await page.screenshot(), contentType: "image/png" });
   await page.getByRole("button", { name: "Save & exit", exact: true }).click();
   await page.goto(`/${seed.prefix}/apps/chat/connect?provider=github&purpose=chat&resume=endpoint-github`);
   await expect(page.getByLabel("GitHub account")).toHaveValue("organization");
@@ -204,7 +206,7 @@ test.describe.serial("native chat adapter UI", () => {
   for (const provider of PROVIDERS) {
     test(`${provider.name}: catalog, setup, and connection management tabs`, async ({
       page,
-    }) => {
+    }, testInfo) => {
       const mock = await installChatControlPlaneMock(page, provider, seed, {
         enableChatConnectors: true,
       });
@@ -268,7 +270,7 @@ test.describe.serial("native chat adapter UI", () => {
       }
 
       if (provider.provider === "github") {
-        await exerciseGitHubReviewSetup(page, mock, seed, provider);
+        await exerciseGitHubReviewSetup(page, mock, seed, provider, testInfo);
         return;
       }
 

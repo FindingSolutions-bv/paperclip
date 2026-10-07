@@ -8,7 +8,7 @@ import { githubChatManagementService } from "../services/chat-github-management.
 import { githubChatReviewService } from "../services/chat-github-reviews.js";
 import { githubReviewCheckService } from "../services/chat-github-checks.js";
 import { githubAutomaticReviewEvent } from "../services/chat-github-events.js";
-import { githubBotToolsForSession } from "../services/chat-github-tools.js";
+import { githubBotToolsForSession, syncGitHubBotTools } from "../services/chat-github-tools.js";
 import { resolveGitHubOperationCredentials } from "../services/github-operation-credentials.js";
 import { initializeRunIdentity } from "../services/run-identity.js";
 import { chatGitHubRegistrations, chatGitHubReviews, toolCatalogEntries } from "@paperclipai/db";
@@ -1875,6 +1875,7 @@ describeEmbeddedPostgres("chat channel control-plane integration", () => {
       >
     > & { wakeup?: ChatChannelServiceOptions["heartbeat"]["wakeup"] } = {},
     useVerifiedAppId = false,
+    registerWithManifest = false,
   ) {
     let setupComplete = false;
     const deferredSchedule = overrides.scheduleDeferredWork;
@@ -1891,16 +1892,21 @@ describeEmbeddedPostgres("chat channel control-plane integration", () => {
       },
     ];
     let appPermissions: Record<string, string> = {
+      contents: "read",
+      checks: "write",
       issues: "write",
       metadata: "read",
       pull_requests: "write",
     };
     let installationPermissions: Record<string, string> = {
+      contents: "read",
+      checks: "write",
       issues: "write",
       metadata: "read",
       pull_requests: "write",
     };
     let appEvents = [
+      "pull_request",
       "github_app_authorization",
       "installation",
       "installation_repositories",
@@ -1959,6 +1965,8 @@ describeEmbeddedPostgres("chat channel control-plane integration", () => {
           { status: 200, headers: { "content-type": "application/json" } },
         );
       }
+      if (url === `https://api.github.com/app/installations/${installationId}`)
+        return Response.json({ permissions: installationPermissions, suspended_at: null });
       if (url === "https://api.github.com/app/installations?per_page=100") {
         return new Response(
           JSON.stringify(
@@ -2041,6 +2049,8 @@ describeEmbeddedPostgres("chat channel control-plane integration", () => {
       endpoint.publicId,
       webhookSecret,
     );
+    if (registerWithManifest)
+      await context.service.startGitHubRegistration(endpoint.id, "owner-user", "Maya");
     await context.service.configure(
       endpoint.id,
       {
@@ -2052,10 +2062,17 @@ describeEmbeddedPostgres("chat channel control-plane integration", () => {
       },
       "owner-user",
     );
+    if (!useVerifiedAppId) {
+      const [configured] = await db.select().from(chatEndpoints).where(eq(chatEndpoints.id, endpoint.id));
+      // Legacy transport fixtures already have explicit tool authority. Do not
+      // save a review configuration: that would switch their admission model.
+      await db.transaction((tx) => syncGitHubBotTools(tx, configured!, "owner-user", true));
+    }
     const resources = await context.service.listResources(endpoint.id);
-    await context.service.replaceResources(endpoint.id, [
-      { id: resources[0]!.id, enabled: true },
-    ]);
+    if (!registerWithManifest)
+      await context.service.replaceResources(endpoint.id, [
+        { id: resources[0]!.id, enabled: true },
+      ]);
     setupComplete = true;
     const callbacks = context.runtime.configurations.get(
       endpoint.id,
@@ -2858,39 +2875,11 @@ describeEmbeddedPostgres("chat channel control-plane integration", () => {
     });
     it("imports initial GitHub access without a second picker and leaves later additions disabled", async () => {
       const f = await seedCompany();
-      const context = await configuredGitHubEndpoint(f, {}, true);
+      const context = await configuredGitHubEndpoint(f, {}, true, true);
       const current = await context.service.get(context.endpoint.id);
-      const first = await context.service.listResources(current.id);
-      // Inventory before any user selection: simulate a fresh provider import,
-      // rather than an explicit user decision to disable every repository.
-      await db
-        .update(chatEndpointResources)
-        .set({ enabled: false })
-        .where(eq(chatEndpointResources.endpointId, current.id));
-      await db
-        .update(chatEndpoints)
-        .set({
-          setup: {
-            ...current.setup,
-            github: {
-              ...current.setup.github,
-              repositorySelectionSaved: undefined,
-              initialRepositoryImportPending: true,
-            },
-          },
-        })
-        .where(eq(chatEndpoints.id, current.id));
-      await db.insert(chatGitHubRegistrations).values({
-        companyId: f.companyId,
-        endpointId: current.id,
-        userId: "owner-user",
-        stateHash: randomUUID(),
-        trustedOrigin: "https://reviews.example.test",
-        ownerType: "organization",
-        ownerLogin: "paperclipai",
-        status: "completed",
-        expiresAt: new Date(Date.now() + 60_000),
-      });
+      expect(current.setup.github?.initialRepositoryImportPending).toBe(true);
+      await db.update(chatGitHubRegistrations).set({ status: "completed" })
+        .where(eq(chatGitHubRegistrations.endpointId, current.id));
       const result = await context.service.githubWizard.advance(
         current.id,
         "owner-user",
@@ -2977,6 +2966,20 @@ describeEmbeddedPostgres("chat channel control-plane integration", () => {
         "does not belong",
       );
       expect(f.wakeup).not.toHaveBeenCalled();
+    });
+    it("legacy name-only registration preserves an explicit empty repository selection", async () => {
+      const fixture = await seedCompany();
+      const { service } = createService(new FakeChatSdkRuntime(), fakeSlackFetch(), {
+        publicBaseUrl: "https://reviews.example.test",
+      });
+      const bot = await service.create(fixture.companyId, {
+        provider: "github", assignedAgentId: fixture.assignedAgentId,
+      }, "owner-user");
+      await service.replaceResources(bot.id, [], "owner-user");
+      await service.startGitHubRegistration(bot.id, "owner-user", "Maya");
+      const current = await service.get(bot.id);
+      expect(current.setup.github?.repositorySelectionSaved).toBe(true);
+      expect(current.setup.github?.initialRepositoryImportPending).not.toBe(true);
     });
     it("uses the manifest state parameter and rejects expired, reused, and wrong-origin registrations", async () => {
       const fixture = await seedCompany();

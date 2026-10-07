@@ -27963,7 +27963,7 @@ export function chatChannelService(db: Db, options: ChatChannelServiceOptions) {
   ) {
     const initial = await endpointRecord(endpointId);
     if (!initial) throw notFound("Chat endpoint not found");
-    if (updates.length === 0) return listResources(endpointId);
+    if (updates.length === 0 && initial.endpoint.provider !== "github") return listResources(endpointId);
     if (initial.endpoint.provider === "imessage-photon" && initial.endpoint.botExternalId?.startsWith("photon-project:") && updates.some((entry) => entry.enabled))
       throw unprocessable("Photon shared channels support direct messages only; groups cannot be enabled");
     await withCredentialMutationLease(
@@ -28045,7 +28045,7 @@ export function chatChannelService(db: Db, options: ChatChannelServiceOptions) {
               );
           if (endpoint.provider === "github")
             await tx.update(chatEndpoints).set({ setup: sql`jsonb_set(${chatEndpoints.setup}, '{github}', coalesce(${chatEndpoints.setup}->'github', '{}'::jsonb) || '{"repositorySelectionSaved":true,"initialRepositoryImportPending":false}'::jsonb)`, updatedAt: new Date() }).where(eq(chatEndpoints.id, endpointId));
-          if (changes.length > 0)
+          if (changes.length > 0 || (endpoint.provider === "github" && !endpoint.setup.github?.repositorySelectionSaved))
             await logActivity(
               tx as unknown as Db,
               {
