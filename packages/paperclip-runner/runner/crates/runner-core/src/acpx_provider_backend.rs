@@ -3162,7 +3162,18 @@ mod tests {
     #[cfg(unix)]
     #[test]
     fn cursor_attachment_rotates_only_authenticated_run_grants() {
-        let directory = temporary_directory("cursor-cross-run-attach");
+        assert_authenticated_run_grant_rotation("cursor");
+    }
+
+    #[cfg(unix)]
+    #[test]
+    fn hermes_attachment_rotates_only_authenticated_run_grants() {
+        assert_authenticated_run_grant_rotation("hermes");
+    }
+
+    #[cfg(unix)]
+    fn assert_authenticated_run_grant_rotation(agent: &str) {
+        let directory = temporary_directory(&format!("{agent}-cross-run-attach"));
         let runtime = directory.join("runtime");
         let workspace = directory.join("workspace");
         fs::create_dir_all(&runtime).unwrap();
@@ -3182,7 +3193,7 @@ mod tests {
             args: Vec::new(),
             artifacts: vec![artifact(&command)],
         };
-        let mut descriptor_value = descriptor("cursor");
+        let mut descriptor_value = descriptor(agent);
         descriptor_value["sidecarCommand"] = json!(command);
         descriptor_value["runtimeContext"] = json!({ "instructions": { "digest": "stable" }, "mcp": { "digest": "before" }, "aggregateDigest": "before" });
         descriptor_value["sidecarArgs"] = json!([]);

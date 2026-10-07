@@ -10,7 +10,7 @@ pub(crate) enum RunAttachmentPolicy {
 
 pub(crate) fn run_attachment_policy(agent: &str) -> RunAttachmentPolicy {
     match agent {
-        "cursor" => RunAttachmentPolicy::AuthenticatedRunGrants,
+        "cursor" | "hermes" => RunAttachmentPolicy::AuthenticatedRunGrants,
         _ => RunAttachmentPolicy::ImmutableInstructions,
     }
 }
@@ -20,11 +20,13 @@ mod tests {
     use super::*;
 
     #[test]
-    fn only_qualified_providers_opt_into_run_grant_rotation() {
-        assert_eq!(
-            run_attachment_policy("cursor"),
-            RunAttachmentPolicy::AuthenticatedRunGrants
-        );
+    fn only_explicit_profiles_opt_into_run_grant_rotation() {
+        for agent in ["cursor", "hermes"] {
+            assert_eq!(
+                run_attachment_policy(agent),
+                RunAttachmentPolicy::AuthenticatedRunGrants
+            );
+        }
         for agent in ["claude", "codex", "grok", "pi", "copilot", "unknown"] {
             assert_eq!(
                 run_attachment_policy(agent),
