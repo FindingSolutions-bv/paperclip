@@ -11,6 +11,7 @@ import {
   bigint,
   boolean,
   unique,
+  uniqueIndex,
 } from "drizzle-orm/pg-core";
 import { companies } from "./companies.js";
 import { agents } from "./agents.js";
@@ -26,12 +27,24 @@ export const heartbeatRuns = pgTable(
     triggerDetail: text("trigger_detail"),
     status: text("status").notNull().default("queued"),
     responsibleUserId: text("responsible_user_id"),
+    // The service validates the company/run boundary; avoid a cyclic schema import.
+    activeIdentityContextId: uuid("active_identity_context_id"),
     startedAt: timestamp("started_at", { withTimezone: true }),
     finishedAt: timestamp("finished_at", { withTimezone: true }),
+    // Set only after provider execution settles; never a timeout on thinking.
+    executionControlDeadlineAt: timestamp("execution_control_deadline_at", { withTimezone: true }),
+    // Transactional delivery marker. Null on historical rows; publication never replays provider work.
+    executionStatusDeliveryId: uuid("execution_status_delivery_id"),
     error: text("error"),
     wakeupRequestId: uuid("wakeup_request_id").references(() => agentWakeupRequests.id),
     exitCode: integer("exit_code"),
     signal: text("signal"),
+    costAccountingPending: boolean("cost_accounting_pending").notNull().default(false),
+    costAccountedAt: timestamp("cost_accounted_at", { withTimezone: true }),
+    accountingProjectionVersion: text("accounting_projection_version"),
+    accountingLastAttemptAt: timestamp("accounting_last_attempt_at", { withTimezone: true }),
+    accountingLastError: text("accounting_last_error"),
+    accountingAttemptCount: integer("accounting_attempt_count").notNull().default(0),
     usageJson: jsonb("usage_json").$type<Record<string, unknown>>(),
     resultJson: jsonb("result_json").$type<Record<string, unknown>>(),
     runtimeMode: text("runtime_mode").notNull().default("legacy"),
@@ -60,6 +73,10 @@ export const heartbeatRuns = pgTable(
     stderrExcerpt: text("stderr_excerpt"),
     errorCode: text("error_code"),
     externalRunId: text("external_run_id"),
+    // Legacy controller lease. A PID alone is not an identity across containers.
+    controllerBootId: uuid("controller_boot_id"),
+    controllerLeaseExpiresAt: timestamp("controller_lease_expires_at", { withTimezone: true }),
+    executionStage: text("execution_stage"),
     processPid: integer("process_pid"),
     processGroupId: integer("process_group_id"),
     processStartedAt: timestamp("process_started_at", { withTimezone: true }),
@@ -87,6 +104,14 @@ export const heartbeatRuns = pgTable(
     updatedAt: timestamp("updated_at", { withTimezone: true }).notNull().defaultNow(),
   },
   (table) => ({
+    costAccountingPendingIdx: index("heartbeat_runs_cost_accounting_pending_idx").on(table.updatedAt, table.id).where(sql`${table.costAccountingPending} = true`),
+    executionStatusDeliveryIdx: index("heartbeat_runs_execution_status_delivery_idx")
+      .on(table.executionStatusDeliveryId).where(sql`${table.executionStatusDeliveryId} is not null`),
+    executionControlDeadlineIdx: index("heartbeat_runs_execution_control_deadline_idx")
+      .on(table.executionControlDeadlineAt).where(sql`${table.executionControlDeadlineAt} is not null`),
+    nativeReplacementPredecessorUq: uniqueIndex("heartbeat_runs_native_replacement_predecessor_uq")
+      .on(table.companyId, table.retryOfRunId)
+      .where(sql`${table.scheduledRetryReason} = 'native_safe_replacement'`),
     companyNativeIssueRunUq: unique("heartbeat_runs_company_native_issue_id_uq").on(
       table.companyId,
       table.nativeIssueId,

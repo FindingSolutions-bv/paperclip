@@ -1,3 +1,4 @@
+import { parseProviderMode } from "../../contracts/provider-mode.js";
 import { createHash } from "node:crypto";
 import { realpath, stat } from "node:fs/promises";
 import { dirname, join, resolve } from "node:path";
@@ -7,17 +8,19 @@ import type { AcpxExpectedSessionIdentity } from "./sidecar-protocol.js";
 import type { QualifiedAcpxProfile } from "./qualified-profiles.js";
 
 export const ACPX_IDENTITY_RECORD_SCHEMA =
-  "paperclip.runner.acpx-identity.v1" as const;
+  "paperclip.runner.acpx-identity.v2" as const;
 
 export interface AcpxRecoveryBinding {
   normalizedSessionId: string;
   workspacePath: string;
   workspaceDigest: string;
   runtimeRoot: string;
+  commandDigest: string;
   profileDigest: string;
   requestedModel: string;
   effectiveModel: string;
   permissionMode: NativeAcpxPermissionMode;
+  mode?: string;
   profileSessionKey: string;
 }
 
@@ -32,6 +35,8 @@ export interface AcpxIdentityRecord {
   requestedModel: string;
   effectiveModel: string;
   permissionMode: NativeAcpxPermissionMode;
+  mode?: string;
+  providerLifetimeFenceCandidates: readonly [number, number, number];
 }
 
 export async function createAcpxRecoveryBinding(input: {
@@ -41,10 +46,14 @@ export async function createAcpxRecoveryBinding(input: {
   profile: QualifiedAcpxProfile;
   requestedModel: string;
   permissionMode: NativeAcpxPermissionMode;
+  mode?: string;
+  providerPolicy?: { readOnly: boolean; readRoots?: readonly string[]; protectedPaths?: readonly string[] };
 }): Promise<AcpxRecoveryBinding> {
   validateIdentity(input.normalizedSessionId, "normalized session");
+  const mode = parseProviderMode(input.mode);
+  if (input.providerPolicy !== undefined && typeof input.providerPolicy.readOnly !== "boolean") throw new Error("ACPX recovery requires a valid task execution policy");
   if (input.requestedModel !== input.profile.qualificationModel) {
-    throw new Error("ACPX recovery requested an unqualified model");
+    throw new Error("ACPX recovery requested model does not match its admitted profile");
   }
   if (!isDigest(input.profile.commandDigest)) {
     throw new Error("ACPX recovery profile command digest is invalid");
@@ -70,6 +79,11 @@ export async function createAcpxRecoveryBinding(input: {
       qualificationModel: input.profile.qualificationModel,
       reportedModelId: input.profile.reportedModelId,
       permissionPolicy: input.profile.permissionPolicy,
+      ...(input.providerPolicy === undefined ? {} : { executionPolicy: {
+        readOnly: input.providerPolicy.readOnly,
+        readRoots: input.providerPolicy.readRoots ?? [],
+        protectedPaths: input.providerPolicy.protectedPaths ?? [],
+      } }),
     }),
   );
   const profileSessionKey = digest(
@@ -80,6 +94,7 @@ export async function createAcpxRecoveryBinding(input: {
       requestedModel: input.requestedModel,
       profileDigest,
       permissionMode: input.permissionMode,
+      ...(mode ? { mode } : {}),
     }),
   ).replace("sha256:", "paperclip-");
   return {
@@ -87,10 +102,12 @@ export async function createAcpxRecoveryBinding(input: {
     workspacePath,
     workspaceDigest,
     runtimeRoot,
+    commandDigest: input.profile.commandDigest,
     profileDigest,
     requestedModel: input.requestedModel,
     effectiveModel: input.requestedModel,
     permissionMode: input.permissionMode,
+    ...(mode ? { mode } : {}),
     profileSessionKey,
   };
 }
@@ -111,12 +128,42 @@ export function createAcpxIdentityRecord(
     requestedModel: binding.requestedModel,
     effectiveModel: binding.effectiveModel,
     permissionMode: binding.permissionMode,
+    ...(binding.mode ? { mode: binding.mode } : {}),
+    providerLifetimeFenceCandidates: Object.freeze([
+      ...expected.providerLifetimeFenceCandidates,
+    ]) as readonly [number, number, number],
   };
+}
+
+/** Project the private persisted record into the PRP sidecar wire identity. */
+export function acpxProviderSessionIdentity(
+  record: AcpxIdentityRecord,
+  binding: AcpxRecoveryBinding,
+): AcpxExpectedSessionIdentity {
+  const identity: AcpxExpectedSessionIdentity = {
+    kind: "acpx",
+    normalizedSessionId: record.normalizedSessionId,
+    acpxRecordId: record.acpxRecordId,
+    backendSessionId: record.backendSessionId,
+    agentSessionId: record.agentSessionId,
+    // The PRP provider contract historically names this field
+    // `profileDigest`, but it attests the qualified executable digest. Keep
+    // the broader immutable-profile digest private in the persisted record.
+    profileDigest: binding.commandDigest,
+    workspaceDigest: record.workspaceDigest,
+    requestedModel: record.requestedModel,
+    effectiveModel: record.effectiveModel,
+    permissionMode: record.permissionMode,
+    ...(record.mode ? { mode: record.mode } : {}),
+    providerLifetimeFenceCandidates: record.providerLifetimeFenceCandidates,
+  };
+  verifyExpectedAcpxIdentity(identity, binding, record);
+  return identity;
 }
 
 /**
  * Verify both the controller-provided identity and a persisted runtime record.
- * Only the complete v1 record is recoverable. Draft schema-less and
+ * Only the complete v2 record is recoverable. Draft schema-less and
  * command-digest records cannot prove every immutable session binding, so
  * callers must fail closed and start a fresh provider session for them.
  */
@@ -128,11 +175,12 @@ export function verifyExpectedAcpxIdentity(
   validateExpected(expected);
   if (
     expected.normalizedSessionId !== binding.normalizedSessionId ||
-    expected.profileDigest !== binding.profileDigest ||
+    expected.profileDigest !== binding.commandDigest ||
     expected.workspaceDigest !== binding.workspaceDigest ||
     expected.requestedModel !== binding.requestedModel ||
     expected.effectiveModel !== binding.effectiveModel ||
-    expected.permissionMode !== binding.permissionMode
+    expected.permissionMode !== binding.permissionMode ||
+    expected.mode !== binding.mode
   ) {
     throw new Error(
       "ACPX recovery identity conflicts with the immutable session configuration",
@@ -150,7 +198,12 @@ export function verifyExpectedAcpxIdentity(
     record.workspaceDigest !== binding.workspaceDigest ||
     record.requestedModel !== binding.requestedModel ||
     record.effectiveModel !== binding.effectiveModel ||
-    record.permissionMode !== binding.permissionMode
+    record.permissionMode !== binding.permissionMode ||
+    record.mode !== binding.mode ||
+    !sameFenceCandidates(
+      record.providerLifetimeFenceCandidates,
+      expected.providerLifetimeFenceCandidates,
+    )
   ) {
     throw new Error(
       "ACPX recovery identity does not match the persisted runtime record",
@@ -171,6 +224,8 @@ function parsePersistedRecord(value: unknown): AcpxIdentityRecord {
     "requestedModel",
     "effectiveModel",
     "permissionMode",
+    "mode",
+    "providerLifetimeFenceCandidates",
   ]);
   return validatedRecord(record);
 }
@@ -196,6 +251,8 @@ function validatedRecord(value: Record<string, unknown>): AcpxIdentityRecord {
   if (!isPermissionMode(value.permissionMode)) {
     throw new Error("ACPX identity permission mode is invalid");
   }
+  if (value.mode !== undefined) parseProviderMode(value.mode);
+  validateFenceCandidates(value.providerLifetimeFenceCandidates);
   return value as unknown as AcpxIdentityRecord;
 }
 
@@ -223,6 +280,30 @@ function validateExpected(expected: AcpxExpectedSessionIdentity): void {
   ) {
     throw new Error("Expected ACPX permission mode is invalid");
   }
+  if (expected.mode !== undefined) parseProviderMode(expected.mode);
+  validateFenceCandidates(expected.providerLifetimeFenceCandidates);
+}
+
+function validateFenceCandidates(
+  value: unknown,
+): asserts value is readonly [number, number, number] {
+  if (
+    !Array.isArray(value) ||
+    value.length !== 3 ||
+    value.some(
+      (port) => !Number.isSafeInteger(port) || port < 49_152 || port > 65_535,
+    ) ||
+    new Set(value).size !== 3
+  ) {
+    throw new Error("ACPX provider lifetime fence candidates are invalid");
+  }
+}
+
+function sameFenceCandidates(
+  left: readonly [number, number, number],
+  right: readonly [number, number, number],
+): boolean {
+  return left.every((port, index) => port === right[index]);
 }
 
 async function resolveWorkspace(value: string): Promise<string> {
@@ -247,6 +328,18 @@ export async function resolveAcpxRuntimeRoot(
     throw new Error("ACPX runtime directory must be a directory");
   if (root === dirname(root))
     throw new Error("ACPX runtime directory must not be a filesystem root");
+  return join(
+    resolve(root),
+    "acpx",
+    acpxRuntimeSessionDirectoryName(sessionId),
+  );
+}
+
+/**
+ * Return the stable, filesystem-safe directory name used for one normalized
+ * ACPX session below the runtime's `acpx` namespace.
+ */
+export function acpxRuntimeSessionDirectoryName(sessionId: string): string {
   const readable = sessionId
     .replace(/[^a-zA-Z0-9._-]/g, "_")
     .replace(/^\.+$/, "session")
@@ -255,7 +348,7 @@ export async function resolveAcpxRuntimeRoot(
     .update(sessionId)
     .digest("hex")
     .slice(0, 16);
-  return join(resolve(root), "acpx", `${readable || "session"}-${suffix}`);
+  return `${readable || "session"}-${suffix}`;
 }
 
 function validateIdentity(
@@ -279,7 +372,7 @@ function isDigest(value: unknown): value is string {
 function isPermissionMode(value: unknown): value is NativeAcpxPermissionMode {
   return (
     typeof value === "string" &&
-    ["approve-all", "approve-reads", "deny-all"].includes(value)
+    ["approve-all", "approve-paperclip", "approve-reads", "deny-all"].includes(value)
   );
 }
 

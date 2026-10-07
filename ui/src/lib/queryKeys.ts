@@ -1,4 +1,15 @@
 export const queryKeys = {
+  skillSources: {
+    preview: (companyId: string, repositoryUrl: string, connectionId: string | null, commitSha: string | null, skillPath: string, filePath: string) => ['skill-sources', companyId, 'preview', repositoryUrl, connectionId, commitSha, skillPath, filePath] as const,
+    all: (companyId: string) => ["skill-sources", companyId] as const,
+    repositories: (companyId: string) => ["skill-source-repositories", companyId] as const,
+  },
+  agentChats: {
+    list: (companyId: string | null, userId?: string | null) =>
+      ["agent-chats", companyId, userId] as const,
+    detail: (companyId: string | null, userId: string | null, agentId: string | undefined) =>
+      ["agent-chat", companyId, userId, agentId] as const,
+  },
   companies: {
     /**
      * Prefix for everything company-shaped. Matches the list, details and stats
@@ -16,6 +27,8 @@ export const queryKeys = {
      */
     list: (userId: string | null) =>
       ["companies", "list", userId ?? "anonymous"] as const,
+    directory: (userId: string | null) =>
+      ["companies", "directory", userId ?? "anonymous"] as const,
     detail: (id: string) => ["companies", id] as const,
     stats: ["companies", "stats"] as const,
     exportFidelity: (companyId: string) =>
@@ -25,7 +38,17 @@ export const queryKeys = {
     gallery: (companyId: string) => ["apps", companyId, "gallery"] as const,
     attention: (companyId: string) => ["apps", companyId, "attention"] as const,
   },
+  chatEndpoints: {
+    list: (companyId: string) => ["chat-endpoints", companyId] as const,
+    detail: (endpointId: string) => ["chat-endpoints", "detail", endpointId] as const,
+    resources: (endpointId: string) => ["chat-endpoints", endpointId, "resources"] as const,
+    principals: (endpointId: string) => ["chat-endpoints", endpointId, "principals"] as const,
+    conversations: (endpointId: string) => ["chat-endpoints", endpointId, "conversations"] as const,
+    activity: (endpointId: string) => ["chat-endpoints", endpointId, "activity"] as const,
+  },
   tools: {
+    aggregatorApps: (connectionId: string, userId: string | null) => ["tools", "aggregator-apps", connectionId, userId] as const,
+    composioApps: (connectionId: string) => ["tools", "composio-apps", connectionId] as const,
     applications: (companyId: string) =>
       ["tools", companyId, "applications"] as const,
     connections: (companyId: string) =>
@@ -36,8 +59,6 @@ export const queryKeys = {
       ["tools", "connection", connectionId, "installs"] as const,
     connectionGrants: (connectionId: string) =>
       ["tools", "connection", connectionId, "grants"] as const,
-    composioServices: (connectionId: string) =>
-      ["tools", "connection", connectionId, "composio-services"] as const,
     catalog: (connectionId: string) => ["tools", "connection", connectionId, "catalog"] as const,
     connectionActivity: (connectionId: string) =>
       ["tools", "connection", connectionId, "activity"] as const,
@@ -96,6 +117,8 @@ export const queryKeys = {
       ] as const,
   },
   audit: {
+    runs: (companyId: string, agentId?: string | null) =>
+      ["audit", companyId, "runs", agentId ?? "__all"] as const,
     agentActions: (
       companyId: string,
       filters: {
@@ -104,6 +127,7 @@ export const queryKeys = {
         responsibleUserId?: string | null;
         runId?: string | null;
         entityType?: string | null;
+        entityId?: string | null;
         action?: string | null;
         from?: string | null;
         to?: string | null;
@@ -119,6 +143,7 @@ export const queryKeys = {
         filters.responsibleUserId ?? "__all",
         filters.runId ?? "__all",
         filters.entityType ?? "__all",
+        filters.entityId ?? "__all",
         filters.action ?? "__all",
         filters.actorType ?? "__all",
         filters.from ?? "",
@@ -192,6 +217,7 @@ export const queryKeys = {
       ["team-catalog", "installed", companyId] as const,
   },
   agents: {
+    identity: (id: string) => ["agents", "identity", id] as const,
     list: (companyId: string) => ["agents", companyId] as const,
     detail: (id: string) => ["agents", "detail", id] as const,
     runtimeState: (id: string) => ["agents", "runtime-state", id] as const,
@@ -199,6 +225,8 @@ export const queryKeys = {
     skills: (id: string) => ["agents", "skills", id] as const,
     instructionsBundle: (id: string) =>
       ["agents", "instructions-bundle", id] as const,
+    instructionCandidates: (id: string) =>
+      ["agents", "instruction-candidates", id] as const,
     instructionsFile: (id: string, relativePath: string) =>
       ["agents", "instructions-bundle", id, "file", relativePath] as const,
     keys: (agentId: string) => ["agents", "keys", agentId] as const,
@@ -208,6 +236,7 @@ export const queryKeys = {
       companyId: string,
       adapterType: string,
       environmentId?: string | null,
+      provider?: string,
     ) =>
       [
         "agents",
@@ -215,11 +244,14 @@ export const queryKeys = {
         "adapter-models",
         adapterType,
         environmentId ?? null,
+        provider ?? null,
       ] as const,
     detectModel: (companyId: string, adapterType: string) =>
       ["agents", companyId, "detect-model", adapterType] as const,
     authSignal: (companyId: string, adapterType: string, environmentId?: string | null) =>
       ["agents", companyId, "auth-signal", adapterType, environmentId ?? null] as const,
+    activeLoginSession: (companyId: string, adapterType: string) =>
+      ["agents", companyId, "active-login-session", adapterType] as const,
   },
   builtInAgents: {
     list: (companyId: string) => ["built-in-agents", companyId] as const,
@@ -308,8 +340,12 @@ export const queryKeys = {
         "plugin-operations",
         originKindPrefix,
       ] as const,
+    listParticipatedByAgent: (companyId: string, agentId: string) =>
+      ["issues", companyId, "participated-by-agent", agentId] as const,
     listByParent: (companyId: string, parentId: string) =>
       ["issues", companyId, "parent", parentId] as const,
+    listCreatedFromIssue: (companyId: string, issueId: string) =>
+      ["issues", companyId, "created-from", issueId] as const,
     listByDescendantRoot: (companyId: string, rootIssueId: string) =>
       ["issues", companyId, "descendants", rootIssueId] as const,
     listByExecutionWorkspace: (
@@ -357,8 +393,12 @@ export const queryKeys = {
     approvals: (issueId: string) => ["issues", "approvals", issueId] as const,
     liveRuns: (issueId: string) => ["issues", "live-runs", issueId] as const,
     activeRun: (issueId: string) => ["issues", "active-run", issueId] as const,
+    runnerGoal: (issueId: string, agentId?: string | null) =>
+      ["issues", "runner-goal", issueId, agentId ?? "__effective__"] as const,
     workProducts: (issueId: string) =>
       ["issues", "work-products", issueId] as const,
+    workProductPullRequestRefresh: (issueId: string) =>
+      ["issues", "work-product-pr-refresh", issueId] as const,
     fileResources: (
       issueId: string,
       options: {
@@ -537,6 +577,8 @@ export const queryKeys = {
         groupBy ?? "none",
         groupIssueId ?? "",
       ] as const,
+    byAgent: (companyId: string, agentId: string) =>
+      ["artifacts", companyId, "by-agent", agentId] as const,
   },
   budgets: {
     overview: (companyId: string) =>
@@ -590,6 +632,7 @@ export const queryKeys = {
     experimentalSettings: ["instance", "experimental-settings"] as const,
   },
   health: ["health"] as const,
+  stagingCommit: ["staging-commit"] as const,
   cloud: {
     stacks: ["cloud", "stacks"] as const,
   },

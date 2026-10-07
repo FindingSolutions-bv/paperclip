@@ -14,6 +14,7 @@ import {
   type MarkdownEditorRef,
   type MentionOption,
   placeCaretAfterMentionAnchor,
+  placeCaretAtEditableEnd,
   shouldAcceptAutocompleteKey,
 } from "./MarkdownEditor";
 import { Dialog, DialogContent, DialogTitle } from "./ui/dialog";
@@ -1006,6 +1007,7 @@ describe("MarkdownEditor", () => {
     ).toEqual({
       top: 100,
       left: 250,
+      maxWidth: 542,
     });
   });
 
@@ -1018,6 +1020,7 @@ describe("MarkdownEditor", () => {
     ).toEqual({
       top: 340,
       left: 154,
+      maxWidth: 182,
     });
   });
 
@@ -1030,6 +1033,7 @@ describe("MarkdownEditor", () => {
     ).toEqual({
       top: 12,
       left: 92,
+      maxWidth: 180,
     });
   });
 
@@ -1042,6 +1046,7 @@ describe("MarkdownEditor", () => {
     ).toEqual({
       top: 372,
       left: 210,
+      maxWidth: 582,
     });
   });
 
@@ -1055,6 +1060,7 @@ describe("MarkdownEditor", () => {
     ).toEqual({
       top: 160,
       left: 130,
+      maxWidth: 182,
     });
   });
 
@@ -1187,6 +1193,21 @@ describe("MarkdownEditor", () => {
 
     const selection = window.getSelection();
     expect(selection?.anchorNode).toBe(trailingSpace);
+    expect(selection?.anchorOffset).toBe(1);
+
+    editable.remove();
+  });
+
+  it("places the caret after a plain action command", () => {
+    const editable = document.createElement("div");
+    editable.contentEditable = "true";
+    editable.textContent = "/goal\u00a0";
+    document.body.appendChild(editable);
+
+    expect(placeCaretAtEditableEnd(editable)).toBe(true);
+
+    const selection = window.getSelection();
+    expect(selection?.anchorNode).toBe(editable);
     expect(selection?.anchorOffset).toBe(1);
 
     editable.remove();

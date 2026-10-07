@@ -1,4 +1,5 @@
 import type { NativeExecutionInput } from "../contracts/native-execution.js";
+import type { PersistedHarnessSession } from "../contracts/harness-driver.js";
 import type {
   NativeSessionBackend,
   PersistedNativeSession,
@@ -20,7 +21,15 @@ export interface NativeBackendFactoryOptions extends Omit<
   "transportFactory"
 > {
   codexTransportFactory?: (context?: {
+    baseInstructions?: string;
     providerRecoveryPolicy?: PersistedNativeSession["providerRecoveryPolicy"];
+    persistedSession?: Pick<
+      PersistedHarnessSession,
+      | "driverSessionId"
+      | "providerSessionId"
+      | "providerIdentity"
+      | "activeTurnId"
+    >;
   }) => CodexAppServerTransport;
   acpxRuntimeDirectory?: string;
   acpxEnvironment?: NodeJS.ProcessEnv;
@@ -42,11 +51,13 @@ export function createNativeSessionBackend(
 ): NativeSessionBackend {
   if (options.codexTransportFactory) {
     return createRunnerdNativeSessionBackend(input, {
+      completionFeedback: options.completionFeedback,
       runnerInstanceId: options.runnerInstanceId,
       onSpawn: options.onSpawn,
       dynamicTools: options.dynamicTools,
       dynamicToolHandler: options.dynamicToolHandler,
       environment: options.environment,
+      workingDirectoryAuthority: options.workingDirectoryAuthority,
       transportFactory: options.codexTransportFactory,
     });
   }
@@ -57,6 +68,7 @@ export function createNativeSessionBackend(
       );
     }
     return createOpenCodeNativeSessionBackend(input, {
+      completionFeedback: options.completionFeedback,
       runtimeDirectory: options.opencodeRuntimeDirectory,
       environment: options.opencodeEnvironment,
       command: options.opencodeCommand,
@@ -67,11 +79,6 @@ export function createNativeSessionBackend(
     });
   }
   if (input.provider.kind === "acpx") {
-    if (input.provider.agent === "pi") {
-      throw new Error(
-        "Native ACPX backend for pi is unavailable until descriptor-confined verified launch is implemented",
-      );
-    }
     if (!options.acpxRuntimeDirectory?.trim()) {
       throw new Error("ACPX backend requires an instance runtime directory");
     }
@@ -86,6 +93,7 @@ export function createNativeSessionBackend(
         : {}),
       dynamicTools: options.dynamicTools,
       dynamicToolHandler: options.acpxDynamicToolHandler,
+      completionFeedback: options.completionFeedback,
     });
   }
   if (input.provider.kind !== "codex") {
@@ -95,11 +103,13 @@ export function createNativeSessionBackend(
   }
 
   return createCodexNativeSessionBackend(input, {
+    completionFeedback: options.completionFeedback,
     runnerInstanceId: options.runnerInstanceId,
     onSpawn: options.onSpawn,
     dynamicTools: options.dynamicTools,
     dynamicToolHandler: options.dynamicToolHandler,
     environment: options.environment,
+    workingDirectoryAuthority: options.workingDirectoryAuthority,
     transportFactory: options.codexTransportFactory,
   });
 }

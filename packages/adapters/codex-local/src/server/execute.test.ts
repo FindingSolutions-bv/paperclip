@@ -109,6 +109,7 @@ describe("codex execute — outbound auth copy-back restore contribution", () =>
 
   afterEach(async () => {
     vi.clearAllMocks();
+    vi.unstubAllEnvs();
     if (savedCodexHomeEnv === undefined) {
       delete process.env.CODEX_HOME;
     } else {
@@ -150,7 +151,10 @@ describe("codex execute — outbound auth copy-back restore contribution", () =>
   async function runTeardown(input: {
     sandboxAuth: string;
     hostAuth: string;
-  }): Promise<{ finalHostAuth: string; finalHostMode: number; logs: string[] }> {
+    onProviderStopped?: () => Promise<void>;
+    withIdentity?: boolean;
+    logs?: string[];
+  }) {
     const rootDir = await mkdtemp(path.join(os.tmpdir(), "paperclip-codex-copyback-e2e-"));
     cleanupDirs.push(rootDir);
     const workspaceDir = path.join(rootDir, "workspace");
@@ -180,10 +184,16 @@ describe("codex execute — outbound auth copy-back restore contribution", () =>
     process.env.PAPERCLIP_INSTANCE_ID = "default";
     sandboxAuthFixture.bytes = Buffer.from(input.sandboxAuth, "utf8");
 
-    const logs: string[] = [];
-
-    await execute({
+    const logs = input.logs ?? [];
+    const commandArgs: string[] = [];
+    const executionResult = await execute({
       runId: "run-copyback-e2e",
+      ...(input.withIdentity ? {
+        authToken: "assigned-run-token",
+        agentIdentity: { keyId: "sha256:test", publicKeyPem: "public", privateKeyPem: "private" },
+      } : {}),
+      onMeta: async meta => { commandArgs.push(...(meta.commandArgs ?? [])); },
+      onProviderStopped: input.onProviderStopped,
       agent: {
         id: "agent-1",
         companyId: COPYBACK_COMPANY_ID,
@@ -198,7 +208,7 @@ describe("codex execute — outbound auth copy-back restore contribution", () =>
         // A configured CODEX_HOME equal to process.env.CODEX_HOME (the shared
         // source `resolveSharedCodexHomeDir` reads) makes managed seeding a
         // self-copy no-op, so it never rewrites auth.json before teardown.
-        env: { CODEX_HOME: sharedHostHome },
+        env: { CODEX_HOME: sharedHostHome, ...(input.withIdentity ? { MY_SERVICE_TOKEN: "assigned-tool-token" } : {}) },
       },
       context: {
         paperclipWorkspace: {
@@ -224,11 +234,64 @@ describe("codex execute — outbound auth copy-back restore contribution", () =>
     });
 
     return {
+      commandArgs,
       finalHostAuth: await readFile(hostAuthPath, "utf8"),
       finalHostMode: (await lstat(hostAuthPath)).mode & 0o777,
       logs,
+      executionResult,
     };
   }
+
+  it("keeps identity and scoped API access without exposing configured service tokens to CLI shells", async () => {
+    vi.stubEnv("DATABASE_URL", "postgres://operator:host-password@host/private");
+    vi.stubEnv("HOST_DATABASE_PASSWORD", "host-password");
+    const { commandArgs } = await runTeardown({ sandboxAuth: "{}", hostAuth: "{}", withIdentity: true });
+    const policy = commandArgs.find(arg => arg.startsWith("shell_environment_policy.include_only="));
+    const keys = JSON.parse(policy!.slice(policy!.indexOf("=") + 1));
+    expect(keys).toEqual(expect.arrayContaining([
+      "PAPERCLIP_API_KEY", "PAPERCLIP_AGENT_PRIVATE_KEY",
+    ]));
+    expect(keys).not.toContain("MY_SERVICE_TOKEN");
+    expect(keys).not.toContain("DATABASE_URL");
+    expect(keys).not.toContain("HOST_DATABASE_PASSWORD");
+    expect(commandArgs.join(" ")).not.toContain("assigned-run-token");
+    expect(commandArgs.join(" ")).not.toContain("assigned-tool-token");
+  });
+
+  it("collects stopped-provider instruction edits before a throwing remote restore", async () => {
+    const order: string[] = [];
+    prepareAdapterExecutionTargetRuntime.mockImplementationOnce(async () => ({
+      target: { kind: "remote", transport: "ssh" }, workspaceRemoteDir: "/remote/workspace",
+      runtimeRootDir: REMOTE_RUNTIME_ROOT, assetDirs: { home: `${REMOTE_RUNTIME_ROOT}/home` },
+      restoreWorkspace: async () => { order.push("restore"); throw new Error("restore failed"); },
+    }));
+    await expect(runTeardown({ sandboxAuth: "{}", hostAuth: "{}", onProviderStopped: async () => { order.push("collect"); } })).rejects.toThrow("restore failed");
+    expect(order).toEqual(["collect", "restore"]);
+  });
+
+  it("collects after a failed provider exit before restoring its workspace", async () => {
+    runChildProcess.mockResolvedValueOnce({ exitCode: 1, signal: null, timedOut: false, stdout: "", stderr: "provider failed", pid: 321, startedAt: new Date().toISOString() });
+    const collected = vi.fn(async () => {});
+    await runTeardown({ sandboxAuth: "{}", hostAuth: "{}", onProviderStopped: collected });
+    expect(collected).toHaveBeenCalledOnce();
+  });
+
+  it("stops the bridge and restores the workspace when instruction collection rejects", async () => {
+    const order: string[] = [];
+    startAdapterExecutionTargetPaperclipBridge.mockResolvedValueOnce({
+      env: {}, stop: async () => { order.push("bridge-stop"); },
+    } as never);
+    prepareAdapterExecutionTargetRuntime.mockImplementationOnce(async () => ({
+      target: { kind: "remote", transport: "ssh" }, workspaceRemoteDir: "/remote/workspace",
+      runtimeRootDir: REMOTE_RUNTIME_ROOT, assetDirs: { home: `${REMOTE_RUNTIME_ROOT}/home` },
+      restoreWorkspace: async () => { order.push("restore"); },
+    }));
+    await expect(runTeardown({ sandboxAuth: "{}", hostAuth: "{}", onProviderStopped: async () => {
+      order.push("collect");
+      throw new Error("instruction collection failed");
+    } })).rejects.toThrow("instruction collection failed");
+    expect(order).toEqual(["collect", "bridge-stop", "restore"]);
+  });
 
   it("declares a Codex `home` asset carrying both inbound provision and outbound restore contributions", async () => {
     await runTeardown({
@@ -300,10 +363,58 @@ describe("codex execute — outbound auth copy-back restore contribution", () =>
     const operationalError = Object.assign(new Error("EACCES: permission denied"), { code: "EACCES" });
     assertManagedCredentialHome.mockRejectedValueOnce(operationalError);
 
-    const result = await runTeardown({ sandboxAuth, hostAuth });
+    // A restore failure after a successful provider run surfaces as the run's
+    // error, so the operational fault rejects the run with its real message.
+    const logs: string[] = [];
+    await expect(runTeardown({ sandboxAuth, hostAuth, logs })).rejects.toThrow("EACCES: permission denied");
 
-    expect(result.finalHostAuth).toBe(hostAuth);
-    expect(result.logs.some((line) => line.includes("EACCES: permission denied"))).toBe(true);
-    expect(result.logs.some((line) => line.includes("outside the managed directory tree"))).toBe(false);
+    expect(logs.some((line) => line.includes("EACCES: permission denied"))).toBe(true);
+    expect(logs.some((line) => line.includes("outside the managed directory tree"))).toBe(false);
+  });
+
+  it("surfaces workspace restore failure after successful provider execution", async () => {
+    prepareAdapterExecutionTargetRuntime.mockResolvedValueOnce({
+      target: { kind: "remote", transport: "ssh" },
+      workspaceRemoteDir: "/remote/workspace",
+      runtimeRootDir: REMOTE_RUNTIME_ROOT,
+      assetDirs: { home: `${REMOTE_RUNTIME_ROOT}/home` },
+      restoreWorkspace: async () => {
+        throw new Error("workspace copy-back failed");
+      },
+    });
+
+    await expect(
+      runTeardown({
+        sandboxAuth: subscriptionAuth({ accountId: "acct", marker: "sandbox" }),
+        hostAuth: subscriptionAuth({ accountId: "acct", marker: "host" }),
+      }),
+    ).rejects.toThrow("workspace copy-back failed");
+  });
+
+  it("preserves a provider failure when workspace restore also fails", async () => {
+    runChildProcess.mockResolvedValueOnce({
+      exitCode: 1,
+      signal: null,
+      timedOut: false,
+      stdout: "",
+      stderr: "provider failed first",
+      pid: 321,
+      startedAt: new Date().toISOString(),
+    });
+    prepareAdapterExecutionTargetRuntime.mockResolvedValueOnce({
+      target: { kind: "remote", transport: "ssh" },
+      workspaceRemoteDir: "/remote/workspace",
+      runtimeRootDir: REMOTE_RUNTIME_ROOT,
+      assetDirs: { home: `${REMOTE_RUNTIME_ROOT}/home` },
+      restoreWorkspace: async () => {
+        throw new Error("workspace copy-back failed second");
+      },
+    });
+
+    const result = await runTeardown({
+      sandboxAuth: subscriptionAuth({ accountId: "acct", marker: "sandbox" }),
+      hostAuth: subscriptionAuth({ accountId: "acct", marker: "host" }),
+    });
+    expect(result.executionResult.errorMessage).toBe("provider failed first");
   });
 });

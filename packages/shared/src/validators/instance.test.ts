@@ -5,6 +5,22 @@ import {
 } from "./instance.js";
 
 describe("instance experimental settings validators", () => {
+  it("defaults chat connectors off independently of Apps and accepts only explicit boolean patches", () => {
+    expect(instanceExperimentalSettingsSchema.parse({}).enableChatConnectors).toBe(false);
+    expect(instanceExperimentalSettingsSchema.parse({ enableApps: true }).enableChatConnectors).toBe(false);
+    expect(patchInstanceExperimentalSettingsSchema.parse({ enableChatConnectors: true }))
+      .toEqual({ enableChatConnectors: true });
+    expect(patchInstanceExperimentalSettingsSchema.parse({ enableChatConnectors: false }))
+      .toEqual({ enableChatConnectors: false });
+    expect(patchInstanceExperimentalSettingsSchema.safeParse({ enableChatConnectors: "true" }).success).toBe(false);
+  });
+  it("defaults the streamlined UI on and accepts an explicit patch", () => {
+    expect(instanceExperimentalSettingsSchema.parse({}).enableStreamlinedUi).toBe(true);
+    expect(
+      patchInstanceExperimentalSettingsSchema.parse({ enableStreamlinedUi: false }),
+    ).toEqual({ enableStreamlinedUi: false });
+  });
+
   it("defaults the server info debug view off", () => {
     const settings = instanceExperimentalSettingsSchema.parse({});
 

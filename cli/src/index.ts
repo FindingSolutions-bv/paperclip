@@ -1,3 +1,5 @@
+import { registerEmailCommands } from "./commands/client/email.js";
+import { registerMcpCommands } from "./commands/mcp.js";
 import { Command } from "commander";
 import { warnIfUnsupportedNodeVersion } from "@paperclipai/shared/node-version";
 import { onboard } from "./commands/onboard.js";
@@ -30,6 +32,7 @@ import { applyDataDirOverride, type DataDirOptionLike } from "./config/data-dir.
 import { loadPaperclipEnvFile } from "./config/env.js";
 import { initTelemetryFromConfigFile, flushTelemetry } from "./telemetry.js";
 import { registerWorktreeCommands } from "./commands/worktree.js";
+import { registerRuntimeCommands } from "./commands/runtime.js";
 import { registerPluginCommands } from "./commands/client/plugin.js";
 import { registerClientAuthCommands } from "./commands/client/auth.js";
 import { registerConnectCommand } from "./commands/client/connect.js";
@@ -50,6 +53,13 @@ import { uninstallCommand } from "./commands/uninstall.js";
 import { updateCommand } from "./commands/update.js";
 import { registerServiceCommands } from "./commands/service.js";
 import { registerConnectionIntentCommands } from "./commands/client/connections.js";
+import {
+  assertTestDriveDatabaseIsolation,
+  prepareTestDriveEnvironment,
+  redactTestDriveArgv,
+  registerTestDriveCommand,
+  type TestDriveOptions,
+} from "./commands/test-drive.js";
 
 const program = new Command();
 const DATA_DIR_OPTION_HELP =
@@ -92,16 +102,30 @@ program
   .option("--no-backup", "Skip the pre-update database backup")
   .action(updateCommand);
 
-program.hook("preAction", (_thisCommand, actionCommand) => {
-  const options = actionCommand.optsWithGlobals() as DataDirOptionLike;
+program.hook("preAction", async (_thisCommand, actionCommand) => {
+  const options = actionCommand.optsWithGlobals() as DataDirOptionLike & TestDriveOptions;
+  let dataDirOptions: DataDirOptionLike = options;
+  if (actionCommand.name() === "test-drive") {
+    redactTestDriveArgv(options.apiKey);
+    const prepared = await prepareTestDriveEnvironment({
+      dataDir: options.dataDir,
+      apiKeyEnv: options.apiKeyEnv,
+    });
+    dataDirOptions = { ...options, dataDir: prepared.dataDir };
+  }
   const optionNames = new Set(actionCommand.options.map((option) => option.attributeName()));
-  applyDataDirOverride(options, {
+  applyDataDirOverride(dataDirOptions, {
     hasConfigOption: optionNames.has("config"),
     hasContextOption: optionNames.has("context"),
   });
   loadPaperclipEnvFile(options.config);
+  if (actionCommand.name() === "test-drive") {
+    assertTestDriveDatabaseIsolation(options.config);
+  }
   initTelemetryFromConfigFile(options.config);
 });
+
+registerTestDriveCommand(program);
 
 program
   .command("onboard")
@@ -212,6 +236,7 @@ heartbeat
 registerContextCommands(program);
 registerConnectCommand(program);
 registerConnectionIntentCommands(program);
+registerEmailCommands(program);
 registerCompanyCommands(program);
 registerIssueCommands(program);
 registerAgentCommands(program);
@@ -237,6 +262,7 @@ registerSecretCommands(program);
 registerSkillsCommands(program);
 registerTeamCommands(program);
 registerWorktreeCommands(program);
+registerRuntimeCommands(program);
 registerEnvLabCommands(program);
 registerPluginCommands(program);
 
@@ -253,6 +279,7 @@ auth
   .action(bootstrapCeoInvite);
 
 registerClientAuthCommands(auth);
+registerMcpCommands(program);
 
 async function main(): Promise<void> {
   warnIfUnsupportedNodeVersion(process.versions.node, (message) => console.warn(message));
