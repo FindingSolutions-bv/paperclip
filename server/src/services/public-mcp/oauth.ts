@@ -4,7 +4,7 @@ import { and, eq, gt, inArray, isNull, lt, lte, notExists, sql } from "drizzle-o
 import { z } from "zod";
 import type { Request } from "express";
 import {
-  type Db, activityLog, agents, companies, companyLogos, mcpOauthClients, mcpOauthGrants, mcpOauthRequests, mcpOauthTokens, mcpOauthDeviceRequests, mcpOauthMetadataAdmissions,
+  type Db, activityLog, agents, authUsers, companies, companyLogos, mcpOauthClients, mcpOauthGrants, mcpOauthRequests, mcpOauthTokens, mcpOauthDeviceRequests, mcpOauthMetadataAdmissions,
 } from "@paperclipai/db";
 import { DOT_RUNNER_MCP_PATH, DOT_RUNNER_MCP_SCOPES, PUBLIC_MCP_PATH, PUBLIC_MCP_SCOPES, type McpConnectionRequest } from "@paperclipai/shared";
 import { boardAuthService } from "../board-auth.js";
@@ -493,12 +493,14 @@ export function createPublicMcpOAuth(db: Db, config: PublicMcpConfig, options: {
       await fenceAgentGrant(grant);
     },
     async listConnections(userId: string) {
-      const rows = await db.select({ grant: mcpOauthGrants, clientName: mcpOauthClients.name, companyName: companies.name })
+      const rows = await db.select({ grant: mcpOauthGrants, clientName: mcpOauthClients.name, companyName: companies.name, userName: authUsers.name, userImage: authUsers.image })
         .from(mcpOauthGrants).innerJoin(mcpOauthClients, eq(mcpOauthGrants.clientId, mcpOauthClients.id))
         .innerJoin(companies, eq(companies.id, mcpOauthGrants.companyId))
+        .leftJoin(authUsers, eq(authUsers.id, mcpOauthGrants.userId))
         .where(eq(mcpOauthGrants.userId, userId));
-      return rows.map(({ grant, clientName, companyName }) => ({
-        id: grant.id, companyId: grant.companyId, clientName, companyName, scopes: grant.scopes,
+      return rows.map(({ grant, clientName, companyName, userName, userImage }) => ({
+        id: grant.id, companyId: grant.companyId, clientName, companyName,
+        user: userName === null ? null : { name: userName, image: userImage }, scopes: grant.scopes,
         createdAt: grant.createdAt.toISOString(), revokedAt: grant.revokedAt?.toISOString() ?? null,
       }));
     },
