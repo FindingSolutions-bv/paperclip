@@ -25,10 +25,11 @@ async function fixture(vendored = true) {
   await mkdir(cli, { recursive: true });
   await writeFile(join(root, "package.json"), JSON.stringify({ name: vendored ? "@paperclipai/server" : "@paperclipai/paperclip-runner" }));
   const entry = join(cli, "provision-pi.cjs"); await writeFile(entry, "fixture");
-  return { root, cli, entry, parent: join(root, "provider-assets/pi"), output: join(root, "provider-assets/pi", `${process.platform}-${process.arch}`) };
+  const assetRoot = vendored ? join(root, "dist/vendor/paperclip-runner") : root;
+  return { root, cli, entry, assetRoot, parent: join(assetRoot, "provider-assets/pi"), output: join(assetRoot, "provider-assets/pi", `${process.platform}-${process.arch}`) };
 }
 it("recognizes both published layouts without resolving a private npm package", async () => {
-  for (const vendored of [true, false]) { const f = await fixture(vendored); expect((await provisionPackageRoot(f.entry)).root).toBe(f.root); }
+  for (const vendored of [true, false]) { const f = await fixture(vendored); expect(await provisionPackageRoot(f.entry)).toMatchObject({ root: f.root, assetRoot: f.assetRoot }); }
 });
 it("rejects wrong package, linked entrypoint and escaping asset roots before materialization", async () => {
   const f = await fixture(); const other = await fixture();
@@ -37,7 +38,7 @@ it("rejects wrong package, linked entrypoint and escaping asset roots before mat
   await writeFile(join(f.root, "package.json"), '{"name":"@paperclipai/server"}');
   await rm(f.entry); await symlink(other.entry, f.entry);
   await expect(provisionPi(f.entry)).rejects.toThrow("linked");
-  await rm(f.entry); await writeFile(f.entry, "fixture"); await symlink(other.root, join(f.root, "provider-assets"));
+  await rm(f.entry); await writeFile(f.entry, "fixture"); await symlink(other.root, join(f.assetRoot, "provider-assets"));
   await expect(provisionPi(f.entry)).rejects.toThrow("escapes");
   expect(mocks.build).not.toHaveBeenCalled();
 });

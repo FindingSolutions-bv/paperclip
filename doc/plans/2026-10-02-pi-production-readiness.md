@@ -5,6 +5,30 @@ set of release gates. Pi remains a candidate until every required gate passes.
 Keep behavioral qualification on the accepted fixtures. Do not expand it to
 widgets, images, Cursor or Copilot qualification. The existing draft stack must be reviewed in dependency order.
 
+## Final fixture reconciliation — 2026-10-07
+
+Fresh Linux CI passed the server, database, UI and package checks. It exposed
+the remaining stale Pi profile-15 fixtures in the native backend, provisioning
+suite and public-install probe. Those checks now bind profile 16. Thinking
+changes are rejected while the unchanged identity can still attach successfully.
+The Rust and TypeScript instruction composers now share master's current-turn
+`AGENT_HOME` guidance; the shared positive and negative suffix fixtures remain
+the attachment authority.
+
+The corrected native backend passes 22 integration tests, the Rust core passes
+350 unit tests, and the shared instruction/provisioning suites pass 13 tests.
+Recursive typecheck and the full workspace build pass. Product E2E free checks
+pass 2,479 Vitest tests and 128 native completion checks, and token gates pass.
+The final complete Rust run and fresh Linux CI are still required. Local
+PostgreSQL integration remains blocked by this host's shared-memory capacity;
+the corresponding Linux CI lanes passed before this fixture-only update.
+
+The dedicated qualification key's fresh read records $0.430881296 lifetime usage
+and $4.569118704 remaining under its $5 cap, with no reset or BYOK usage. The
+signed-in Default Workspace has all 72 BYOK providers unconfigured. These
+account observations made zero model calls. Current-source installed admission,
+the real task, and all 26 Product plus seven Runner cases remain unqualified.
+
 ## Master safety restoration — 2026-10-07
 
 The earlier merge retained obsolete accounting code and removed master budget
