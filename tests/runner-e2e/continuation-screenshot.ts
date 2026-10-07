@@ -13,6 +13,14 @@ export async function captureLoadedContinuation(
   await capture();
 }
 
+/** A task title is mutable while an agent runs. Match the route and visible stable identifier. */
+export async function waitForTaskIdentity(page: Page, taskPath: string, identifier: string, timeout = 30_000) {
+  await expect(page).toHaveURL(url => url.pathname === taskPath, { timeout });
+  const escaped = identifier.replace(/[.*+?^${}()|[\]\\]/g, "\\$&");
+  await expect(page.getByRole("navigation", { name: "breadcrumb" }))
+    .toContainText(new RegExp(`(?:^|\\s)${escaped}(?:\\s|$)`), { timeout });
+}
+
 /** Wait for the persisted task projection before taking a browser screenshot. */
 export async function waitForTaskChatRendered(
   page: Page,

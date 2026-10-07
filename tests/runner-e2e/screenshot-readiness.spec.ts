@@ -1,5 +1,5 @@
 import { expect, test } from "@playwright/test";
-import { captureLoadedContinuation } from "./continuation-screenshot.js";
+import { captureLoadedContinuation, waitForTaskIdentity, waitForTaskChatRendered } from "./continuation-screenshot.js";
 
 const shell = (busy: boolean, title = "Continuation example") => `
   <main data-testid="task-chat-thread"><div aria-busy="${busy}">
@@ -31,3 +31,16 @@ for (const state of ["app-loader", "history-loader", "wrong-task"] as const) {
     expect(captures).toBe(0);
   });
 }
+
+
+test("mutable titles do not change task identity, but wrong routes and identifiers fail", async ({ page }) => {
+  await page.route("https://fixture.invalid/**", route => route.fulfill({ contentType: "text/html",
+    body: `<nav aria-label="breadcrumb">Renamed task RUN-1</nav>${shell(false, "Renamed task")}` }));
+  await page.goto("https://fixture.invalid/RUN/issues/RUN-1");
+  await waitForTaskIdentity(page, "/RUN/issues/RUN-1", "RUN-1", 500);
+  await waitForTaskChatRendered(page, undefined, 500);
+  for (const [route, identifier] of [["/RUN/issues/RUN-2", "RUN-1"], ["/RUN/issues/RUN-1", "RUN-2"], ["/RUN/issues/RUN-1", "RUN"]]) {
+    await expect(waitForTaskIdentity(page, route, identifier, 150)).rejects.toThrow();
+  }
+  await expect(waitForTaskChatRendered(page, "Original task title", 150)).rejects.toThrow();
+});
