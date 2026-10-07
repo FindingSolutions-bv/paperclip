@@ -94,7 +94,9 @@ export function createPublicMcpOAuth(db: Db, config: PublicMcpConfig, options: {
       if (membership.membershipRole === "viewer") throw invalidGrant();
       if (!grant.agentId) return { type: "none", source: "mcp_oauth", companyId: grant.companyId };
       const [agent] = await queryDb.select().from(agents).where(and(eq(agents.id, grant.agentId), eq(agents.companyId, grant.companyId)));
-      if (!agent || ["paused", "terminated", "pending_approval"].includes(agent.status)) throw invalidGrant();
+      // Paused Dot connections retain only the broker's fence inbox and ack
+      // authority. Each task/tool method independently rejects paused agents.
+      if (!agent || ["terminated", "pending_approval"].includes(agent.status)) throw invalidGrant();
       return { type: "agent", source: "mcp_oauth", agentId: agent.id, companyId: grant.companyId };
     }
     if (grant.purpose !== "personal") throw invalidGrant();

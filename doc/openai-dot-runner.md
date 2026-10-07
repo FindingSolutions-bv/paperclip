@@ -73,6 +73,10 @@ enqueue another run or move the same request to another task. A Dot runs one
 assignment at a time; competing tasks stay queued regardless of the agent's
 configured concurrency. During setup the connection panel continues checking
 for a verified event subscription without requiring a manual refresh.
+Mailbox writers and cursor reads serialize through the binding row so a cursor
+cannot skip a tool result whose transaction commits later. A paused Dot can
+receive fence notices and acknowledge them, but cannot read tasks or execute
+tools; those narrow inbox reads leave its task cursor unchanged.
 
 ## Limits and recovery
 
