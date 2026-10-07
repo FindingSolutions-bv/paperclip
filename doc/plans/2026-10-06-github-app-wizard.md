@@ -147,11 +147,15 @@ and routing/sleep/wake smoke checks pass.
 The revised stack passes workspace typecheck and build. Focused tests cover
 local manifest exchange, interrupted vault storage without repeated exchange,
 secret rotation without disclosing it to Cloud, original-signature verification,
-and nested-envelope binding. A subsequent database run is blocked by the host's
-exhausted shared-memory identifiers (`shmget`: No space left on device), including
-the disposable Cloud Postgres concurrency qualification. These skipped or blocked
-runs do not establish database qualification. The new PR heads require fresh CI
-and review. No real provider calls or deployments were used for this revision.
+and nested-envelope binding. Initial follow-up database attempts were blocked by
+exhausted host shared-memory identifiers (`shmget`: No space left on device).
+After slots became available, disposable Cloud Postgres qualification passed all
+seven tests, including independent-pool quota races and lease/acknowledgment.
+The focused stack cases also execute again; the added recovery case requires all
+manifest credentials, including OAuth client credentials, after a partial vault
+write. Full-suite local failures remain separately reported rather than treated
+as a green run. The current PR heads require fresh CI and review. No real
+provider calls or deployments were used for this revision.
 
 Before rollout, apply the additive Cloud migration, enable the dedicated-App
 capability, then deploy the synchronized instance migration and wizard through

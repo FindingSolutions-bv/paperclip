@@ -2372,6 +2372,7 @@ describeEmbeddedPostgres("chat channel control-plane integration", () => {
     });
     it("wizard retains recovery when a manifest vault write saved App credentials but lost OAuth credentials", async () => {
       const f = await reviewBotFixture();
+      const returnState = randomUUID();
       const [connection] = await db
         .select()
         .from(toolConnections)
@@ -2401,13 +2402,13 @@ describeEmbeddedPostgres("chat channel control-plane integration", () => {
           companyId: f.companyId,
           endpointId: f.endpoint.id,
           userId: "owner-user",
-          stateHash: createHash("sha256").update("bound").digest("hex"),
+          stateHash: createHash("sha256").update(returnState).digest("hex"),
           trustedOrigin: "http://127.0.0.1:3104",
           status: "failed",
           expiresAt: new Date(Date.now() + 60000),
           handoff: {
             cloudId: "partial-oauth",
-            returnState: "bound",
+            returnState,
             redemptionId: "receipt",
             manifestClaimId: "claim",
           },
