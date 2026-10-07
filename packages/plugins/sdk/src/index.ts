@@ -454,3 +454,6 @@ export { PluginEnvironmentCreationCleanupError, environmentCreationCleanupErrorD
 export type { PluginEnvironmentCreationCleanup } from "./environment-creation-cleanup.js";
 
 export type { AiConnectionPool, AiConnectionPoolConfig, AiConnectionPoolMember, AiConnectionRouterRequest, AiConnectionRouterResult, AiConnectionRouterSelection } from "@paperclipai/shared";
+
+export { environmentTaskOperationSchema, environmentTaskResultSchema, parseEnvironmentTaskResult } from "./environment-tasks.js";
+export type { PluginEnvironmentTaskOperation, PluginEnvironmentTaskParams, PluginEnvironmentTaskResult } from "./environment-tasks.js";

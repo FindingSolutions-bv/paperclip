@@ -1,0 +1,61 @@
+# Typed environment tasks
+
+An environment driver can own task admission without exposing a shell or creating
+one disposable resource per run. Declare `supportsTasks: true` on the driver and
+implement `onEnvironmentTask`. The worker advertises `environmentTask` during
+initialization. Both declarations must be present. The existing
+`environment.drivers.register` capability applies.
+
+The server-only `environmentRuntime.task({companyId, leaseId, operation})` method
+loads the persisted lease and its run. It resolves the exact plugin recorded at
+acquisition. It supplies the agent, issue, and project context. It does not accept
+these identities or the plugin identity from the operation. An environment edit
+cannot redirect an existing task to a replacement provider. The caller must
+already authorize access to the company.
+
+This contract supplies execution capabilities. It does not select a provider for
+heartbeat runs, stage runtime assets, or replace native Runner startup. Consumers
+must integrate those steps before enabling task execution. Readiness checks remain
+separate. No browser endpoint or automatic provider selection is added.
+
+## Lifetime and operations
+
+Acquire the environment lease before submitting a task. The provider lease ID is
+the task's durable attempt ID. Save it before a remote call. Do not use a persistent
+machine ID as this task ID. Multiple attempts can use the same underlying resource.
+
+- `submit`: supplies typed Runner identity, source revision, harness, optional
+  outbound WSS URL, and a transient bootstrap ticket. The Runner run and lease IDs
+  must match the persisted host records. Only a running run with an active,
+  unexpired lease can submit.
+- `status`: returns the phase and optional exit code. Optional `executionStopped`
+  is live provider evidence that the complete task process tree has stopped.
+- `connection`: returns a private authenticated WebSocket endpoint for a running
+  task. Transport credentials remain on the server. PRP authentication still binds
+  the Runner to its authorized run.
+- `complete`: releases task grants according to the provider's policy. It does not
+  imply that the process or its descendants stopped.
+- `stop`: requests cancellation of the task. An accepted request is not a process
+  termination receipt. Reconcile status before treating execution as stopped.
+
+Submission, completion and stop return `accepted`. Acceptance does not imply
+readiness or success. Status and connection return distinct typed results. Every
+result echoes the task ID and is checked by both the worker SDK and the host.
+
+## Retry and credentials
+
+A timeout may follow successful admission. Retain the same task ID and launch
+configuration, inspect status, and retry the exact request when needed. Never
+allocate a second attempt merely because the response was lost. Providers must
+reject conflicting reuse and deduplicate identical submissions, including after a
+terminal outcome. A new execution attempt requires a new lease and task ID.
+
+Do not store bootstrap tickets, connection headers, or provider credentials in
+lease metadata, plugin state, run profiles, logs, or browser responses. The host
+sanitizes worker errors. Treat a connection result as credential-bearing material.
+An endpoint is transport access, not a replacement for the Runner protocol's
+identity and artifact verification.
+
+Providers own resource-specific credential lookup, mounts, task status, and cleanup.
+Task lease cleanup must never destroy a longer-lived resource as an implicit
+fallback. Unsupported operations and unavailable providers fail closed.

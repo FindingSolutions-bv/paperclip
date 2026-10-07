@@ -94,6 +94,48 @@ describe("plugin environment driver seam", () => {
     });
   });
 
+  it("negotiates and validates typed task RPCs", async () => {
+    const calls: unknown[] = [];
+    const plugin = definePlugin({
+      async setup() {},
+      async onEnvironmentTask(input) {
+        calls.push(input);
+        return { kind: "accepted", taskId: input.taskId };
+      },
+    });
+    const stdin = new PassThrough();
+    const stdout = new PassThrough();
+    const host = startWorkerRpcHost({ plugin, stdin, stdout });
+    const responses: unknown[] = [];
+    stdout.on("data", chunk => {
+      for (const line of String(chunk).split("\n").filter(Boolean)) responses.push(parseMessage(line));
+    });
+    try {
+      const manifest = { ...baseManifest, environmentDrivers: [{ ...baseManifest.environmentDrivers![0], supportsTasks: true }] };
+      expect(pluginManifestV1Schema.parse(manifest).environmentDrivers![0].supportsTasks).toBe(true);
+      stdin.write(serializeMessage(createRequest("initialize", {
+        manifest, config: {}, instanceInfo: { instanceId: "instance-1", hostVersion: "1.0.0" }, apiVersion: 1,
+      }, 1)));
+      await waitForResponses(responses, 1);
+      const initialized = responses[0];
+      expect(isJsonRpcSuccessResponse(initialized)).toBe(true);
+      if (!isJsonRpcSuccessResponse(initialized)) return;
+      expect(initialized.result.supportedMethods).toContain("environmentTask");
+      const params = { driverKey: "fake-plugin", companyId: "company", environmentId: "environment", config: {},
+        taskId: "attempt", runId: "run", agentId: "agent", projectId: null, lease: { providerLeaseId: "attempt" }, operation: { kind: "stop" } };
+      stdin.write(serializeMessage(createRequest("environmentTask", params, 2)));
+      await waitForResponses(responses, 2);
+      expect(responses[1]).toMatchObject({ result: { kind: "accepted", taskId: "attempt" } });
+      stdin.write(serializeMessage(createRequest("environmentTask", { ...params, operation: { kind: "status" } }, 3)));
+      await waitForResponses(responses, 3);
+      expect(isJsonRpcErrorResponse(responses[2])).toBe(true); // Wrong response kind.
+      stdin.write(serializeMessage(createRequest("environmentTask", { ...params, operation: { kind: "shell", command: "echo test" } }, 4)));
+      await waitForResponses(responses, 4);
+      expect(isJsonRpcErrorResponse(responses[3])).toBe(true);
+      expect(calls).toHaveLength(2); // Invalid operation did not reach the plugin.
+    } finally { host.stop(); }
+  });
+
   it("dispatches environment driver worker hooks and reports support", async () => {
     const plugin = definePlugin({
       async setup() {},

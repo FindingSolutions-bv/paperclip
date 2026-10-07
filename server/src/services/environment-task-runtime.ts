@@ -1,0 +1,62 @@
+import { and, eq } from "drizzle-orm";
+import { environmentLeases, environments, heartbeatRuns, issues, type Db } from "@paperclipai/db";
+import { environmentTaskOperationSchema, parseEnvironmentTaskResult, type PluginEnvironmentTaskOperation } from "@paperclipai/plugin-sdk";
+import { pluginRegistryService } from "./plugin-registry.js";
+import type { PluginWorkerManager } from "./plugin-worker-manager.js";
+
+/** Server-only dispatch. The caller supplies an authorized company and a persisted lease,
+ * never a plugin identity, resource endpoint, or agent/project authority.
+ * A timeout is ambiguous: retry the same operation against the same lease.
+ */
+export async function executeEnvironmentTask(db: Db, workers: PluginWorkerManager, input: {
+  companyId: string;
+  leaseId: string;
+  operation: PluginEnvironmentTaskOperation;
+}) {
+  const operation = environmentTaskOperationSchema.parse(input.operation);
+  const [row] = await db.select({ lease: environmentLeases, environment: environments, run: heartbeatRuns })
+    .from(environmentLeases)
+    .innerJoin(environments, eq(environments.id, environmentLeases.environmentId))
+    .innerJoin(heartbeatRuns, and(eq(heartbeatRuns.id, environmentLeases.heartbeatRunId), eq(heartbeatRuns.companyId, environmentLeases.companyId)))
+    .where(and(eq(environmentLeases.id, input.leaseId), eq(environmentLeases.companyId, input.companyId))).limit(1);
+  if (!row || !row.lease.providerLeaseId) throw new Error("Environment task lease unavailable");
+  const { lease, environment, run } = row;
+  const taskId = row.lease.providerLeaseId;
+  if ((operation.kind === "submit" || operation.kind === "connection") &&
+      (lease.status !== "active" || (lease.expiresAt && lease.expiresAt.getTime() <= Date.now()) ||
+       run.status !== "running")) throw new Error("Environment task lease is not active");
+  if (operation.kind === "submit" && (operation.runner.runId !== run.id || operation.runner.leaseId !== lease.id)) {
+    throw new Error("Environment task runner identity mismatch");
+  }
+  const metadata = lease.metadata ?? {};
+  if (metadata.driver !== "plugin" || typeof metadata.pluginId !== "string" || typeof metadata.driverKey !== "string") {
+    throw new Error("Environment task lease has no pinned plugin driver");
+  }
+  const plugin = await pluginRegistryService(db).getById(metadata.pluginId);
+  const driver = plugin?.manifestJson.environmentDrivers?.find(value => value.driverKey === metadata.driverKey);
+  if (!plugin || plugin.status !== "ready" || !driver?.supportsTasks ||
+      !plugin.manifestJson.capabilities.includes("environment.drivers.register") ||
+      !workers.getWorker(plugin.id)?.supportedMethods.includes("environmentTask")) {
+    throw new Error("Environment task provider unavailable");
+  }
+  const project = lease.issueId ? await db.select({ projectId: issues.projectId }).from(issues)
+    .where(and(eq(issues.id, lease.issueId), eq(issues.companyId, input.companyId))).limit(1).then(rows => rows[0]) : null;
+  if (lease.issueId && !project) throw new Error("Environment task issue unavailable");
+  // Provider identity comes from the lease. Editing the environment must never
+  // redirect status or cleanup to a replacement plugin.
+  const config = environment.config as Record<string, unknown>;
+  const driverConfig = config.pluginKey === plugin.pluginKey && config.driverKey === metadata.driverKey
+    ? (config.driverConfig as Record<string, unknown> | undefined) ?? {} : {};
+  try {
+    const result = await workers.call(plugin.id, "environmentTask", {
+      driverKey: metadata.driverKey, companyId: input.companyId, environmentId: environment.id,
+      issueId: lease.issueId, config: driverConfig,
+      taskId, runId: run.id, agentId: run.agentId, projectId: project?.projectId ?? null,
+      lease: { providerLeaseId: lease.providerLeaseId, metadata: lease.metadata ?? undefined }, operation,
+    }, 15_000);
+    return parseEnvironmentTaskResult(operation, taskId, result);
+  } catch {
+    // Worker errors and schema diagnostics can contain request credentials.
+    throw new Error("Environment task operation unavailable; reconcile the same task before retrying");
+  }
+}

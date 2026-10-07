@@ -1,0 +1,77 @@
+import { beforeEach, describe, expect, it, vi } from "vitest";
+import { PgDialect } from "drizzle-orm/pg-core";
+import type { Db } from "@paperclipai/db";
+import { environmentTaskOperationSchema, parseEnvironmentTaskResult } from "@paperclipai/plugin-sdk";
+import { executeEnvironmentTask } from "../services/environment-task-runtime.js";
+
+const state = vi.hoisted(() => ({ plugin: {} as any }));
+vi.mock("../services/plugin-registry.js", () => ({ pluginRegistryService: () => ({ getById: vi.fn(async () => state.plugin) }) }));
+const leaseId = "10000000-0000-4000-8000-000000000001";
+const row = () => ({
+  lease: { id: leaseId, companyId: "company", environmentId: "environment", providerLeaseId: "attempt-1", heartbeatRunId: "run", issueId: "issue", status: "active", expiresAt: null,
+    metadata: { driver: "plugin", pluginId: "original", driverKey: "tasks" } },
+  environment: { id: "environment", config: { pluginKey: "test.provider", driverKey: "tasks", driverConfig: {} } },
+  run: { id: "run", agentId: "agent", status: "running" },
+});
+function database(value: ReturnType<typeof row> | null = row()) {
+  const results = [value ? [value] : [], [{ projectId: "project" }]];
+  const query: any = { from: () => query, innerJoin: () => query, where: vi.fn(() => query), limit: () => Promise.resolve(results.shift()) };
+  return { db: { select: () => query } as unknown as Db, query };
+}
+function worker(result: unknown = { kind: "accepted", taskId: "attempt-1" }) {
+  return { getWorker: vi.fn(() => ({ supportedMethods: ["environmentTask"] })), call: vi.fn(async () => result) };
+}
+const submit = { kind: "submit" as const, runner: { revision: "a".repeat(40), harness: "codex", runnerId: "runner", leaseId, runId: "run", sessionId: "session", turnId: "turn", itemId: "item" }, bootstrapTicket: "transient-test-ticket" };
+
+beforeEach(() => {
+  state.plugin = { id: "original", pluginKey: "test.provider", status: "ready", manifestJson: { capabilities: ["environment.drivers.register"], environmentDrivers: [{ driverKey: "tasks", supportsTasks: true }] } };
+});
+describe("typed environment task admission", () => {
+  it("dispatches with host-derived scope and a persisted attempt identity", async () => {
+    const { db, query } = database(); const workers = worker();
+    await expect(executeEnvironmentTask(db, workers as never, { companyId: "company", leaseId, operation: submit })).resolves.toEqual({ kind: "accepted", taskId: "attempt-1" });
+    const scope = new PgDialect().sqlToQuery(query.where.mock.calls[0][0]);
+    expect(scope.sql).toContain('"environment_leases"."company_id" =');
+    expect(scope.sql).toContain('"environment_leases"."id" =');
+    expect(scope.params).toEqual([leaseId, "company"]);
+    expect(workers.call).toHaveBeenCalledWith("original", "environmentTask", expect.objectContaining({
+      taskId: "attempt-1", companyId: "company", agentId: "agent", projectId: "project", runId: "run", operation: submit,
+    }), 15_000);
+  });
+  it("rejects an absent or cross-company lease before calling a worker", async () => {
+    const workers = worker();
+    await expect(executeEnvironmentTask(database(null).db, workers as never, { companyId: "other", leaseId, operation: submit })).rejects.toThrow("lease unavailable");
+    expect(workers.call).not.toHaveBeenCalled();
+  });
+  it("rejects mismatched Runner binding and inactive submission", async () => {
+    const workers = worker();
+    await expect(executeEnvironmentTask(database().db, workers as never, { companyId: "company", leaseId, operation: { ...submit, runner: { ...submit.runner, runId: "other" } } })).rejects.toThrow("identity mismatch");
+    const value = row(); value.lease.status = "released";
+    await expect(executeEnvironmentTask(database(value).db, workers as never, { companyId: "company", leaseId, operation: submit })).rejects.toThrow("not active");
+    expect(workers.call).not.toHaveBeenCalled();
+  });
+  it("uses the pinned provider for cleanup after environment edits", async () => {
+    const value = row(); value.lease.status = "released"; value.environment.config.pluginKey = "replacement";
+    const workers = worker();
+    await executeEnvironmentTask(database(value).db, workers as never, { companyId: "company", leaseId, operation: { kind: "stop" } });
+    expect(workers.call).toHaveBeenCalledWith("original", "environmentTask", expect.objectContaining({ config: {}, operation: { kind: "stop" } }), 15_000);
+  });
+  it.each(["manifest", "worker"])("requires live %s support", async kind => {
+    const workers = worker();
+    if (kind === "manifest") state.plugin.manifestJson.environmentDrivers[0].supportsTasks = false;
+    else workers.getWorker.mockReturnValue({ supportedMethods: [] });
+    await expect(executeEnvironmentTask(database().db, workers as never, { companyId: "company", leaseId, operation: submit })).rejects.toThrow("provider unavailable");
+    expect(workers.call).not.toHaveBeenCalled();
+  });
+  it("rejects wrong task receipts and sanitizes worker errors", async () => {
+    await expect(executeEnvironmentTask(database().db, worker({ kind: "accepted", taskId: "other" }) as never, { companyId: "company", leaseId, operation: submit })).rejects.toThrow("reconcile the same task");
+    const workers = worker(); workers.call.mockRejectedValue(new Error("private-credential"));
+    await expect(executeEnvironmentTask(database().db, workers as never, { companyId: "company", leaseId, operation: submit })).rejects.toThrow(/^Environment task operation unavailable; reconcile the same task before retrying$/);
+  });
+  it("validates operation and result shape without making acceptance mean readiness", () => {
+    expect(environmentTaskOperationSchema.safeParse({ ...submit, surprise: true }).success).toBe(false);
+    expect(environmentTaskOperationSchema.safeParse({ ...submit, runner: { ...submit.runner, connectUrl: "wss://user:secret@example.test/path" } }).success).toBe(false);
+    expect(() => parseEnvironmentTaskResult({ kind: "status" }, "attempt-1", { kind: "accepted", taskId: "attempt-1" })).toThrow();
+    expect(parseEnvironmentTaskResult(submit, "attempt-1", { kind: "accepted", taskId: "attempt-1" }).kind).toBe("accepted");
+  });
+});

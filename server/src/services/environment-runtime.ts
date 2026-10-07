@@ -1,3 +1,5 @@
+import { executeEnvironmentTask } from "./environment-task-runtime.js";
+import type { PluginEnvironmentTaskOperation } from "@paperclipai/plugin-sdk";
 import { hasStopOnlyCleanup, prepareSandboxStopAndRetain, readStopOnlyCleanup, settleStopOnlyCleanup, stopOnlyCleanupKey } from "./sandbox-stop-and-retain.js";
 import { readEnvironmentCreationCleanupError } from "@paperclipai/plugin-sdk";
 import { remoteTerminationReceipt } from "./remote-execution-termination.js";
@@ -3868,6 +3870,12 @@ export function environmentRuntimeService(
     async readSandboxDuplexBridgeInput(): Promise<ResolvedSandboxDuplexBridgeInput> {
       const experimental = await instanceSettingsService(db).getExperimental();
       return resolveSandboxDuplexBridgeInput(experimental);
+    },
+
+    /** Typed task providers own process admission; this does not execute a shell command. */
+    async task(input: { companyId: string; leaseId: string; operation: PluginEnvironmentTaskOperation }) {
+      if (!options.pluginWorkerManager) throw new Error("Environment task worker manager unavailable");
+      return executeEnvironmentTask(db, options.pluginWorkerManager, input);
     },
 
     async acquireRunLease(input: {

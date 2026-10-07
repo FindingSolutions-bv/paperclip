@@ -1,3 +1,4 @@
+import type { PluginEnvironmentTaskParams, PluginEnvironmentTaskResult } from "./environment-tasks.js";
 import type { AiConnectionRouterRequest, AiConnectionRouterResult } from "@paperclipai/shared";
 /**
  * `definePlugin` — the top-level helper for authoring a Paperclip plugin.
@@ -370,6 +371,9 @@ export interface PluginDefinition {
   onEnvironmentValidateConfig?(
     params: PluginEnvironmentValidateConfigParams,
   ): Promise<PluginEnvironmentValidationResult>;
+
+  /** Admit, inspect, connect to, or finish a typed task on a persisted lease. */
+  onEnvironmentTask?(params: PluginEnvironmentTaskParams): Promise<PluginEnvironmentTaskResult>;
 
   /** Called to test reachability or readiness of a plugin-hosted environment. */
   onEnvironmentProbe?(
