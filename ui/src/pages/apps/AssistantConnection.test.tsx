@@ -87,6 +87,22 @@ describe("assistant setup from Connections", () => {
     expect(container.textContent).toContain("Connected as you · Read and write");
     expect(container.querySelector('[aria-label="Copy first prompt"]')).toBeNull();
   });
+  it("keeps Dot agent grants out of personal assistant setup and connected status", async () => {
+    const dot = { ...grant, id: "dot", clientName: "Dedicated Dot", scopes: ["paperclip:agent", "offline_access"] };
+    mocks.connections.mockResolvedValue([dot]);
+    await render(<AssistantConnectionCard onNavigate={vi.fn()} />);
+    expect(container.querySelector('[data-connected]')?.getAttribute("data-connected")).toBe("false");
+    expect(container.textContent).not.toContain("Connected as you");
+    await render();
+    expect(container.textContent).toContain("No assistants connected to Butter yet");
+    expect(container.textContent).not.toContain("Dedicated Dot");
+    mocks.connections.mockResolvedValue([dot, grant]);
+    await act(async () => { await client.invalidateQueries({ queryKey: ["mcp-connections"] }); });
+    await flush();
+    expect(container.textContent).toContain("Connected as you · Read and write");
+    expect(container.querySelector('[aria-label="Revoke OpenCode connection"]')).not.toBeNull();
+    expect(container.querySelector('[aria-label="Revoke Dedicated Dot connection"]')).toBeNull();
+  });
   it("shows a recoverable error instead of pretending setup succeeded", async () => {
     mocks.setup.mockRejectedValue(new Error("offline"));
     await render();

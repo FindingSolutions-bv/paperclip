@@ -32,7 +32,7 @@ export function useAssistantConnections(poll = false) {
     queryKey: connectionsKey, queryFn: publicMcpApi.connections, retry: false,
     enabled: Boolean(selectedCompanyId), refetchInterval: poll ? 5000 : false,
   });
-  return { ...query, rows: (query.data ?? []).filter(row => row.companyId === selectedCompanyId) };
+  return { ...query, rows: (query.data ?? []).filter(row => row.companyId === selectedCompanyId && !row.scopes.includes("paperclip:agent")) };
 }
 
 /** Inbound assistant access belongs beside the existing outbound connectors. */
