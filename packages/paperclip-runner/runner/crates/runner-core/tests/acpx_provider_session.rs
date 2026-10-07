@@ -165,7 +165,7 @@ fn bootstraps_unlisted_models_confirmed_by_the_sidecar_for_every_agent() {
         selected.agent = agent.to_owned();
         selected.model = "custom/model[context=272k,reasoning=medium]".to_owned();
         selected.pi_thinking_level = if agent == "pi" {
-            Some(PiThinkingLevel::Low)
+            Some(paperclip_runner_core::acpx_provider_session::PiThinkingLevel::Low)
         } else {
             None
         };
