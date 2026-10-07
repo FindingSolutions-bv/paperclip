@@ -17,6 +17,50 @@ export const PI_CREDENTIAL_NAMES = Object.freeze([
   "PAPERCLIP_PI_PROVIDERS",
 ]);
 
+// These names alter process startup rather than identify a provider credential.
+const RESERVED_PI_CREDENTIAL_NAMES = new Set<string>([
+  "PATH",
+  "HOME",
+  "SHELL",
+  "TMPDIR",
+  "BASH_ENV",
+  "ENV",
+  "ZDOTDIR",
+  "LD_AUDIT",
+  "LD_LIBRARY_PATH",
+  "LD_PRELOAD",
+  "LD_DEBUG",
+  "LD_DEBUG_OUTPUT",
+  "LD_PROFILE",
+  "LD_PROFILE_OUTPUT",
+  "LD_TRACE_LOADED_OBJECTS",
+  "LD_ORIGIN_PATH",
+  "LD_BIND_NOW",
+  "LD_BIND_NOT",
+  "LD_DYNAMIC_WEAK",
+  "LD_HWCAP_MASK",
+  "LD_SHOW_AUXV",
+  "LD_USE_LOAD_BIAS",
+  "LD_VERBOSE",
+  "LD_WARN",
+  "LD_ASSUME_KERNEL",
+  "LD_PREFER_MAP_32BIT_EXEC",
+  "DYLD_INSERT_LIBRARIES",
+  "DYLD_LIBRARY_PATH",
+  "DYLD_FRAMEWORK_PATH",
+  "DYLD_FALLBACK_LIBRARY_PATH",
+  "DYLD_FALLBACK_FRAMEWORK_PATH",
+  "DYLD_VERSIONED_LIBRARY_PATH",
+  "DYLD_VERSIONED_FRAMEWORK_PATH",
+  "DYLD_ROOT_PATH",
+  "DYLD_IMAGE_SUFFIX",
+  "DYLD_SHARED_CACHE_DIR",
+  "GLIBC_TUNABLES",
+  "GCONV_PATH",
+  "LOCPATH",
+  "NLSPATH",
+]);
+
 export function piProviderConfiguration(environment?: NodeJS.ProcessEnv): {
   json: string; digest: string; credentialNames: readonly string[];
 } | undefined {
@@ -32,7 +76,7 @@ export function piProviderConfiguration(environment?: NodeJS.ProcessEnv): {
     if (typeof value !== "string" || value.trimStart().startsWith("!")) throw invalid();
     if (/^[A-Z][A-Z0-9_]{0,127}$/.test(value)) {
       if (/^(?:PAPERCLIP_|NODE_|NPM_|npm_)/.test(value)
-        || ["PATH", "HOME", "SHELL", "TMPDIR", "LD_PRELOAD", "DYLD_INSERT_LIBRARIES"].includes(value)) throw invalid();
+        || RESERVED_PI_CREDENTIAL_NAMES.has(value)) throw invalid();
       names.add(value);
     }
   };

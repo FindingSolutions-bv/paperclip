@@ -138,7 +138,46 @@ fn pi_credential_environment_keys(binding: Option<&str>) -> Result<Vec<String>, 
             || name.starts_with("NPM_")
             || matches!(
                 name.as_str(),
-                "PATH" | "HOME" | "SHELL" | "TMPDIR" | "LD_PRELOAD" | "DYLD_INSERT_LIBRARIES"
+                "PATH"
+                    | "HOME"
+                    | "SHELL"
+                    | "TMPDIR"
+                    | "BASH_ENV"
+                    | "ENV"
+                    | "ZDOTDIR"
+                    | "LD_AUDIT"
+                    | "LD_LIBRARY_PATH"
+                    | "LD_PRELOAD"
+                    | "LD_DEBUG"
+                    | "LD_DEBUG_OUTPUT"
+                    | "LD_PROFILE"
+                    | "LD_PROFILE_OUTPUT"
+                    | "LD_TRACE_LOADED_OBJECTS"
+                    | "LD_ORIGIN_PATH"
+                    | "LD_BIND_NOW"
+                    | "LD_BIND_NOT"
+                    | "LD_DYNAMIC_WEAK"
+                    | "LD_HWCAP_MASK"
+                    | "LD_SHOW_AUXV"
+                    | "LD_USE_LOAD_BIAS"
+                    | "LD_VERBOSE"
+                    | "LD_WARN"
+                    | "LD_ASSUME_KERNEL"
+                    | "LD_PREFER_MAP_32BIT_EXEC"
+                    | "DYLD_INSERT_LIBRARIES"
+                    | "DYLD_LIBRARY_PATH"
+                    | "DYLD_FRAMEWORK_PATH"
+                    | "DYLD_FALLBACK_LIBRARY_PATH"
+                    | "DYLD_FALLBACK_FRAMEWORK_PATH"
+                    | "DYLD_VERSIONED_LIBRARY_PATH"
+                    | "DYLD_VERSIONED_FRAMEWORK_PATH"
+                    | "DYLD_ROOT_PATH"
+                    | "DYLD_IMAGE_SUFFIX"
+                    | "DYLD_SHARED_CACHE_DIR"
+                    | "GLIBC_TUNABLES"
+                    | "GCONV_PATH"
+                    | "LOCPATH"
+                    | "NLSPATH"
             );
         if !valid_name || protected_name || !seen.insert(name) {
             return Err(invalid());
@@ -904,6 +943,19 @@ mod tests {
             assert!(pi_credential_environment_keys(Some(&binding.to_string())).is_err());
         }
         assert!(pi_credential_environment_keys(Some(&"x".repeat(4_097))).is_err());
+    }
+
+    #[test]
+    fn pi_loader_and_shell_controls_match_the_controller_reservations() {
+        let names: Vec<String> = serde_json::from_str(include_str!(concat!(
+            env!("CARGO_MANIFEST_DIR"),
+            "/../../../test-fixtures/pi-acp/reserved-credential-names.json"
+        )))
+        .unwrap();
+        for name in names {
+            let binding = json!({"schema":"paperclip.acpx_credential_binding.v1", "agent":"pi", "sessionId":"session-1", "names":[name]});
+            assert!(pi_credential_environment_keys(Some(&binding.to_string())).is_err());
+        }
     }
 
     #[test]

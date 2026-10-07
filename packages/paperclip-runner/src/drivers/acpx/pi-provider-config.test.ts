@@ -1,4 +1,4 @@
-import { mkdtemp, rm } from "node:fs/promises";
+import { mkdtemp, readFile, rm } from "node:fs/promises";
 import { join } from "node:path";
 import { tmpdir } from "node:os";
 import { describe, expect, it, vi } from "vitest";
@@ -40,6 +40,16 @@ describe("Pi caller-selected providers and models", () => {
 
   it.each(["!cat /private/key", "PAPERCLIP_API_KEY", "NODE_OPTIONS", "PATH"])("rejects unsafe custom-provider credential reference %s", apiKey => {
     expect(() => piProviderConfiguration({ PAPERCLIP_PI_PROVIDERS: JSON.stringify({ custom: { apiKey } }) })).toThrow();
+  });
+
+  it("reserves loader and shell controls at the controller boundary", async () => {
+    const names = JSON.parse(await readFile(new URL("../../../test-fixtures/pi-acp/reserved-credential-names.json", import.meta.url), "utf8"));
+    for (const apiKey of names) {
+      expect(() => piProviderConfiguration({ PAPERCLIP_PI_PROVIDERS: JSON.stringify({ custom: { apiKey } }) }), apiKey).toThrow();
+    }
+    for (const apiKey of ["LD_API_KEY", "DYLD_API_KEY", "MY_PI_SERVICE_KEY"]) {
+      expect(piProviderConfiguration({ PAPERCLIP_PI_PROVIDERS: JSON.stringify({ custom: { apiKey } }) })?.credentialNames).toEqual([apiKey]);
+    }
   });
 
   it("binds custom-provider configuration and model identity across recovery", async () => {

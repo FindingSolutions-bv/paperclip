@@ -7,23 +7,31 @@ widgets, images, Cursor or Copilot qualification. The existing draft stack must 
 
 ## Production qualification state — 2026-10-07
 
-The final target is native Linux with Pi profile 16. All 26 accepted Product
-cells and seven Runner cases still require passes on the final source and
-installed artifact set. Mac coverage is deferred. Historical passes below do
-not transfer to the corrected source.
+The final target is native Linux with Pi profile 17. All 26 accepted Product
+cells and seven Runner cases require passes on the final source and installed
+artifact set. Mac coverage is deferred. Historical passes do not transfer.
 
-Review of `aa67de311` found that Rust rejected custom credential names such as
-`LD_API_KEY` although the controller accepted them. The launcher now matches
-`pi-provider-config.ts`: the same reserved names and prefixes are rejected,
-while ordinary custom names are forwarded only through the authenticated Pi
-session binding. Unit and real child-process tests cover `LD_API_KEY` and
-`DYLD_API_KEY`, unrelated-secret exclusion and rejected reserved names. Pi's
-provider closure is unchanged, so its profile remains 16.
+Review found that Rust's initial broad `LD_` exclusion rejected valid custom
+credentials; merely matching the controller then admitted real loader controls.
+Both boundaries now reserve the same 40 loader, shell and process-control names
+while permitting ordinary custom names such as `LD_API_KEY` and `DYLD_API_KEY`.
+They share negative test inputs, and real child-process coverage verifies bound
+credential forwarding and unrelated-secret exclusion. Profile 17 binds this
+provider-configuration source correction. The Pi 1.0.0 native distributions,
+wrapper, runtime extension and platform closure hashes remain unchanged.
 
-The normal native Linux build of `aa67de311` passed. This credential-contract
-correction requires a new source pin, normal package build/install and fresh
-qualification. It introduces no model roster, fallback or default. The accepted
-model and low thinking remain test inputs.
+The normal native builds of `aa67de311` and `f817030f8` passed. Public Linux
+package installation for `f817030f8` passed npm lifecycle checks but Pi setup
+ran out of the disposable host's 10 GiB scratch disk. Preserve that failure and
+superseded archives; reclaim only owned obsolete artifacts and completed caches
+before rebuilding the corrected final source. No live attempt ran on `f817`.
+
+The full local Rust repeat at `f817` failed one Codex receipt-observation deadline;
+the unchanged test passes in isolation. Linux CI passed its native Runner lane,
+but browser shard 5 failed the signoff fixture's run-availability wait. Preserve
+both observations and require new-head checks and review. The final source still
+needs normal installed admission and all 33 live cases. No merge or release is
+authorized. The fixture model and low thinking remain test inputs.
 
 ## Final fixture reconciliation — 2026-10-07
 
@@ -1035,9 +1043,9 @@ local tests and release review are still required.
 
 - Pi: `@earendil-works/pi-coding-agent@1.0.0`.
 - Wrapper: `pi-acp@0.0.33`; ACPX: `0.13.1`; Node: `24.21.0`.
-- Candidate Pi profile: 16. Historical paid runtime profiles: 14 and 15.
+- Candidate Pi profile: 17. Historical runtime profiles: 14, 15 and 16.
   Accepted fixture model: `openrouter/deepseek/deepseek-v4-flash-0731`.
-- Pi/Copilot profile 16 and Cursor profile 15 bind the current shared ACPX patch.
+- Pi profile 17, Copilot profile 16 and Cursor profile 15 bind the current shared ACPX patch.
   Earlier profiles remain historical evidence. Cursor and Copilot receive no
   new paid qualification in this work.
 - Reasoning: native-confirmed `low`. No silent model or thinking fallback.
@@ -1052,7 +1060,7 @@ the dated history above and below.
 
 | Gate | Acceptance evidence | Current result |
 | --- | --- | --- |
-| Runtime identity and admission | Exact runtime/profile/model; native thinking; startup below 60 seconds; unsupported configuration fails before prompting | Profile 16. Final corrected source needs normal installed Linux admission. Admission on `efd4` is historical. |
+| Runtime identity and admission | Exact runtime/profile/model; native thinking; startup below 60 seconds; unsupported configuration fails before prompting | Profile 17. Final corrected source needs normal installed Linux admission. Admission on `efd4` is historical. |
 | Live lifecycle | Restart preserves the original pending request and process; stale answer rejected; Stop retires owned processes; three warm turns retain identity | Pending on the final artifact set. Preserve original failures; no unchanged paid retries. |
 | Product workflows | All 26 accepted cells, 13 local and 13 Daytona; public state, artifacts, terminal and cleanup evidence | Final set 0/26. The first `efd4` file-edit attempt failed before prompting with cleanup confirmed; the completed-cache disk correction is independently demonstrated. |
 | Runner protocol | All seven accepted cases through the normal packaged native Runner and authenticated mock control plane | Final set 0/7. Historical 5/7 belongs to the older profile-15 set. Definition source must bind the corrected shipping revision. |
