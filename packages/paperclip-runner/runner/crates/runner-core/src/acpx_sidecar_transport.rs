@@ -97,6 +97,58 @@ fn session_open_timeout(agent: &str, ordinary: Duration) -> Duration {
     }
 }
 
+// Pi's provider catalog is caller-selected. The authenticated controller binds
+// credential names (including custom models.json references); a Rust provider
+// roster would silently drop credentials before the sidecar can validate them.
+fn pi_credential_environment_keys(binding: Option<&str>) -> Result<Vec<String>, LocalRunnerError> {
+    #[derive(Deserialize)]
+    #[serde(rename_all = "camelCase", deny_unknown_fields)]
+    struct Binding {
+        schema: String,
+        agent: String,
+        session_id: String,
+        names: Vec<String>,
+    }
+    let invalid = || LocalRunnerError::invalid("Pi credentials require a valid controller binding");
+    let Some(raw) = binding else {
+        return Ok(Vec::new());
+    };
+    if raw.len() > 4_096 {
+        return Err(invalid());
+    }
+    let value: Binding = serde_json::from_str(raw).map_err(|_| invalid())?;
+    if value.schema != "paperclip.acpx_credential_binding.v1"
+        || value.agent != "pi"
+        || !is_stable_id(&value.session_id, SHORT_STABLE_ID_CHARS)
+        || value.names.len() > 128
+    {
+        return Err(invalid());
+    }
+    let mut seen = BTreeSet::new();
+    for name in &value.names {
+        let valid_name = name.len() <= 128
+            && name.as_bytes().first().is_some_and(u8::is_ascii_uppercase)
+            && name
+                .bytes()
+                .all(|c| c.is_ascii_uppercase() || c.is_ascii_digit() || c == b'_');
+        let protected_name = (name.starts_with("PAPERCLIP_") && name != "PAPERCLIP_PI_PROVIDERS")
+            || name.starts_with("NODE_")
+            || name.starts_with("NPM_")
+            || name.starts_with("DYLD_")
+            || name.starts_with("LD_")
+            || matches!(
+                name.as_str(),
+                "PATH" | "HOME" | "SHELL" | "TMPDIR" | "BASH_ENV" | "ENV" | "ZDOTDIR"
+            );
+        if !valid_name || protected_name || !seen.insert(name) {
+            return Err(invalid());
+        }
+    }
+    // The sidecar still checks every name against Pi's pinned SDK/custom
+    // configuration and the exact session.open identity before provider launch.
+    Ok(value.names)
+}
+
 impl AcpxSidecarTransport {
     pub fn start(config: &AcpxSidecarTransportConfig) -> Result<Self, LocalRunnerError> {
         Self::start_with_environment_keys(config, &[])
@@ -119,7 +171,7 @@ impl AcpxSidecarTransport {
                 "PAPERCLIP_AI_PROVIDER_KEY",
             ],
             "grok" => &["XAI_API_KEY", "PAPERCLIP_ACPX_GROK_AUTH_JSON_SECRET"],
-            "pi" => &["OPENROUTER_API_KEY"],
+            "pi" => &[],
             "cursor" => &["CURSOR_API_KEY", "CURSOR_AUTH_TOKEN"],
             "copilot" => &["COPILOT_GITHUB_TOKEN"],
             _ => {
@@ -174,6 +226,16 @@ impl AcpxSidecarTransport {
                 "CLAUDE_CODE_SUBAGENT_MODEL",
             ]);
         }
+        let pi_keys = if agent == "pi" {
+            pi_credential_environment_keys(
+                std::env::var("PAPERCLIP_ACPX_CREDENTIAL_BINDING")
+                    .ok()
+                    .as_deref(),
+            )?
+        } else {
+            Vec::new()
+        };
+        keys.extend(pi_keys.iter().map(String::as_str));
         keys.extend_from_slice(credential_keys);
         let mut transport = Self::start_with_environment_keys(config, &keys)?;
         transport.session_open_timeout = session_open_timeout(agent, config.request_timeout);
@@ -818,6 +880,36 @@ fn response_error_classification(error: &ResponseError) -> &'static str {
 
 #[cfg(test)]
 mod tests {
+    #[test]
+    fn pi_credentials_require_a_bounded_binding_without_process_control_variables() {
+        assert!(pi_credential_environment_keys(None).unwrap().is_empty());
+        for name in [
+            "NODE_OPTIONS",
+            "PATH",
+            "HOME",
+            "LD_PRELOAD",
+            "LD_LIBRARY_PATH",
+            "BASH_ENV",
+            "ENV",
+            "ZDOTDIR",
+            "DYLD_INSERT_LIBRARIES",
+            "PAPERCLIP_NATIVE_MCP_TOKEN",
+            "INVALID-NAME",
+        ] {
+            let binding = json!({"schema":"paperclip.acpx_credential_binding.v1", "agent":"pi", "sessionId":"session-1", "names":[name]});
+            assert!(pi_credential_environment_keys(Some(&binding.to_string())).is_err());
+        }
+        for binding in [
+            json!({"schema":"other", "agent":"pi", "sessionId":"session-1", "names":[]}),
+            json!({"schema":"paperclip.acpx_credential_binding.v1", "agent":"cursor", "sessionId":"session-1", "names":[]}),
+            json!({"schema":"paperclip.acpx_credential_binding.v1", "agent":"pi", "sessionId":"session-1", "names":["MY_PI_KEY", "MY_PI_KEY"]}),
+            json!({"schema":"paperclip.acpx_credential_binding.v1", "agent":"pi", "sessionId":"session-1", "names":[], "extra":true}),
+        ] {
+            assert!(pi_credential_environment_keys(Some(&binding.to_string())).is_err());
+        }
+        assert!(pi_credential_environment_keys(Some(&"x".repeat(4_097))).is_err());
+    }
+
     #[test]
     fn only_pi_cold_open_gets_the_longer_admission_budget() {
         let ordinary = Duration::from_secs(30);

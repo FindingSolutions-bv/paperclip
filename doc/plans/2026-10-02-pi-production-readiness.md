@@ -2177,3 +2177,47 @@ all failed release evidence.
   All 72 account BYOK provider rows are unconfigured. The campaign retains its
   $100 budget, frozen model/profile and failed-case holds. Recorded rollout/rollback
   remains conditional on every release gate passing.
+
+
+## Native Linux admission and Pi credential forwarding — 2026-10-07
+
+- Frozen runtime `efd4df03d5c472dc8051461f38e16b5f3b62ce01` was built natively
+  with Node 24.21.0 and Rust 1.97.1 on an owned disposable Linux host. Normal
+  public CLI/server packages installed and `runtime setup pi`, installed graph
+  verification, public daemon admission/retirement, health and browser onboarding
+  passed. External probe source is `f332f79e6e9fc40fa69fbf8d9dfc544acc531e7f`;
+  its change is probe metadata only. Pi remains profile 16, thinking low.
+- Latest `f332f79e` PR checks were 54 successful, two skipped, no failures, with
+  an exact-head Greptile 5/5 review and no unresolved review threads. The normal
+  Canary public-install probe passed; its merge source is distinct from `efd4`.
+- The first real `extended-harnesses.runner-acpx-pi.local.file-edit-validate`
+  attempt failed during `session.open`, with independently confirmed cleanup
+  and no token usage observed. Before/after key usage was USD 0.445246261, BYOK
+  zero, lifetime limit USD 5. No unchanged paid retry was made.
+- A separate invalid-key diagnostic reproduced the startup rejection. Captured
+  runtime context and the Rust-projected dynamic tool catalog were valid. Direct
+  installed-sidecar startup exposed `ENOSPC` while copying the verified Pi
+  distribution. Removing only the completed npm download cache reclaimed
+  1,116,352 KiB without changing installed packages or archived package bytes.
+  Direct admission with the captured context then passed with no prompt. A full
+  installed diagnostic subsequently reached the provider turn and failed with
+  the expected invalid-key service error; startup and cleanup both succeeded.
+  These diagnostics are not qualification passes.
+- The Rust sidecar launcher had an independent production restriction: Pi
+  forwarded only `OPENROUTER_API_KEY`. This change forwards bounded credential
+  names from the authenticated controller's Pi session binding, including native
+  provider keys and explicit custom provider references. The sidecar retains its
+  exact session/configuration validation. Process-control variables and malformed
+  bindings fail closed. No model allowlist, model fallback or new default is added.
+- A real child-process regression passes OpenRouter, Gemini and custom-provider
+  bindings while excluding unrelated credentials; malformed/duplicate bindings
+  and process-control names are rejected. Full Rust validation passed 687
+  tests (two ignored), plus the final binding guard and 15 process-transport
+  tests after tightening loader/shell variable exclusions. Runtime declarations and fixture
+  membership are unchanged; the new shipping source must be frozen and rebuilt.
+- The owned image workflow `37621428993`, pinned to `efd4`, remained unassigned
+  on the EC2 fleet. A concrete GitHub-hosted Linux fallback patch is prepared,
+  preserving maintainer authorization and source pins. The explicit workflow
+  exception approval remains pending; no workflow edit, merge or deployment was
+  performed. Real accepted Product/Runner qualification still needs 26 + 7
+  passes on the corrected installed artifact set. Historical passes do not transfer.

@@ -61,6 +61,8 @@ the caller's selected model; its serialized name preserves recovery identities.
 Historical profile fixtures remain immutable evidence, not release declarations.
 
 Pi credentials are selected from the explicit run environment and remain session-bound.
+The native Rust launcher forwards the controller-bound credential names, including
+custom provider references, without restricting Pi to an OpenRouter credential.
 Built-in providers can use their usual API-key environment variables. Custom Pi
 providers are supported through `PAPERCLIP_PI_PROVIDERS`: a JSON object containing
 the native `models.json` provider entries (without the outer `providers` key).
