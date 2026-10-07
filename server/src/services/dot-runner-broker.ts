@@ -153,15 +153,26 @@ function createBroker(db: Db) {
         acceptByUnixMs: Date.now() + 10 * 60_000, expiresAtUnixMs: Date.now() + 2 * 60 * 60_000 };
     },
     async authorizeBinding(principal: McpPrincipal, companyId: string, bindingId: string) {
-      const b = await principalBinding(principal, false);
+      const b = await principalBinding(principal, false, true);
       if (b.companyId !== companyId || b.id !== bindingId) throw fail("Binding is outside this connection.");
       return b;
     },
     async mailbox(principal: McpPrincipal, after = 0) {
-      const b = await principalBinding(principal, false);
-      const items = await db.select().from(mailbox).where(and(eq(mailbox.companyId, b.companyId), eq(mailbox.bindingId, b.id),
-        eq(mailbox.bindingGeneration, b.generation), gt(mailbox.id, after))).orderBy(asc(mailbox.id)).limit(50);
-      return { bindingId: b.id, generation: b.generation, items, nextCursor: items.at(-1)?.id ?? after };
+      const binding = await principalBinding(principal, false, true);
+      return db.transaction(async tx => {
+        // Every writer takes this lock before allocating a mailbox ID. Reading
+        // under it cannot advance a cursor past an earlier uncommitted item.
+        const [b] = await tx.select().from(bindings).where(and(eq(bindings.id, binding.id),
+          eq(bindings.generation, binding.generation), isNull(bindings.revokedAt))).for("update");
+        if (!b) throw fail("Binding authority is unavailable.");
+        const [agent] = await tx.select().from(agents).where(eq(agents.id, b.agentId));
+        if (!agent || ["terminated", "pending_approval"].includes(agent.status)) throw fail("Agent connection authority is unavailable.");
+        const paused = agent.status === "paused";
+        const items = await tx.select().from(mailbox).where(and(eq(mailbox.companyId, b.companyId), eq(mailbox.bindingId, b.id),
+          eq(mailbox.bindingGeneration, b.generation), gt(mailbox.id, after), paused ? eq(mailbox.kind, "authority_revoked") : undefined)).orderBy(asc(mailbox.id)).limit(50);
+        // Paused reads expose fences only and never consume hidden task items.
+        return { bindingId: b.id, generation: b.generation, items, nextCursor: paused ? after : items.at(-1)?.id ?? after };
+      });
     },
     async read(principal: McpPrincipal, assignmentId: string) {
       const { assignment } = await authorizeAssignment(principal, assignmentId);
@@ -368,6 +379,9 @@ function createBroker(db: Db) {
           const p = z.object({ requestId: z.uuid(), binding: z.object({ runId: z.literal(runId), bindingId: z.literal(execution.provider.binding.bindingId),
             bindingGeneration: z.literal(execution.provider.binding.bindingGeneration) }).passthrough(), outcome: z.record(z.string(), z.unknown()) }).parse(event.payload);
           await db.transaction(async tx => {
+            // Binding precedes assignment everywhere: serialize mailbox IDs
+            // with dispatch, readiness and reconnect without reversing locks.
+            await tx.select({ id: bindings.id }).from(bindings).where(eq(bindings.id, p.binding.bindingId)).for("update");
             const [a] = await tx.select().from(assignments).where(and(eq(assignments.runId, runId), eq(assignments.bindingGeneration, p.binding.bindingGeneration))).for("update");
             if (!a) throw fail("Runner operation has no assignment.");
             if (p.binding.companyId !== a.companyId || p.binding.agentId !== a.agentId || p.binding.normalizedSessionId !== a.normalizedSessionId

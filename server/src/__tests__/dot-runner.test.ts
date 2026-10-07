@@ -9,7 +9,7 @@ import { and, eq, sql } from "drizzle-orm";
 import express, { type Request } from "express";
 import request from "supertest";
 import { afterAll, beforeAll, describe, expect, it, vi } from "vitest";
-import { agents, authUsers, companies, companyMemberships, createDb, dotMailboxItems, dotRunnerAssignments, dotRunnerOperations,
+import { agents, authUsers, companies, companyMemberships, createDb, dotAgentBindings, dotMailboxItems, dotRunnerAssignments, dotRunnerOperations,
   heartbeatRuns, agentWakeupRequests, issues, nativeRunResults, nativeRunFinalizations, completionContracts, mcpEventDeliveries, workspaceOperations } from "@paperclipai/db";
 import { startEmbeddedPostgresTestDatabase } from "./helpers/embedded-postgres.js";
 import { createPublicMcpOAuth, DEVICE_GRANT } from "../services/public-mcp/oauth.js";
@@ -18,7 +18,7 @@ import { publicMcpIngressRoutes, publicMcpManagementRoutes } from "../routes/pub
 import { createPublicMcpEvents, type EventFetch } from "../services/public-mcp/events.js";
 import { instanceSettingsService } from "../services/instance-settings.js";
 import { canonicalNativeRuntimeContextDigest, type StrictCompletionContractInput } from "../vendor/paperclip-runner/index.js";
-import { dotRunnerBroker } from "../services/dot-runner-broker.js";
+import { createDotRunnerMcpTools, dotRunnerBroker } from "../services/dot-runner-broker.js";
 import { prepareNativeHeartbeatRun } from "../services/native-runtime/prepare-native-run.js";
 import { buildNativeExecutionInput } from "../services/native-runtime/native-execution-input.js";
 import { nativeRuntimeContextFixture } from "../services/native-runtime/runtime-context.test-fixture.js";
@@ -199,6 +199,61 @@ describe("durable Dot Runner integration", () => {
       await db.update(heartbeatRuns).set({ status: "cancelled", finishedAt: new Date() }).where(eq(heartbeatRuns.agentId, f.agent.id));
       await f.events.unsubscribe(f.principal, f.subscription); await f.events.stop();
     }
+  }, 30000);
+
+  it("serializes tool-result writes and cursor reads with the binding mailbox lock", async () => {
+    const f = await fixture();
+    const { run, assignment } = await offeredWork(f);
+    const requestId = randomUUID();
+    await db.insert(dotRunnerOperations).values({ companyId: f.company.id, assignmentId: assignment.id, requestId,
+      digest: "test", command: { action: "tool" }, status: "admitted" });
+    let release!: () => void;
+    let held!: () => void;
+    const locked = new Promise<void>(resolve => { held = resolve; });
+    const gate = new Promise<void>(resolve => { release = resolve; });
+    const firstEvent = randomUUID();
+    const transaction = db.transaction(async tx => {
+      await tx.select().from(dotAgentBindings).where(eq(dotAgentBindings.id, f.snapshot.bindingId)).for("update");
+      await tx.insert(dotMailboxItems).values({ companyId: f.company.id, bindingId: f.snapshot.bindingId,
+        bindingGeneration: f.snapshot.bindingGeneration, kind: "operation_result", sourceEventId: firstEvent, references: {} });
+      held(); await gate;
+    });
+    await locked;
+    const port = f.broker.port({ binding: { companyId: f.company.id, agentId: f.agent.id, runId: run.id }, provider: { binding: f.snapshot } });
+    let written = false, read = false;
+    const secondEvent = randomUUID();
+    const writer = port.settle({ sourceEventId: secondEvent, payload: { requestId, binding: { ...f.snapshot, runId: run.id,
+      normalizedSessionId: assignment.normalizedSessionId, turnId: assignment.turnId, assignmentRevision: assignment.revision }, outcome: { status: "completed", result: {} } } } as Parameters<typeof port.settle>[0]).then(() => { written = true; });
+    const reader = f.broker.mailbox(f.principal).then(value => { read = true; return value; });
+    try {
+      await new Promise(resolve => setTimeout(resolve, 30));
+      expect(written).toBe(false); expect(read).toBe(false);
+    } finally { release(); }
+    await Promise.all([transaction, writer]);
+    const initial = await reader;
+    const next = await f.broker.mailbox(f.principal, initial.nextCursor);
+    expect([...initial.items, ...next.items].map(i => i.sourceEventId)).toEqual(expect.arrayContaining([firstEvent, secondEvent]));
+    await f.events.unsubscribe(f.principal, f.subscription); await f.events.stop();
+  }, 30000);
+
+  it("allows paused Dot fence delivery and acknowledgements without task authority", async () => {
+    const f = await fixture();
+    const { assignment } = await offeredWork(f);
+    await db.update(dotRunnerAssignments).set({ status: "fenced" }).where(eq(dotRunnerAssignments.id, assignment.id));
+    await db.insert(dotMailboxItems).values({ companyId: f.company.id, bindingId: f.snapshot.bindingId,
+      bindingGeneration: f.snapshot.bindingGeneration, assignmentId: assignment.id, kind: "authority_revoked", sourceEventId: randomUUID(), references: { assignmentId: assignment.id } });
+    await db.update(agents).set({ status: "paused" }).where(eq(agents.id, f.agent.id));
+    const principal = await f.oauth.authenticate(f.tokens.access_token);
+    const tools = createDotRunnerMcpTools(db);
+    await f.events.tick();
+    expect(f.received.at(-1)?.data.kind).toBe("authority_revoked");
+    const inbox = await tools.callTool(principal, "paperclip_dot_inbox", { after: 0 });
+    expect(inbox).toMatchObject({ result: { nextCursor: 0, items: [{ kind: "authority_revoked" }] } });
+    await expect(tools.callTool(principal, "paperclip_dot_tasks", {})).rejects.toThrow("authority");
+    await expect(tools.callTool(principal, "paperclip_dot_read", { assignmentId: assignment.id })).rejects.toThrow("authority");
+    await expect(tools.callTool(principal, "paperclip_dot_accept", { assignmentId: assignment.id, requestId: randomUUID() })).rejects.toThrow("authority");
+    expect(await tools.callTool(principal, "paperclip_dot_control_ack", { assignmentId: assignment.id, requestId: randomUUID() })).toMatchObject({ result: { status: "acknowledged", externalStopConfirmed: false } });
+    await f.events.unsubscribe(principal, f.subscription); await f.events.stop();
   }, 30000);
 
   it("verifies reconnects and wakes the same outstanding assignment after exhausted delivery", async () => {
