@@ -701,7 +701,20 @@ export function githubChatWizardService(
       }
       return { endpointId: id, state: "create" };
     }
-    if (!bot.providerAccountId || bot.setup.github?.stage === "install") {
+    if (bot.setup.github?.initialSetupPending) {
+      try {
+        const stored = await githubBotCredentials(db, bot.companyId, id);
+        if (!stored.credentials.webhookSecret)
+          throw conflict("The App webhook secret is missing");
+      } catch {
+        return {
+          endpointId: id,
+          state: "recovery",
+          message: "This App's credentials were not completely saved. Recover its existing credentials before continuing.",
+        };
+      }
+    }
+    if (!bot.providerAccountId || bot.setup.github?.stage === "install" || bot.setup.github?.initialSetupPending) {
       try {
         await options.refreshRepositories(id, userId);
       } catch (error) {

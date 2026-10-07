@@ -106,7 +106,7 @@ enrollment handoff passed. The test did not authorize Cloud enrollment or
 create a provider App.
 
 The focused wizard and retained clipboard/recovery UI suites pass (37 tests).
-GitHub backend coverage passes (192 cases), including both owner types,
+GitHub backend coverage passes (193 cases), including both owner types,
 interrupted registration and vault storage, empty saved repository selections,
 localhost configuration, concurrent identity attempts, enrolled-origin recovery,
 tenant binding, and legacy callbacks. The complete OpenAPI suite passes (13
@@ -123,7 +123,9 @@ covered by the updated focused checks. The full GitHub fixture also verifies
 installation permissions and preserved legacy tool authority. The browser
 report attaches screenshots of both wizard screens. Fresh manual App imports
 initialize repository access and tools without a registration row; interrupted
-imports resume those defaults while explicit restrictions stay preserved.
+imports resume those defaults while explicit restrictions stay preserved. A real
+vault-write interruption stays in recovery without completing an empty import;
+retrying the credentials discovers and imports the actual repositories.
 
 Cloud's final standard `npm test` passes: 2,561 tests and 73 environment-dependent
 skips. Dedicated-App regressions cover normalized concurrent starts, stale

@@ -1877,6 +1877,7 @@ describeEmbeddedPostgres("chat channel control-plane integration", () => {
     useVerifiedAppId = false,
     registerWithManifest = false,
     connectExistingApp = false,
+    interruptAppVault = false,
   ) {
     let setupComplete = false;
     const deferredSchedule = overrides.scheduleDeferredWork;
@@ -2052,10 +2053,26 @@ describeEmbeddedPostgres("chat channel control-plane integration", () => {
     );
     if (registerWithManifest)
       await context.service.startGitHubRegistration(endpoint.id, "owner-user", "Maya");
-    if (connectExistingApp)
-      await context.service.storeGitHubApp(endpoint.id, "owner-user", {
-        appId: String(appRegistrationId), privateKey, webhookSecret,
-      });
+    if (connectExistingApp) {
+      const credentials = { appId: String(appRegistrationId), privateKey, webhookSecret };
+      if (interruptAppVault) {
+        // Fail the real vault write after App identity has been durably claimed.
+        await db.execute(sql.raw("CREATE FUNCTION github_wizard_fail_vault() RETURNS trigger LANGUAGE plpgsql AS $$ BEGIN RAISE EXCEPTION 'Simulated App vault failure'; END $$"));
+        await db.execute(sql.raw("CREATE TRIGGER github_wizard_fail_vault BEFORE INSERT ON company_secrets FOR EACH ROW WHEN (lower(NEW.key) LIKE '%privatekey%') EXECUTE FUNCTION github_wizard_fail_vault()"));
+        try {
+          await expect(context.service.storeGitHubApp(endpoint.id, "owner-user", credentials)).rejects.toThrow();
+          expect(await context.service.githubWizard.advance(endpoint.id, "owner-user")).toMatchObject({ state: "recovery" });
+          expect((await context.service.get(endpoint.id)).setup.github).toMatchObject({ initialSetupPending: true, initialRepositoryImportPending: true });
+          expect((await context.service.get(endpoint.id)).setup.github?.initialRepositoriesImported).not.toBe(true);
+          expect(await context.service.listResources(endpoint.id)).toHaveLength(0);
+          expect((await githubChatManagementService(db, providerFetch).configuration(endpoint.id, "owner-user")).revision).toBe(0);
+        } finally {
+          await db.execute(sql.raw("DROP TRIGGER github_wizard_fail_vault ON company_secrets"));
+          await db.execute(sql.raw("DROP FUNCTION github_wizard_fail_vault()"));
+        }
+      }
+      await context.service.storeGitHubApp(endpoint.id, "owner-user", credentials);
+    }
     await context.service.configure(
       endpoint.id,
       {
@@ -2935,6 +2952,14 @@ describeEmbeddedPostgres("chat channel control-plane integration", () => {
           (resource) => resource.id === later!.id,
         )?.enabled,
       ).toBe(false);
+    });
+    it("manual App credential retry imports repositories after an interrupted vault write", async () => {
+      const f = await seedCompany();
+      const context = await configuredGitHubEndpoint(f, {}, true, false, true, true);
+      await context.service.githubWizard.advance(context.endpoint.id, "owner-user");
+      expect((await context.service.listResources(context.endpoint.id)).map(resource => resource.enabled)).toEqual([true]);
+      expect((await githubChatManagementService(db, context.providerFetch).configuration(context.endpoint.id, "owner-user")).configuration.toolsEnabled).toBe(true);
+      expect((await context.service.get(context.endpoint.id)).setup.github).toMatchObject({ initialRepositoriesImported: true, initialSetupPending: false });
     });
     it("manual App setup resumes tool initialization after an interrupted repository import", async () => {
       const f = await seedCompany();
