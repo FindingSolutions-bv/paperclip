@@ -261,9 +261,9 @@ function createBroker(db: Db) {
         action: "dot.event_test_completed", entityType: "agent", entityId: b.agentId, details: { bindingId: b.id } });
       return { status: "ready" };
     },
-    async revoke(companyId: string, agentId: string, operatorId: string) {
+    async revoke(companyId: string, agentId: string, operatorId: string, grantId?: string) {
       const runs = await db.transaction(async tx => {
-        const [b] = await tx.select().from(bindings).where(and(eq(bindings.companyId, companyId), eq(bindings.agentId, agentId), isNull(bindings.revokedAt))).for("update");
+        const [b] = await tx.select().from(bindings).where(and(eq(bindings.companyId, companyId), eq(bindings.agentId, agentId), isNull(bindings.revokedAt), grantId ? eq(bindings.grantId, grantId) : undefined)).for("update");
         if (!b) return [];
         const active = await tx.select({ runId: assignments.runId }).from(assignments).where(and(eq(assignments.bindingId, b.id), inArray(assignments.status, ["offered", "accepted"])));
         await tx.update(bindings).set({ status: "revoked", generation: b.generation + 1, revokedAt: new Date(), pairingCodeHash: null, challengeHash: null, updatedAt: new Date() }).where(eq(bindings.id, b.id));

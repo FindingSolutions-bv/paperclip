@@ -262,7 +262,7 @@ export function CodexLocalConfigFields({
       )}
       {runnerManaged && runnerProvider === "openai_dot" && <>
         <Field configSection="adapter" label="Dot connection" hint="A verified event round trip is required before assigning work.">
-          <DotRunnerConnection companyId={companyId} agentId={agentId} onBinding={id => updateRunnerSchemaValue("dotBindingId", id)} />
+          <DotRunnerConnection companyId={companyId} agentId={agentId} bindingId={String(runnerSchemaValue("dotBindingId", ""))} onBinding={id => updateRunnerSchemaValue("dotBindingId", id)} />
         </Field>
         <ToggleField label="Allow externally billed provider" hint="Dot does not report token usage or cost. Paperclip cannot enforce a provider spend ceiling; known company and agent budget limits still apply."
           checked={runnerSchemaValue("allowUnmeteredProvider", false) === true} onChange={value => updateRunnerSchemaValue("allowUnmeteredProvider", value)} />

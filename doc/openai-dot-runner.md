@@ -83,7 +83,15 @@ normal admission with `paperclip_dot_tasks` and `paperclip_dot_request_work`.
   not durably recorded; recovery does not execute that write again.
 - Keep the public origin stable. Subscriptions expire and must be renewed;
   reconnection drains current mailbox references rather than claiming event
-  replay. Disabling new Dot work does not grant old assignments new authority.
+replay. Disabling new Dot work does not grant old assignments new authority.
+
+Resubscribing verifies the Dot callback again and publishes a fresh mailbox
+reference for its existing outstanding assignment. It does not create another
+assignment or replay tool effects. OAuth revocation and refresh-token replay
+also revoke the matching binding, fence its assignments, and cancel waiting
+Paperclip runs. Revoking an old grant cannot revoke a replacement binding.
+Reopening an agent form restores the binding reference from the server so a
+previously completed pairing can still be saved in the agent configuration.
 
 ## Verification evidence
 
@@ -120,3 +128,22 @@ assertion (497 of 498 expected joined requests). Both failing cases passed in
 isolation. A subsequent stable database lane passed 126 tests but failed one
 embedded PostgreSQL startup; that test also passed in isolation. These results
 do not establish a completely green repository suite or release readiness.
+
+Gateway integration on 2026-10-06 merged master through `c365a16e3`, including
+the released browser/device consent and assistant invitations (#14846 and
+#14933). Initial integration verification passed full workspace typecheck and
+build, token gates, 125 gateway/consent/admission tests, five Dot integration
+tests, 20 consent/Connections UI tests, 318 Rust library tests, 123 Runner/Dot
+recovery tests and 13 PRP schema tests.
+
+The local root `pnpm test:run` was stopped after 2 hours 47 minutes when review
+fixes made it stale; it did not complete and is not a passing result. Fresh
+PR CI verifies the final branch. The review fixes cover reconnect wakeups,
+OAuth disconnect and refresh replay, binding-reference restoration, board-only
+OpenAPI coverage and prior protocol-version assumptions. Current results and
+remaining qualification are tracked in [PR #15402](https://github.com/paperclipai/paperclip/pull/15402).
+
+After those fixes, full workspace typecheck and token gates passed again.
+Focused verification passed 89 gateway, Dot, OpenAPI, connection-instruction
+and pairing UI tests, 40 protocol/runtime compatibility tests, and the real
+Runner protocol-upgrade/replacement test.

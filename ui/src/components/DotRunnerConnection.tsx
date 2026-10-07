@@ -1,4 +1,4 @@
-import { useState } from "react";
+import { useEffect, useState } from "react";
 import { useMutation, useQuery, useQueryClient } from "@tanstack/react-query";
 import { api } from "../api/client";
 import { Button } from "./ui/button";
@@ -11,8 +11,8 @@ interface Connection {
 }
 
 /** Pairing codes stay in component memory and expire; never save them in config. */
-export function DotRunnerConnection({ companyId, agentId, onBinding }: {
-  companyId?: string; agentId?: string; onBinding: (id: string) => void;
+export function DotRunnerConnection({ companyId, agentId, bindingId, onBinding }: {
+  companyId?: string; agentId?: string; bindingId?: string; onBinding: (id: string) => void;
 }) {
   const client = useQueryClient();
   const [pairing, setPairing] = useState<{ pairingCode: string; expiresAt: string } | null>(null);
@@ -26,7 +26,11 @@ export function DotRunnerConnection({ companyId, agentId, onBinding }: {
   const test = useMutation({ mutationFn: () => api.post(path + "/event-test", {}),
     onSuccess: () => { void client.invalidateQueries({ queryKey: key }); } });
   const revoke = useMutation({ mutationFn: () => api.delete(path),
-    onSuccess: () => { setPairing(null); onBinding(""); void client.invalidateQueries({ queryKey: key }); } });
+    onSuccess: async () => { await client.invalidateQueries({ queryKey: key }); setPairing(null); onBinding(""); } });
+  const existingBindingId = state.data?.binding?.id;
+  useEffect(() => {
+    if (existingBindingId && existingBindingId !== bindingId && !revoke.isPending) onBinding(existingBindingId);
+  }, [existingBindingId, bindingId, onBinding, revoke.isPending]);
   if (!agentId) return <p className="text-sm text-muted-foreground">Save the agent, then return here to pair your Dot.</p>;
   const error = state.error ?? pair.error ?? test.error ?? revoke.error;
   const b = state.data?.binding;

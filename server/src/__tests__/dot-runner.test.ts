@@ -73,12 +73,13 @@ describe("durable Dot Runner integration", () => {
     await expect(personal.authenticate(tokens.access_token)).rejects.toThrow();
     const secret = "whsec_" + randomBytes(32).toString("base64");
     const received: Array<Record<string, any>> = [];
+    let verifications = 0;
     const fetcher: EventFetch = async (_url, init) => {
       const headers = new Headers(init.headers); const bytes = String(init.body); const body = JSON.parse(bytes);
       const signature = "v1," + createHmac("sha256", Buffer.from(secret.slice(6), "base64"))
         .update(`${headers.get("webhook-id")}.${headers.get("webhook-timestamp")}.${bytes}`).digest("base64");
       expect(headers.get("webhook-signature")).toContain(signature);
-      if (body.type === "verification") return Response.json({ challenge: body.challenge });
+      if (body.type === "verification") { verifications++; return Response.json({ challenge: body.challenge }); }
       received.push(body); return new Response(null, { status: 204 });
     };
     const events = createPublicMcpEvents(db, oauth, async () => { throw new Error("personal API dispatch forbidden"); }, { enableDotRunner: true, fetch: fetcher });
@@ -92,7 +93,20 @@ describe("durable Dot Runner integration", () => {
     await broker.confirmChallenge(principal, String(challenge.references.challenge));
     const snapshot = await broker.snapshot(company!.id, agent!.id, pairing.bindingId);
     await db.update(agents).set({ adapterConfig: { provider: "openai_dot", dotBindingId: pairing.bindingId, allowUnmeteredProvider: true, lifecycleMode: "per_turn" } }).where(eq(agents.id, agent!.id));
-    return { company: company!, agent: agent!, userId, broker, principal, oauth, events, subscription, received, snapshot };
+    return { company: company!, agent: agent!, userId, broker, principal, oauth, events, subscription, received, snapshot, tokens, client, verifications: () => verifications };
+  }
+
+  async function offeredWork(f: Awaited<ReturnType<typeof fixture>>) {
+    const [run] = await db.insert(heartbeatRuns).values({ companyId: f.company.id, agentId: f.agent.id,
+      status: "queued", invocationSource: "assignment", triggerDetail: "system" }).returning();
+    const [assignment] = await db.insert(dotRunnerAssignments).values({ companyId: f.company.id, bindingId: f.snapshot.bindingId,
+      bindingGeneration: f.snapshot.bindingGeneration, runId: run!.id, agentId: f.agent.id, normalizedSessionId: randomUUID(),
+      turnId: randomUUID(), controllerGeneration: 1, catalogDigest: "test", status: "offered", projection: {},
+      acceptBy: new Date(Date.now() + 10 * 60_000), expiresAt: new Date(Date.now() + 2 * 60 * 60_000) }).returning();
+    await db.insert(dotMailboxItems).values({ companyId: f.company.id, bindingId: f.snapshot.bindingId,
+      bindingGeneration: f.snapshot.bindingGeneration, assignmentId: assignment!.id, kind: "assignment", sourceEventId: randomUUID(),
+      references: { assignmentId: assignment!.id, runId: run!.id, revision: 1 } });
+    return { run: run!, assignment: assignment! };
   }
 
   function gateway(oauth: ReturnType<typeof createPublicMcpOAuth>, actor: Request["actor"]) {
@@ -113,6 +127,54 @@ describe("durable Dot Runner integration", () => {
       if (statement.trim()) await db.execute(sql.raw(statement));
     }
   });
+
+  it("verifies reconnects and wakes the same outstanding assignment after exhausted delivery", async () => {
+    const f = await fixture();
+    const { assignment } = await offeredWork(f);
+    await f.events.tick();
+    const previousEventId = f.received.at(-1)?.eventId;
+    const before = await f.broker.mailbox(f.principal);
+    const oldItem = before.items.find(item => item.assignmentId === assignment.id)!;
+    await db.update(mcpEventDeliveries).set({ attempts: 6, finishedAt: new Date(), outcome: "delivery_exhausted" })
+      .where(eq(mcpEventDeliveries.mailboxItemId, oldItem.id));
+    const failedReconnect = createPublicMcpEvents(db, f.oauth, async () => { throw new Error("personal dispatch forbidden"); },
+      { enableDotRunner: true, fetch: async () => Response.json({ challenge: "wrong" }) });
+    await expect(failedReconnect.subscribe(f.principal, f.subscription)).rejects.toThrow();
+    expect((await f.broker.mailbox(f.principal, before.nextCursor)).items).toEqual([]);
+    const verificationCount = f.verifications();
+    await f.events.subscribe(f.principal, f.subscription);
+    expect(f.verifications()).toBe(verificationCount + 1);
+    const after = await f.broker.mailbox(f.principal, before.nextCursor);
+    expect(after.items).toHaveLength(1);
+    expect(after.items[0]).toMatchObject({ kind: "assignment", assignmentId: assignment.id });
+    expect(await db.select().from(dotRunnerAssignments).where(eq(dotRunnerAssignments.bindingId, f.snapshot.bindingId))).toHaveLength(1);
+    await f.events.tick();
+    expect(f.received.at(-1)?.data.mailboxItemId).toBe(after.items[0]!.id);
+    expect(f.received.at(-1)?.eventId).not.toBe(previousEventId);
+  }, 30000);
+
+  it.each(["OAuth revocation", "refresh-token replay"])("%s fences Dot and cancels waiting work", async reason => {
+    const f = await fixture();
+    const { run, assignment } = await offeredWork(f);
+    const { app, personal } = gateway(f.oauth, { type: "board", source: "session", userId: f.userId });
+    // A token submitted to the other resource's revocation endpoint has no effect.
+    await personal.revokeToken(f.tokens.access_token, f.client.client_id);
+    expect(await f.broker.bindingForAgent(f.company.id, f.agent.id)).not.toBeNull();
+    if (reason === "OAuth revocation") {
+      expect((await request(app).post("/mcp/runner/oauth/revoke").send({ token: f.tokens.access_token, client_id: f.client.client_id })).status).toBe(200);
+    } else {
+      const refresh = { grant_type: "refresh_token", refresh_token: f.tokens.refresh_token, client_id: f.client.client_id, resource: f.oauth.config.resource };
+      await f.oauth.token(refresh);
+      await expect(f.oauth.token(refresh)).rejects.toThrow();
+    }
+    expect(await f.broker.bindingForAgent(f.company.id, f.agent.id)).toBeNull();
+    expect((await db.select().from(dotRunnerAssignments).where(eq(dotRunnerAssignments.id, assignment.id)))[0]?.status).toBe("fenced");
+    expect((await db.select().from(heartbeatRuns).where(eq(heartbeatRuns.id, run.id)))[0]?.status).toBe("cancelled");
+    await expect(f.oauth.authenticate(f.tokens.access_token)).rejects.toThrow();
+    const next = await f.broker.createPairing({ companyId: f.company.id, agentId: f.agent.id, operatorId: f.userId });
+    await f.oauth.revokeToken(f.tokens.access_token, f.client.client_id);
+    expect((await f.broker.bindingForAgent(f.company.id, f.agent.id))?.id).toBe(next.bindingId);
+  }, 30000);
 
   it("uses merged client metadata and scoped browser consent with a distinct Dot issuer", async () => {
     const f = await fixture();

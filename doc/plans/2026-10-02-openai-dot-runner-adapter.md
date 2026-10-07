@@ -79,8 +79,11 @@ uses the current shared harness selector.
 
 Targeted gateway, Dot, onboarding and UI verification passed 125 tests before
 the added migration replay check. Full workspace typecheck/build and token
-gates passed. The full repository suite and Runner recovery checks are running;
-their final results are recorded in the adapter runbook.
+gates passed. Runner recovery verification passed 123 tests and the Rust
+workspace passed 318 library tests. The local full repository attempt was
+stopped after 2 hours 47 minutes when review fixes made it stale. Final branch
+CI and review are tracked in [PR #15402](https://github.com/paperclipai/paperclip/pull/15402);
+the adapter runbook records verification limits.
 
 The other gateway chat's subsequent assistant-tool expansion is still separate
 work and is not part of this integration. Real-account qualification of the

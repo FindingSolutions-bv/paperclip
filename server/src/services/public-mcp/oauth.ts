@@ -77,6 +77,12 @@ export function createPublicMcpOAuth(db: Db, config: PublicMcpConfig, options: {
   }
   const boardAuth = boardAuthService(db);
 
+  async function fenceAgentGrant(grant: typeof mcpOauthGrants.$inferSelect | null | undefined) {
+    if (grant?.purpose !== "agent" || !grant.agentId) return;
+    const { dotRunnerBroker } = await import("../dot-runner-broker.js");
+    await dotRunnerBroker(db).revoke(grant.companyId, grant.agentId, grant.userId, grant.id);
+  }
+
   async function actorForGrant(grant: typeof mcpOauthGrants.$inferSelect): Promise<Request["actor"]> {
     if (grant.revokedAt || grant.resource !== config.resource) throw invalidGrant();
     const access = await boardAuth.resolveBoardAccess(grant.userId);
@@ -419,6 +425,7 @@ export function createPublicMcpOAuth(db: Db, config: PublicMcpConfig, options: {
         if (typeof input.refresh_token !== "string") throw invalidGrant();
         const tokenHash = hashMcpSecret(input.refresh_token);
         // A replay revokes the whole grant. Commit that revocation before returning an error.
+        let revokedGrant: typeof mcpOauthGrants.$inferSelect | null = null;
         const result = await db.transaction(async (tx) => {
           const [token] = await tx.select().from(mcpOauthTokens).where(eq(mcpOauthTokens.tokenHash, tokenHash)).for("update");
           if (!token || token.kind !== "refresh") return null;
@@ -426,6 +433,7 @@ export function createPublicMcpOAuth(db: Db, config: PublicMcpConfig, options: {
           if (!grant || grant.clientId !== clientId || grant.resource !== config.resource || grant.revokedAt) return null;
           if (token.usedAt) {
             await tx.update(mcpOauthGrants).set({ revokedAt: new Date() }).where(eq(mcpOauthGrants.id, grant.id));
+            revokedGrant = grant;
             await tx.insert(activityLog).values({
               companyId: grant.companyId, actorType: "system", actorId: "mcp_oauth",
               action: "mcp.connection_revoked", entityType: "mcp_connection", entityId: grant.id,
@@ -441,6 +449,7 @@ export function createPublicMcpOAuth(db: Db, config: PublicMcpConfig, options: {
           await tx.update(mcpOauthTokens).set({ usedAt: new Date() }).where(eq(mcpOauthTokens.id, token.id));
           return issueTokens(tx as unknown as Db, grant);
         });
+        await fenceAgentGrant(revokedGrant);
         if (!result) throw invalidGrant();
         return result;
       }
@@ -466,10 +475,10 @@ export function createPublicMcpOAuth(db: Db, config: PublicMcpConfig, options: {
       catch { throw new McpOAuthError("invalid_token", "Paperclip access is no longer available.", 401); }
     },
     async revokeToken(token: string, clientId: string) {
-      await db.transaction(async (tx) => {
+      const grant = await db.transaction(async (tx) => {
         const [row] = await tx.select({ grant: mcpOauthGrants }).from(mcpOauthTokens)
           .innerJoin(mcpOauthGrants, eq(mcpOauthTokens.grantId, mcpOauthGrants.id))
-          .where(and(eq(mcpOauthTokens.tokenHash, hashMcpSecret(token)), eq(mcpOauthGrants.clientId, clientId)));
+          .where(and(eq(mcpOauthTokens.tokenHash, hashMcpSecret(token)), eq(mcpOauthGrants.clientId, clientId), eq(mcpOauthGrants.resource, config.resource)));
         if (!row) return;
         const [revoked] = await tx.update(mcpOauthGrants).set({ revokedAt: new Date() })
           .where(and(eq(mcpOauthGrants.id, row.grant.id), isNull(mcpOauthGrants.revokedAt))).returning();
@@ -478,7 +487,9 @@ export function createPublicMcpOAuth(db: Db, config: PublicMcpConfig, options: {
           action: "mcp.connection_revoked", entityType: "mcp_connection", entityId: revoked.id,
           details: { clientId, reason: "oauth_revocation" },
         });
+        return row.grant;
       });
+      await fenceAgentGrant(grant);
     },
     async listConnections(userId: string) {
       const rows = await db.select({ grant: mcpOauthGrants, clientName: mcpOauthClients.name, companyName: companies.name })
@@ -493,10 +504,7 @@ export function createPublicMcpOAuth(db: Db, config: PublicMcpConfig, options: {
     async revokeConnection(id: string, userId: string) {
       const [grant] = await db.update(mcpOauthGrants).set({ revokedAt: new Date() })
         .where(and(eq(mcpOauthGrants.id, id), eq(mcpOauthGrants.userId, userId), isNull(mcpOauthGrants.revokedAt))).returning();
-      if (grant?.purpose === "agent" && grant.agentId) {
-        const { dotRunnerBroker } = await import("../dot-runner-broker.js");
-        await dotRunnerBroker(db).revoke(grant.companyId, grant.agentId, userId);
-      }
+      await fenceAgentGrant(grant);
       if (grant) await logActivity(db, {
         companyId: grant.companyId, actorType: "user", actorId: userId, action: "mcp.connection_revoked",
         entityType: "mcp_connection", entityId: grant.id, details: { clientId: grant.clientId },

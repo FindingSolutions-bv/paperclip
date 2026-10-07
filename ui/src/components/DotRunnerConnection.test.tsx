@@ -1,0 +1,63 @@
+// @vitest-environment jsdom
+import { act, useState } from "react";
+import { createRoot, type Root } from "react-dom/client";
+import { QueryClient, QueryClientProvider } from "@tanstack/react-query";
+import { afterEach, beforeEach, expect, it, vi } from "vitest";
+import { DotRunnerConnection } from "./DotRunnerConnection";
+
+const api = vi.hoisted(() => ({ get: vi.fn(), post: vi.fn(), delete: vi.fn() }));
+vi.mock("../api/client", () => ({ api }));
+Object.assign(globalThis, { IS_REACT_ACT_ENVIRONMENT: true });
+const binding = { id: "binding", status: "connected", connected: true, subscriptionVerified: true, hasPendingChallenge: false };
+let root: Root;
+let container: HTMLDivElement;
+let client: QueryClient;
+const onBinding = vi.fn();
+function Form() {
+  const [bindingId, setBindingId] = useState("");
+  return <><DotRunnerConnection companyId="company" agentId="agent" bindingId={bindingId}
+    onBinding={id => { onBinding(id); setBindingId(id); }} /><output>{bindingId}</output></>;
+}
+async function flush() { await act(async () => { await new Promise(resolve => setTimeout(resolve, 20)); }); }
+async function render() {
+  await act(async () => root.render(<QueryClientProvider client={client}><Form /></QueryClientProvider>));
+  await flush();
+}
+beforeEach(() => {
+  client = new QueryClient({ defaultOptions: { queries: { retry: false, gcTime: 0 } } });
+  container = document.createElement("div"); document.body.append(container); root = createRoot(container);
+  api.get.mockResolvedValue({ enabled: true, resourceUrl: "https://paperclip.example/mcp/runner", binding: null });
+});
+afterEach(async () => { await act(async () => root.unmount()); client.clear(); container.remove(); vi.resetAllMocks(); });
+
+it("restores the server binding when the form is reopened after pairing without saving", async () => {
+  api.post.mockImplementation(async () => {
+    api.get.mockResolvedValue({ enabled: true, resourceUrl: "https://paperclip.example/mcp/runner", binding });
+    return { bindingId: binding.id, pairingCode: "one-use-code", expiresAt: "2026-10-07T01:00:00Z" };
+  });
+  await render();
+  await act(async () => Array.from(container.querySelectorAll("button")).find(button => button.textContent === "Pair Dot")!.click());
+  await flush();
+  expect(container.querySelector("output")?.textContent).toBe(binding.id);
+  // Closing the form discards its local adapter edits, while pairing is durable.
+  await act(async () => root.render(null));
+  client.clear(); onBinding.mockClear();
+  await render();
+  expect(container.querySelector("output")?.textContent).toBe(binding.id);
+  expect(onBinding).toHaveBeenCalledTimes(1);
+  expect(Array.from(container.querySelectorAll("button")).some(button => button.textContent === "Pair Dot")).toBe(false);
+});
+
+it("does not restore a stale binding while revocation refreshes the connection", async () => {
+  api.get.mockResolvedValue({ enabled: true, resourceUrl: "https://paperclip.example/mcp/runner", binding });
+  api.delete.mockImplementation(async () => {
+    api.get.mockResolvedValue({ enabled: true, resourceUrl: "https://paperclip.example/mcp/runner", binding: null });
+  });
+  await render();
+  expect(container.querySelector("output")?.textContent).toBe(binding.id);
+  await act(async () => Array.from(container.querySelectorAll("button")).find(button => button.textContent === "Revoke connection")!.click());
+  await flush();
+  expect(container.querySelector("output")?.textContent).toBe("");
+  expect(onBinding).toHaveBeenLastCalledWith("");
+  expect(Array.from(container.querySelectorAll("button")).some(button => button.textContent === "Pair Dot")).toBe(true);
+});

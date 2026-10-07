@@ -110,7 +110,9 @@ export function createPublicMcpEvents(db: Db, oauth: PublicMcpOAuth, api: ApiDis
       const previous = existing ? await decrypt(existing) : null;
       const [pending] = await tx.select().from(admissions).where(and(eq(admissions.subscriptionId, id), isNull(admissions.finishedAt)));
       if (pending) throw new McpEventError(-32602, "Subscription verification is in progress. Retry shortly.");
-      const verify = !existing || existing.verifiedAt.getTime() + rotationMs <= now() || previous?.secret !== secret;
+      // Dot refreshes reconnect a worker. Verify its callback before publishing
+      // a fresh mailbox reference for work whose earlier wakeup may be lost.
+      const verify = !!input.arguments.bindingId || !existing || existing.verifiedAt.getTime() + rotationMs <= now() || previous?.secret !== secret;
       if (!existing) {
         const [total] = await tx.select({ n: count() }).from(subscriptions);
         const [company] = await tx.select({ n: count() }).from(subscriptions).where(eq(subscriptions.companyId, principal.grant.companyId));
@@ -171,6 +173,21 @@ export function createPublicMcpEvents(db: Db, oauth: PublicMcpOAuth, api: ApiDis
           arguments: input.arguments, deliveryMaterial: material, expiresAt, stoppedAt: null,
           verifiedAt: verify ? new Date(now()) : existing!.verifiedAt, startsAt: existing?.startsAt ?? requestedAt, scannedAt: new Date(now()) };
         await tx.insert(subscriptions).values({ id, ...value }).onConflictDoUpdate({ target: subscriptions.id, set: value });
+        if (input.arguments.bindingId && lease) {
+          const [binding] = await tx.select().from(dotAgentBindings).where(and(
+            eq(dotAgentBindings.id, input.arguments.bindingId), eq(dotAgentBindings.companyId, principal.grant.companyId),
+            eq(dotAgentBindings.grantId, principal.grant.id), isNull(dotAgentBindings.revokedAt))).for("update");
+          if (!binding) throw new McpEventError(-32602, "The Dot binding was revoked. Reconnect the agent.");
+          const outstanding = await tx.select().from(dotRunnerAssignments).where(and(
+            eq(dotRunnerAssignments.bindingId, binding.id), eq(dotRunnerAssignments.bindingGeneration, binding.generation),
+            gt(dotRunnerAssignments.expiresAt, new Date(now())),
+            or(eq(dotRunnerAssignments.status, "accepted"), and(eq(dotRunnerAssignments.status, "offered"), gt(dotRunnerAssignments.acceptBy, new Date(now()))))));
+          for (const assignment of outstanding) await tx.insert(dotMailboxItems).values({
+            companyId: binding.companyId, bindingId: binding.id, bindingGeneration: binding.generation,
+            assignmentId: assignment.id, kind: "assignment", sourceEventId: "reconnect_" + lease.id,
+            references: { assignmentId: assignment.id, runId: assignment.runId, revision: assignment.revision },
+          }).onConflictDoNothing();
+        }
         await logActivity(tx as unknown as Db, { companyId: principal.grant.companyId, actorType: "user", actorId: principal.grant.userId,
           action: "mcp.event_subscribed", entityType: "mcp_subscription", entityId: id, details: { name: input.name, taskId: input.arguments.taskId, expiresAt: expiresAt.toISOString() } });
         return { id, refreshBefore: expiresAt.toISOString(), cursor: null, truncated: false };
